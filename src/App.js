@@ -1099,6 +1099,25 @@ function featuresOf(p) {
   FEATURE_KEYS.forEach(k => { out[k] = f[k] === true; });
   return out;
 }
+// Part 396 (section 1, ocsa-api Round 14, part 391, section 3): GET
+// /api/me/summary, one read at open for More and Home. features says
+// which More entries the person's lists would show, each true or false;
+// counts says what each Home card and badge would count, each a whole
+// number, or null where the API could not read that list. A count left
+// out reads as null, so the portal reads that one list itself. An answer
+// with neither is no summary at all (false), and the portal reads every
+// list at open as before.
+const SUMMARY_FEATURES = ["training", "property", "support", "library", "sds", "approveSupplies", "myFindings", "findingsToFollowUp", "workspace"];
+const SUMMARY_COUNTS = ["signaturesToSign", "conversationsToConfirm", "supplyOrdersWaiting", "findingsNeedingFollowUp", "clientRequests", "unfinishedForms", "trainingToDo", "firstDayTrainings", "documentsToSign", "trainingToSignOff", "unreadNotices", "chatUnread", "assigned"];
+function summaryOf(d) {
+  const plain = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+  if (!plain(d) || !plain(d.features) || !plain(d.counts)) return false;
+  const features = {};
+  SUMMARY_FEATURES.forEach(k => { features[k] = d.features[k] === true; });
+  const counts = {};
+  SUMMARY_COUNTS.forEach(k => { const n = d.counts[k]; counts[k] = typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.floor(n) : null; });
+  return { features: features, counts: counts };
+}
 
 // The four places between Home and More. The default is the bar as it was:
 // Schedule, Tasks, Chat, Help, which leaves the same six under More in the
@@ -2675,6 +2694,21 @@ export default function OCSAStaffPortal() {
   const [myFindingsAt, setMyFindingsAt] = useState(null);
   const [findingsDue, setFindingsDue] = useState(null);
   const [findingsDueAt, setFindingsDueAt] = useState(null);
+  // Part 396 (section 1): what GET /api/me/summary answered (summaryOf),
+  // with at, the read it came from; null while it is on its way, and
+  // false when there is none, which reads every list at open as before.
+  // heldAt says when each list behind a card or a badge was last read, on
+  // the same count of reads, so a card draws whichever of the two is
+  // newer: the summary's count, or the list itself once a screen has read
+  // it since.
+  const [summary, setSummary] = useState(null);
+  const readTick = useRef(0);
+  const [heldAt, setHeldAt] = useState({});
+  const heldNow = useCallback((k) => { readTick.current += 1; const at = readTick.current; setHeldAt(prev => Object.assign({}, prev, { [k]: at })); }, []);
+  // The summary's count for a card or badge, or null when the card draws
+  // from its list: no summary, a part the API could not read, or the list
+  // read since the summary.
+  const summaryCount = (key, list) => (summary && summary.counts[key] !== null && !((heldAt[list] || 0) > summary.at) ? summary.counts[key] : null);
   const [suppliesFailed, setSuppliesFailed] = useState(false);
   // True once a supplies list has come back, so a site with none can say
   // so without the line showing while the list is still on its way.
@@ -2955,7 +2989,7 @@ export default function OCSAStaffPortal() {
   // A refusal that means try again (auth.checkUnavailable) is said as a
   // notice, never in a failure's red, whichever screen it comes from.
   const showToast = useCallback((msg, type = "success") => { toastsRef.current.add(msg, type === "error" && msg === tr(CHECK_AGAIN_WORDS) ? "notice" : type); }, []);
-  const loadAssignedTasks = useCallback(async (tkn) => { try { const data = await api("/api/clock/tasks/assigned", { token: tkn || token }); setAssignedTasks(data); setAssignedFailed(false); } catch (err) { console.error(err); setAssignedFailed(true); } }, [token]);
+  const loadAssignedTasks = useCallback(async (tkn) => { try { const data = await api("/api/clock/tasks/assigned", { token: tkn || token }); setAssignedTasks(data); setAssignedFailed(false); heldNow("assigned"); } catch (err) { console.error(err); setAssignedFailed(true); } }, [token, heldNow]);
   const loadSessionSites = useCallback(async (tkn) => { try { const data = await api("/api/shift-sessions/sites", { token: tkn || token }); setSessionSites(data); setSessionSitesFailed(false); } catch (err) { console.error(err); setSessionSitesFailed(true); } }, [token]);
   // One read of clock status for every path that has to redraw from the
   // server's view: after a start, a refused start, an end that already
@@ -3004,7 +3038,9 @@ export default function OCSAStaffPortal() {
     if (me.preferences && applyPrefsRef.current) applyPrefsRef.current(me.preferences, tok, me.user);
     api("/api/users/profile/me", { token: tok }).then(p => { if (p?.user?.profilePhotoUrl) setUser(prev => ({ ...prev, profilePhotoUrl: p.user.profilePhotoUrl })); }).catch(() => {});
     try { const seq = nextStatusSeq(); const cs = await api(statusPath(), { token: tok }); if (takeStatus(cs, seq) && cs.clockedIn && cs.shift) setSelectedSite(cs.shift.siteId); } catch (e) { console.warn("Clock status:", e.message); setStatusFailed(true); }
-    loadAssignedTasks(tok);
+    // Part 396: the assigned tasks are read when Assigned opens; at open
+    // the summary counts them, and they are read here only where it
+    // cannot (the effect after the summary below).
     // Start Shift's sites are read by Home as it opens (part 392), once,
     // with the status already in.
     loadLookups(tok, wordsLanguage());
@@ -3638,7 +3674,7 @@ export default function OCSAStaffPortal() {
   // Findings to follow up is read only for someone the API answers it: an
   // admin or a supervisor, or a holder of manage_inspections.
   const loadFindingsDue = async (tok) => { const use = tok || token; if (!use || !(user && (user.role === "admin" || user.role === "supervisor")) && !(caps && caps.manage_inspections === true)) return; try { const d = await api("/api/inspections/findings", { token: use }); const v = findingsDueOf(d); if (v) setFindingsDue(v); } catch (err) { if (err && (err.status === 404 || err.status === 403)) setFindingsDue(null); } };
-  const loadClientRequests = async (tok) => { const use = tok || token; if (!use) return; try { const d = await api("/api/issues/requests", { token: use }); const rows = clientRequestsOf(d); if (rows) setClientRequests(rows); } catch (err) { if (err && err.status === 404) setClientRequests(null); } };
+  const loadClientRequests = async (tok) => { const use = tok || token; if (!use) return; try { const d = await api("/api/issues/requests", { token: use }); const rows = clientRequestsOf(d); if (rows) { setClientRequests(rows); heldNow("requests"); } } catch (err) { if (err && err.status === 404) setClientRequests(null); } };
   const loadIssues = async () => { try { const data = await api("/api/issues?limit=20", { token }); setIssues(data); setIssuesFailed(false); } catch (err) { console.error(err); setIssuesFailed(true); } };
   // A save that fails throws, so the screen keeps the note and the photo
   // for the next try (Round 1, PORT-02).
@@ -3660,7 +3696,7 @@ export default function OCSAStaffPortal() {
   // one with nothing in it, and a list already on the screen stays when a
   // later read of it fails. A reply that is not a list counts as a list
   // that did not load.
-  const loadChannels = async (tkn) => { try { const data = await api(chatPath("/api/chat/channels"), { token: tkn || token }); const list = Array.isArray(data) ? data : (data && Array.isArray(data.channels) ? data.channels : null); if (!list) throw new Error(ERR_GENERIC); setChannels(list.filter(ch => ch && typeof ch === "object" && ch.id)); setChannelsFailed(false); } catch (err) { console.error(err); setChannelsFailed(true); } };
+  const loadChannels = async (tkn) => { try { const data = await api(chatPath("/api/chat/channels"), { token: tkn || token }); const list = Array.isArray(data) ? data : (data && Array.isArray(data.channels) ? data.channels : null); if (!list) throw new Error(ERR_GENERIC); setChannels(list.filter(ch => ch && typeof ch === "object" && ch.id)); setChannelsFailed(false); heldNow("chat"); } catch (err) { console.error(err); setChannelsFailed(true); } };
   const retryChannels = () => { setChannelsFailed(false); loadChannels(); };
   // Opening a chat marks it read: its count on the list goes to zero here
   // at once, and the API is told once. An API that does not answer this
@@ -3789,6 +3825,17 @@ export default function OCSAStaffPortal() {
     const followsUp = isAdmin || (caps && caps.manage_inspections === true);
     const dueHere = (id) => !!findingsDue && findingsDue.findings.some(f => f.id === String(id));
     if ((place.findingDue && followsUp) || (place.issue && followsUp && dueHere(place.issue))) { setFindingsDueAt({ id: String(place.findingDue || place.issue), at: Date.now() }); setActiveTab("findingsdue"); setShowMore(false); loadFindingsDue(); return; }
+    // Part 396: Findings to follow up is no longer read at open, so with
+    // its list not held, whether the issue is a finding on it is asked of
+    // the finding itself (GET /api/inspections/findings/:id), and anything
+    // else opens the issue's sheet as before.
+    if (place.issue && followsUp && findingsDue === null) {
+      const id = String(place.issue);
+      api("/api/inspections/findings/" + encodeURIComponent(id), { token })
+        .then(d => { if (findingOf(d && d.finding)) { setFindingsDueAt({ id: id, at: Date.now() }); setActiveTab("findingsdue"); setShowMore(false); loadFindingsDue(); } else openIssue(id, null); })
+        .catch(() => openIssue(id, null));
+      return;
+    }
     if (place.findingDue) { openIssue(place.findingDue, null); return; }
     if (place.issue) { openIssue(place.issue, null); return; }
     // A supply request (Step 311): opened once it is known whether this
@@ -3848,6 +3895,38 @@ export default function OCSAStaffPortal() {
     api("/api/users/me/permissions", { token }).then((p) => { if (live) { setCaps(p && p.capabilities && typeof p.capabilities === "object" ? p.capabilities : false); setFeatures(featuresOf(p)); } }).catch(() => { if (live) { setCaps(false); setFeatures(false); } });
     return () => { live = false; };
   }, [token, screen]);
+  // Part 396 (section 1): GET /api/me/summary, read at open beside the
+  // permissions, again when Home or More opens after the first time, and
+  // when the app comes back to the front. A read that fails keeps the
+  // summary held; with none held the portal reads each list at open as
+  // before, and an API with no such route (404) is not asked again.
+  const summaryGone = useRef(false);
+  const summaryAsk = useRef(0);
+  const loadSummary = async (tok) => {
+    const use = tok || token;
+    if (!use || summaryGone.current) return;
+    const mine = ++summaryAsk.current;
+    let next = false;
+    try { next = summaryOf(await api("/api/me/summary", { token: use })); } catch (err) { if (err && err.status === 404) summaryGone.current = true; }
+    if (mine !== summaryAsk.current || liveToken.current !== use) return;
+    readTick.current += 1;
+    const at = readTick.current;
+    setSummary(prev => (next ? Object.assign(next, { at: at }) : prev || false));
+  };
+  useEffect(() => {
+    if (!token || screen !== "main") { summaryAsk.current += 1; summaryGone.current = false; setSummary(null); setHeldAt({}); return; }
+    loadSummary(token);
+  }, [token, screen]);
+  // Where the summary has no answer for a list, that one list is read at
+  // open as before: every list with no summary at all, and with one, each
+  // list whose count came back null. Once per answer that changes which.
+  const summaryNeeds = (key) => summary === false || (!!summary && summary.counts[key] === null);
+  const summaryHoles = summary === null ? "wait" : summary === false ? "none" : SUMMARY_COUNTS.filter(k => summary.counts[k] === null).join(",");
+  // The two as they are now, for a listener set up once.
+  const summaryRef = useRef(null);
+  summaryRef.current = summary;
+  const heldRef = useRef({});
+  heldRef.current = heldAt;
   // Building maintenance (part 369): the requests waiting on this phone
   // for signal, the form, and one request's sheet. A request waiting goes
   // once the person is in, when the signal comes back, when the app comes
@@ -3945,14 +4024,26 @@ export default function OCSAStaffPortal() {
       if (list.length > 0) refreshUnread();
     } catch (e) {}
   };
-  // The list of chats is read once the portal is up, so the Chat tab's
-  // count is on the bar before Chat is ever opened, and again each time
-  // the app comes back to the front, with the clock status below.
-  useEffect(() => { if (token && screen === "main") { loadChannels(); loadClientRequests(); loadMyFindings(); } else { setMyFindings(null); setFindingsDue(null); } }, [token, screen]);
+  // The list of chats used to be read once the portal was up, so the Chat
+  // tab's count was on the bar before Chat was ever opened. Part 396
+  // (section 1): the summary's chatUnread seeds it until Chat opens, its
+  // clientRequests and assigned draw Home's card and Assigned's count, and
+  // features.myFindings decides My findings, so none of those lists is
+  // read at open. Each is read here only where the summary has no answer
+  // for it (summaryNeeds), as before.
+  useEffect(() => {
+    if (!token || screen !== "main") { setMyFindings(null); setFindingsDue(null); return; }
+    if (summary === null) return;
+    if (summaryNeeds("chatUnread")) loadChannels();
+    if (summaryNeeds("clientRequests") || summaryNeeds("assigned")) loadClientRequests();
+    if (summaryNeeds("assigned")) loadAssignedTasks(token);
+    if (summaryNeeds("conversationsToConfirm")) loadMyFindings();
+  }, [token, screen, summaryHoles]);
   // Findings to follow up once the capabilities are known. Part 392: only
   // then, so a supervisor, whom the role already lets read it, reads it
   // once at open, not once by the role and again by the capabilities.
-  useEffect(() => { if (token && screen === "main" && caps !== null) loadFindingsDue(); }, [token, screen, caps, user && user.role]);
+  // Part 396: only where the summary cannot say (its findings part).
+  useEffect(() => { if (token && screen === "main" && caps !== null && summary !== null && summaryNeeds("conversationsToConfirm")) loadFindingsDue(); }, [token, screen, caps, user && user.role, summaryHoles]);
   // The request a notice opened stays marked while Report is open, and the
   // finding while its list is open.
   useEffect(() => { if (activeTab !== "issues" && requestOpen) setRequestOpen(null); if (activeTab !== "myfindings" && myFindingsAt) setMyFindingsAt(null); if (activeTab !== "findingsdue" && findingsDueAt) setFindingsDueAt(null); }, [activeTab]);
@@ -3961,7 +4052,19 @@ export default function OCSAStaffPortal() {
   // view. One listener, no interval.
   useEffect(() => {
     if (!token || screen !== "main") return;
-    const h = () => { if (document.visibilityState !== "visible") return; renewSession(token); refreshClockStatus().catch(e => console.warn("Clock status:", e.message)); loadChannels(); loadClientRequests(); };
+    // Part 396: the summary is read again in place of the lists, and a
+    // list is read again only once a screen has read it, or where the
+    // summary has no answer for it.
+    const h = () => {
+      if (document.visibilityState !== "visible") return;
+      renewSession(token);
+      refreshClockStatus().catch(e => console.warn("Clock status:", e.message));
+      const sum = summaryRef.current;
+      const lacks = (k) => !sum || sum.counts[k] === null;
+      if (sum) loadSummary();
+      if (lacks("chatUnread") || heldRef.current.chat) loadChannels();
+      if (lacks("clientRequests") || heldRef.current.requests) loadClientRequests();
+    };
     document.addEventListener("visibilitychange", h);
     return () => document.removeEventListener("visibilitychange", h);
   }, [token, screen, refreshClockStatus, renewSession]);
@@ -3975,8 +4078,13 @@ export default function OCSAStaffPortal() {
   const [showMore, setShowMore] = useState(false);
   // My findings and Findings to follow up are read again each time More
   // opens, where they are offered, so a finding an inspection opened
-  // since shows there (part 388).
-  useEffect(() => { if (showMore && token && screen === "main") { loadMyFindings(); loadFindingsDue(); } }, [showMore]);
+  // since shows there (part 388). Part 396: with a summary, the summary
+  // is read again instead, and its features say.
+  useEffect(() => {
+    if (!showMore || !token || screen !== "main") return;
+    if (summary) loadSummary();
+    if (summary === false || (summary && summary.counts.conversationsToConfirm === null)) { loadMyFindings(); loadFindingsDue(); }
+  }, [showMore]);
 
   // The person's own four places between Home and More. Read on the first
   // render after they are known, so the bar never shows the default and
@@ -3984,7 +4092,10 @@ export default function OCSAStaffPortal() {
   // The safety data sheets list, read once the portal is up. More offers
   // them once it holds sheets, from the API or kept on this phone.
   const [sdsList, setSdsList] = useState(null);
-  useEffect(() => { if (token && screen === "main") readSdsList().then(setSdsList); }, [token, screen]);
+  // Part 396: with a summary, features.sds offers them and the screen
+  // reads its own list as it opens; the list is read at open only with no
+  // summary, as before.
+  useEffect(() => { if (!token || screen !== "main") { setSdsList(null); return; } if (summary === false) readSdsList().then(setSdsList); }, [token, screen, summary === false]);
   const [sdsCode, setSdsCode] = useState(null);
   // The team workspace's projects, asked for once the portal is up, by an
   // office person alone. Until the API answers with a list, and for
@@ -4023,13 +4134,27 @@ export default function OCSAStaffPortal() {
   const [signList, setSignList] = useState(null);
   const [signAsked, setSignAsked] = useState(0);
   useEffect(() => { if (activeTab !== "clock") setSignAt(null); }, [activeTab]);
+  // Part 396: Home's card counts them from the summary, and the list is
+  // read when the card is tapped; it is read at open only where the
+  // summary cannot count them, and again after each signature, note or
+  // decline, as before.
   useEffect(() => {
-    if (!token || screen !== "main") { setSignList(null); setSignAt(null); return undefined; }
+    if (!token || screen !== "main") { setSignList(null); setSignAt(null); setSignAsked(0); return undefined; }
+    if (signAsked === 0 && (summary === null || !summaryNeeds("signaturesToSign"))) return undefined;
     let live = true;
-    readSignRequests(token).then(l => { if (live && l) setSignList(l); });
+    readSignRequests(token).then(l => { if (live && l) { setSignList(l); heldNow("sign"); } });
     return () => { live = false; };
-  }, [token, screen, signAsked]);
+  }, [token, screen, signAsked, signAsked === 0 ? summaryHoles : ""]);
   const openSign = (at) => { setSignAt(at); setActiveTab("clock"); setShowMore(false); };
+  // Home's card tapped while it counts from the summary: the list is read
+  // first, then the one request opens, or the list of them.
+  const openSignCard = async () => {
+    const l = await readSignRequests(token);
+    if (!l) { showToast(tr("This list did not load."), "error"); return; }
+    setSignList(l); heldNow("sign");
+    const todo = signToDo(l);
+    openSign(todo.length === 1 ? { id: todo[0].id } : { list: true });
+  };
   // My company property (Step 271): what GET /api/hr/property/mine
   // answers, null until it answers a list. Part 392 (section 1): More
   // offers it to everyone, since the route answers anyone signed in, and
@@ -4100,22 +4225,33 @@ export default function OCSAStaffPortal() {
     const rows = await readSupplyOrders(use);
     if (mine !== supplySeq.current || liveToken.current !== use) return;
     if (rows === undefined) { setSupplyHolder(was => (was === null ? false : was)); return; }
-    let holder = !!rows && rows.some(r => r.canDecide);
-    if (rows && !holder && caps && typeof caps === "object") holder = caps.approve_supplies === true;
+    // Part 396: the permissions, once they answered, say who holds it.
+    let holder = caps && typeof caps === "object" ? caps.approve_supplies === true : !!rows && rows.some(r => r.canDecide);
+    if (caps && typeof caps === "object") { /* decided by the permissions */ }
     else if (rows && !holder) { try { const p = await api("/api/users/me/permissions", { token: use }); holder = !!(p && p.capabilities && p.capabilities.approve_supplies === true); } catch (e) {} }
     if (mine !== supplySeq.current || liveToken.current !== use) return;
     setSupplyHolder(holder); setSupplyOrders(holder ? rows : null);
+    if (holder) heldNow("supply");
   };
   // A request as an action answered it, in place of the row it was.
-  const takeSupplyOrder = (row) => setSupplyOrders(prev => (Array.isArray(prev) ? prev.map(r => (r.id === row.id ? row : r)) : prev));
+  const takeSupplyOrder = (row) => { setSupplyOrders(prev => (Array.isArray(prev) ? prev.map(r => (r.id === row.id ? row : r)) : prev)); heldNow("supply"); };
+  // Part 396 (section 1.4): Approve supplies is offered to every holder of
+  // approve_supplies by the permissions alone, and its list is read as the
+  // screen opens, which says "Nothing is waiting for you." when it holds
+  // none. Home's card counts from the summary's supplyOrdersWaiting, so
+  // the list is read at open only where the summary cannot count it. With
+  // no answer to the permissions the list decides, as before.
   useEffect(() => {
     if (!token || screen !== "main") { setSupplyOrders(null); setSupplyHolder(null); setSupplyAt(null); setSupplyAsk(null); return; }
     if (caps === null) return;
     if (caps && caps.approve_supplies !== true) { supplySeq.current += 1; setSupplyHolder(false); setSupplyOrders(null); return; }
+    if (caps) setSupplyHolder(true);
+    if (caps && (summary === null || !summaryNeeds("supplyOrdersWaiting"))) return;
     loadSupplyOrders(token);
-  }, [token, screen, caps]);
-  // Home reads it again each time it opens.
-  useEffect(() => { if (token && screen === "main" && activeTab === "clock" && supplyHolder) loadSupplyOrders(); }, [activeTab]);
+  }, [token, screen, caps, summaryHoles]);
+  // Home reads it again each time it opens, where the summary cannot
+  // count it; with a summary, Home reads the summary again instead.
+  useEffect(() => { if (token && screen === "main" && activeTab === "clock" && supplyHolder && summaryNeeds("supplyOrdersWaiting")) loadSupplyOrders(); }, [activeTab]);
   // A notice's request opens once that is known: on Approve supplies for
   // a holder, and on Supplies, as before, for anyone else.
   useEffect(() => {
@@ -4130,37 +4266,78 @@ export default function OCSAStaffPortal() {
   const openLibraryDoc = (doc, at) => { setLibraryAt({ doc: doc, at: at || null, key: Date.now() }); setActiveTab("library"); setShowMore(false); };
   useEffect(() => { if (!token || screen !== "main") { setLibrary(null); setLibraryAt(null); } }, [token, screen]);
   // The screen reads its own list each time it opens; here it is read at
-  // open only with no features, to decide whether More offers it.
-  useOpenRead(screen === "main" && features === false, token, readLibrary, setLibrary);
+  // open only with neither a summary nor features, to decide whether More
+  // offers it.
+  useOpenRead(screen === "main" && summary === false && features === false, token, readLibrary, setLibrary);
+  // My training (Step 258). Part 396 (section 1): My training reads its
+  // own list as it opens, and Home's card counts from the summary, so the
+  // list is read here only for Your first trainings, which draws its rows,
+  // when the summary counts a first-day training or a document to sign
+  // that the list held is older than; or where the summary has no count
+  // for it; or with no summary at all, as before.
+  const takeTraining = (d) => { setTraining(d); heldNow("training"); };
+  const trainingNeeds = summary === null ? false : summary === false || summaryNeeds("trainingToDo") || summaryNeeds("firstDayTrainings") || summaryNeeds("documentsToSign") || ((summary.counts.firstDayTrainings > 0 || summary.counts.documentsToSign > 0) && !((heldAt.training || 0) > summary.at));
+  const trainingKey = trainingNeeds ? "read:" + (summary ? summary.at : "none") : "skip";
   useEffect(() => {
     if (!token || screen !== "main") { setTraining(null); setTrainingAt(null); return undefined; }
+    if (!trainingNeeds) return undefined;
     let live = true;
-    readTraining(token).then(d => { if (live && d) setTraining(d); });
+    readTraining(token).then(d => { if (live && d) takeTraining(d); });
     return () => { live = false; };
-  }, [token, screen]);
+  }, [token, screen, trainingKey]);
   // The lessons waiting for a sign-off (Step 261), for a supervisor or an
   // admin, read each time Home opens; Home's card counts them. null until
   // the route answers a list, so an API without it shows nothing.
+  // Part 396: only where the summary cannot count them
+  // (trainingToSignOff); the field kit's Sign off training reads its own.
   const [awaiting, setAwaiting] = useState(null);
   useEffect(() => {
     if (!token || screen !== "main" || !isAdmin) { setAwaiting(null); return undefined; }
-    if (activeTab !== "clock") return undefined;
+    if (activeTab !== "clock" || summary === null || !summaryNeeds("trainingToSignOff")) return undefined;
     let live = true;
-    readTrainingAwaiting(token, null, user && user.id).then(list => { if (live) setAwaiting(list); });
+    readTrainingAwaiting(token, null, user && user.id).then(list => { if (live) { setAwaiting(list); heldNow("awaiting"); } });
     return () => { live = false; };
-  }, [token, screen, isAdmin, activeTab]);
+  }, [token, screen, isAdmin, activeTab, summaryHoles]);
   // Part 392 (section 1): Workspace is offered by features.workspace (the
   // API's own isOffice) and its projects read each time it opens. With no
   // features, an office person's projects are read at open and Workspace
-  // offered once they answer, as before.
-  const wsAsks = !!token && screen === "main" && (features ? features.workspace === true : features === false && isOfficePerson(user));
+  // offered once they answer, as before. Part 396: the summary's
+  // features.workspace first, by the same rule.
+  const wsAsks = !!token && screen === "main" && (summary ? summary.features.workspace : features ? features.workspace === true : features === false && summary === false && isOfficePerson(user));
   useEffect(() => { if (!token || screen !== "main") { setWsProjects(null); setWsAt(null); } }, [token, screen]);
-  useOpenRead(wsAsks && features === false, token, readWorkspaceProjects, setWsProjects);
+  useOpenRead(wsAsks && summary === false && features === false, token, readWorkspaceProjects, setWsProjects);
+  // Home opened again after the person was elsewhere reads the summary
+  // again, so its cards and the bar's counts are as the API holds them
+  // (part 396), in place of the lists Home read each time it opened.
+  const leftHome = useRef(false);
+  useEffect(() => {
+    if (activeTab !== "clock") { leftHome.current = true; return; }
+    if (leftHome.current && summary && token && screen === "main") loadSummary();
+  }, [activeTab]);
   // More's entries (part 392): My company property and App support for
   // everyone, the Library and Workspace by features, and the entries a
   // list decides (Safety data sheets, Approve supplies, My findings,
   // Findings to follow up) by that list's one read.
-  const destCtx = { isAdmin, sds: !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0, workspace: wsAsks && (!!features || Array.isArray(wsProjects)), training: !!training, property: true, support: true, library: features ? features.library === true : Array.isArray(library), supplyOrders: supplyHolder === true && Array.isArray(supplyOrders), myFindings: !!myFindings && myFindings.findings.length > 0, findingsDue: !!findingsDue };
+  // Part 396 (section 1): with a summary, its features decide My training,
+  // Safety data sheets, the Library, Workspace, My findings and Findings to
+  // follow up, with no list read behind them; Approve supplies shows to
+  // every holder of approve_supplies. A list the summary could not read
+  // (its count null) decides as before.
+  const findingsKnown = !!summary && summary.counts.conversationsToConfirm !== null;
+  // Your first trainings draws its rows from the list, and nothing while
+  // a newer summary counts none (part 396).
+  const firstTrainingsFrom = summary && summary.counts.firstDayTrainings === 0 && summary.counts.documentsToSign === 0 && !((heldAt.training || 0) > summary.at) ? null : training;
+  const destCtx = {
+    isAdmin,
+    sds: summary ? summary.features.sds || (!!sdsList && sdsList.state === "ok" && sdsList.sheets.length > 0) : !!sdsList && sdsList.state !== "none" && sdsList.sheets.length > 0,
+    workspace: wsAsks && (!!summary || !!features || Array.isArray(wsProjects)),
+    training: (!!summary && summary.counts.trainingToDo !== null && summary.features.training) || !!training,
+    property: true, support: true,
+    library: summary ? summary.features.library : features ? features.library === true : Array.isArray(library),
+    supplyOrders: supplyHolder === true && ((!!caps && typeof caps === "object") || Array.isArray(supplyOrders)),
+    myFindings: findingsKnown ? summary.features.myFindings : !!myFindings && myFindings.findings.length > 0,
+    findingsDue: findingsKnown ? summary.features.findingsToFollowUp : !!findingsDue,
+  };
   const shortcutChoices = shortcutChoicesFor(destCtx);
   const allowedShortcutIds = shortcutChoices.map(d => d.id);
   const uid = user && user.id ? user.id : null;
@@ -4394,10 +4571,22 @@ export default function OCSAStaffPortal() {
   }, [token]);
 
   // A tick while the tab is hidden is skipped, not queued.
+  // Part 396 (section 1): the first count at open is the summary's
+  // unreadNotices; the bell reads its own at open only where the summary
+  // has none. Its read every 60 seconds stays as it was.
+  const bellSeeded = useRef(false);
+  useEffect(() => {
+    if (!token || screen !== "main") { bellSeeded.current = false; return; }
+    if (summary === null || bellSeeded.current) return;
+    bellSeeded.current = true;
+    const n = summary ? summary.counts.unreadNotices : null;
+    if (n === null) { if (!document.hidden) refreshUnread(); return; }
+    unreadKnown.current = true; unreadRef.current = n;
+    setUnread(n);
+  }, [token, screen, summary, refreshUnread]);
   useEffect(() => {
     if (!token || screen !== "main") return;
     const tick = () => { if (!document.hidden) refreshUnread(); };
-    tick();
     const iv = setInterval(tick, 60000);
     // Read again the moment the app comes back to the front (PORT-29).
     document.addEventListener("visibilitychange", tick);
@@ -4418,8 +4607,12 @@ export default function OCSAStaffPortal() {
 
   // The Chat tab carries the sum of the unread counts across the person's
   // chats, wherever the tab sits.
-  const chatUnread = Array.isArray(channels) ? channels.reduce((n, ch) => n + (Number(ch.unreadCount) > 0 ? Number(ch.unreadCount) : 0), 0) : 0;
-  const badgeCounts = { assigned: assignedCount, chat: chatUnread };
+  // Part 396 (section 1): the summary's chatUnread and assigned seed the
+  // two until Chat or Assigned has read its own list since.
+  const chatSeed = summaryCount("chatUnread", "chat");
+  const assignedSeed = summaryCount("assigned", "assigned");
+  const chatUnread = chatSeed !== null ? chatSeed : Array.isArray(channels) ? channels.reduce((n, ch) => n + (Number(ch.unreadCount) > 0 ? Number(ch.unreadCount) : 0), 0) : 0;
+  const badgeCounts = { assigned: assignedSeed !== null ? assignedSeed : assignedCount, chat: chatUnread };
   const tabOf = (d) => ({ id: d.id, label: tr(d.label(destCtx)), icon: d.icon, badge: d.badge ? (badgeCounts[d.badge] || 0) : 0 });
   // Home first, then the four, then More. Whatever is not on the bar is
   // under More, so nothing can be hidden from a person entirely.
@@ -4541,7 +4734,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "support" && destCtx.support && <SupportView userId={user && user.id} token={token} tickets={support} read={supportRead} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} focus={supportAt} t={t} />}
               {activeTab === "supplyorders" && (destCtx.supplyOrders || !!supplyAt) && <SupplyOrdersView token={token} user={user} holder={supplyHolder === true} rows={supplyOrders} onReload={() => loadSupplyOrders()} onRow={takeSupplyOrder} at={supplyAt} onAt={setSupplyAt} getOpts={getOpts} showToast={showToast} t={t} />}
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
-              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={training} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} onOpen={openSign} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSitesForPerson(user, sessionSites)} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} statusFailed={statusFailed} onRetryStatus={() => { refreshClockStatus().catch(() => setStatusFailed(true)); }} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
+              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={firstTrainingsFrom} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} count={summaryCount("signaturesToSign", "sign")} onOpen={openSign} onOpenCard={openSignCard} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} count={summary === null ? "wait" : summary === false ? undefined : summary.counts.unfinishedForms} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} count={summaryCount("clientRequests", "requests")} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} count={supplyHolder ? summaryCount("supplyOrdersWaiting", "supply") : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} todoCount={summaryCount("trainingToDo", "training")} waitingCount={isAdmin ? summaryCount("trainingToSignOff", "awaiting") : null} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSitesForPerson(user, sessionSites)} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} statusFailed={statusFailed} onRetryStatus={() => { refreshClockStatus().catch(() => setStatusFailed(true)); }} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} at={scheduleAt} />}
               {activeTab === "tasks" && <TasksView token={token} rereadList={() => (checklistAsk ? api(checklistAsk, { token }) : Promise.reject(Object.assign(new Error(ERR_GENERIC), { status: 404 })))} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} shiftChoices={siteShifts} shiftNames={shiftNames} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} alsoHere={alsoHere} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView userId={user && user.id} assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
@@ -4556,7 +4749,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "workspace" && destCtx.workspace && <WorkspaceView token={token} user={user} projects={wsProjects} onProjects={setWsProjects} at={wsAt} onAt={setWsAt} channels={channels} onOpenChat={(id) => { chooseChat(id); setActiveTab("chat"); setShowMore(false); }} showToast={showToast} t={t} />}
               {activeTab === "myfindings" && (destCtx.myFindings || !!myFindingsAt) && <MyFindingsView token={token} data={myFindings} onData={setMyFindings} onReload={() => loadMyFindings()} at={myFindingsAt} onOpenTraining={(topic) => openPlace({ tab: "training", topic: topic })} showToast={showToast} t={t} />}
               {activeTab === "findingsdue" && (destCtx.findingsDue || !!findingsDueAt) && <FollowUpsView token={token} data={findingsDue} onData={setFindingsDue} onReload={() => loadFindingsDue()} at={findingsDueAt} showToast={showToast} t={t} />}
-              {activeTab === "training" && <TrainingView token={token} data={training} onData={setTraining} at={trainingAt} onAt={setTrainingAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} t={t} />}
+              {activeTab === "training" && <TrainingView token={token} data={training} onData={takeTraining} at={trainingAt} onAt={setTrainingAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} t={t} />}
               {activeTab === "fieldkit" && destCtx.isAdmin && <FieldKitView token={token} user={user} caps={caps} maint={maintKit} at={fieldKitAt} onAt={setFieldKitAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} assignedSites={sites} onOpenEquipment={(code) => { setEquipmentShown(code); setEquipmentBack("fieldkit"); setActiveTab("equipment"); }} showToast={showToast} t={t} />}
               {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} shiftOpen={!!(clockStatus && clockStatus.clockedIn)} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
               {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} onToken={adoptToken} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} onPhoneAlerts={() => setActiveTab("phonealerts")} />}
@@ -9333,17 +9526,24 @@ function RequestTarget({ label, at, state, t }) {
 // answers whoever may read reports everyone's drafts, so only the
 // person's own are kept. Nothing shows while there are none, or when the
 // read fails.
-function UnfinishedFormsCard({ token, user, language, onOpen, t }) {
+// Part 396 (section 1): count is the summary's unfinishedForms. The card
+// draws its rows, so it reads them only when the count says there is one
+// to draw, or when the count is null (that part of the summary failed);
+// "wait" while the summary is on its way, and with no summary at all
+// (undefined) it reads them as before.
+function UnfinishedFormsCard({ token, user, language, count, onOpen, t }) {
   const [rows, setRows] = useState(null);
   const uid = user && user.id !== undefined ? String(user.id) : "";
+  const reads = count === undefined || count === null || (typeof count === "number" && count > 0);
   useEffect(() => {
     if (!token || !uid) return undefined;
+    if (!reads) { setRows(null); return undefined; }
     let alive = true;
     api("/api/agent/drafts?locale=" + languageToSend(language), { token })
       .then(d => { if (alive) setRows(agentList(d, ["drafts", "items", "rows"]).filter(r => agentDraftId(r) !== null && (r.userId === undefined || r.userId === null || String(r.userId) === uid) && (!r.status || r.status === "draft"))); })
       .catch(() => { if (alive) setRows(null); });
     return () => { alive = false; };
-  }, [token, uid, language]);
+  }, [token, uid, language, reads ? count : "none"]);
   if (!rows || rows.length === 0) return null;
   return (
     <div style={{ padding: "16px 16px 0" }}>
@@ -9371,9 +9571,12 @@ function UnfinishedFormsCard({ token, user, language, onOpen, t }) {
 // phone right now, which open My training; and, for a supervisor or an
 // admin, the lessons waiting for a sign-off, which open the field kit on
 // Sign off training. Each shows only when it has something to count.
-function TrainingCard({ training, awaiting, onOpen, onOpenSignoff, t }) {
-  const todo = trainingToDo(training).length;
-  const waiting = Array.isArray(awaiting) ? awaiting.length : 0;
+// Part 396 (section 1): todoCount and waitingCount are the summary's
+// trainingToDo and trainingToSignOff, drawn in place of the lists while
+// they are the newer; null draws from the lists, as before.
+function TrainingCard({ training, awaiting, todoCount, waitingCount, onOpen, onOpenSignoff, t }) {
+  const todo = typeof todoCount === "number" ? todoCount : trainingToDo(training).length;
+  const waiting = typeof waitingCount === "number" ? waitingCount : Array.isArray(awaiting) ? awaiting.length : 0;
   if (todo === 0 && waiting === 0) return null;
   const card = (tag, text, onTap) => (
     <button key={tag} type="button" data-training-card={tag} onClick={onTap} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, minHeight: TAP, padding: "14px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.goldBorder, boxShadow: t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}>
@@ -9390,9 +9593,11 @@ function TrainingCard({ training, awaiting, onOpen, onOpenSignoff, t }) {
   );
 }
 
-function ClientRequestsCard({ rows, user, onOpen, t }) {
+// Part 396 (section 1): count is the summary's clientRequests, drawn in
+// place of the list while it is the newer; tapped, Report reads the list.
+function ClientRequestsCard({ rows, count, user, onOpen, t }) {
   const mine = requestsForMe(rows, user);
-  const n = mine.waiting.length + mine.mine.length;
+  const n = typeof count === "number" ? count : mine.waiting.length + mine.mine.length;
   if (n === 0) return null;
   return (
     <div style={{ padding: "16px 16px 0" }}>
@@ -9954,11 +10159,13 @@ function supplyOrderOf(x) {
   });
 }
 // Every row, or null when no row carries canDecide, which is an API from
-// before Step 308; undefined when nothing came back.
+// before Step 308; undefined when nothing came back. Part 396: an empty
+// list is a list with nothing in it, since no row is there to say how old
+// the API is, so a holder's Approve supplies says nothing is waiting.
 function supplyOrdersOf(d) {
   const rows = wsRows(d, "requests");
   if (!rows) return null;
-  if (!rows.some(r => r && typeof r === "object" && Object.prototype.hasOwnProperty.call(r, "canDecide"))) return null;
+  if (rows.length > 0 && !rows.some(r => r && typeof r === "object" && Object.prototype.hasOwnProperty.call(r, "canDecide"))) return null;
   return rows.map(supplyOrderOf).filter(Boolean);
 }
 async function readSupplyOrders(token) {
@@ -9974,8 +10181,11 @@ const supplyOrdersWaiting = (rows) => (Array.isArray(rows) ? rows.filter(r => r.
 // notice about a new one links to (Step 308's contract, 1.7).
 const SUPPLY_ORDER_PATH = "/supplies/";
 
-function SupplyOrdersCard({ rows, onOpen, t }) {
-  const n = supplyOrdersWaiting(rows).length;
+// Part 396 (section 1): count is the summary's supplyOrdersWaiting, drawn
+// in place of the list while it is the newer; tapped, Approve supplies
+// reads the list.
+function SupplyOrdersCard({ rows, count, onOpen, t }) {
+  const n = typeof count === "number" ? count : supplyOrdersWaiting(rows).length;
   if (n === 0) return null;
   return (
     <div style={{ padding: "16px 16px 0" }}>
@@ -10036,7 +10246,8 @@ function SupplyOrdersView({ token, user, holder, rows, onReload, onRow, at, onAt
     <div data-supply-orders={shown.length} style={{ padding: "14px 16px 100px" }}>
       <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 4 }}>{tr("Approve supplies")}</div>
       {!list && <div style={{ ...wsQuiet(t), marginTop: 8 }}>{tr("Loading...")}</div>}
-      {list && SUPPLY_ORDER_GROUPS.every(g => !shown.some(r => g.stages.indexOf(supplyStage(r)) !== -1)) && <div data-supply-orders-none="1" style={{ ...wsQuiet(t), marginTop: 8 }}>{tr("No supply requests are waiting for you.")}</div>}
+      {list && list.length === 0 && <div data-supply-orders-none="empty" style={{ ...wsQuiet(t), marginTop: 8 }}>{tr("Nothing is waiting for you.")}</div>}
+      {list && list.length > 0 && SUPPLY_ORDER_GROUPS.every(g => !shown.some(r => g.stages.indexOf(supplyStage(r)) !== -1)) && <div data-supply-orders-none="1" style={{ ...wsQuiet(t), marginTop: 8 }}>{tr("No supply requests are waiting for you.")}</div>}
       {SUPPLY_ORDER_GROUPS.map(g => {
         const inGroup = shown.filter(r => g.stages.indexOf(supplyStage(r)) !== -1);
         if (inGroup.length === 0) return null;
@@ -12753,14 +12964,25 @@ const signChip = (r) => (r.state === "disputed" ? { word: "Not right", color: OR
 // Home's card (Step 271): how many requests wait for the person's
 // signature, opening the one when there is one and the list when there
 // are several. Shown only while GET /api/signatures/mine answers one.
-function SignCard({ requests, onOpen, t }) {
+// Part 396 (section 1): count is the summary's signaturesToSign, drawn in
+// place of the list while it is the newer; tapped then, the list is read
+// first (onOpenCard) and the one request or the list opens from it.
+function SignCard({ requests, count, onOpen, onOpenCard, t }) {
   const todo = signToDo(requests);
-  if (todo.length === 0) return null;
+  const n = typeof count === "number" ? count : todo.length;
+  const [busy, setBusy] = useState(false);
+  if (n === 0) return null;
+  const tap = async () => {
+    if (typeof count !== "number") { onOpen(todo.length === 1 ? { id: todo[0].id } : { list: true }); return; }
+    if (busy) return;
+    setBusy(true);
+    try { await onOpenCard(); } finally { setBusy(false); }
+  };
   return (
     <div style={{ padding: "16px 16px 0", marginBottom: -8 }}>
-      <button type="button" data-sign-card={todo.length} onClick={() => onOpen(todo.length === 1 ? { id: todo[0].id } : { list: true })} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, minHeight: TAP, padding: "14px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.goldBorder, boxShadow: t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}>
+      <button type="button" data-sign-card={n} aria-busy={busy} onClick={tap} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, minHeight: TAP, padding: "14px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.goldBorder, boxShadow: t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}>
         <PenIco sz={20} c={t.goldText} style={{ flexShrink: 0 }} />
-        <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{todo.length === 1 ? tr("1 to sign") : tr("{n} to sign", { n: todo.length })}</span>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{n === 1 ? tr("1 to sign") : tr("{n} to sign", { n: n })}</span>
         <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0 }} />
       </button>
     </div>

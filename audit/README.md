@@ -1841,6 +1841,65 @@ One journey, in English and Spanish, failing on the main of part 388:
   carrying the walk from the site's safety walk read alone, with no read
   of `GET /api/inspections/scheduled?site_id=`.
 
+## One read at open (part 396, section 1)
+
+The stub answers `GET /api/me/summary` as ocsa-api Round 14 builds it
+(part 391, section 3, `routes/me.js` and `helpers/meSummary.js summaryOf`):
+`{ features, counts }`, each value by the rule of the list route it
+stands for. As the API reads through each list's own code, the stub reads
+its own answer to each list (`summaryNow`), so a value is always what
+that list answers the same person: My training's items and first-day
+items with a try left, and its documents to sign; a sheet on the safety
+data sheets' list; a holder's supply requests at decide or sign; the
+person's findings and the conversations waiting for them, and whether
+they may list the office's with its `counts.needsFollowUp`; the client
+requests awaiting their approval or assigned to them and not done; their
+own drafts, walk drafts left out; an admin's or a supervisor's sign-offs,
+their own left out; the bell's unread count; the chats' unread summed;
+the signature requests waiting; and the assigned tasks and requests, an
+issue once. `summary: false` is an API from before Round 14, which
+answers 404. `summaryNull: ["signatures", "chat"]` answers those parts
+as a part that threw: its counts null and its feature false. `ordersNone`
+answers a holder's supply requests with none.
+
+At open the portal reads the clock status, the permissions, the summary,
+the site's tasks with a shift open, Home's week and Start Shift's sites.
+More's entries come from `features`, Approve supplies from the
+permissions' `approve_supplies` for every holder. Home's cards draw their
+line from `counts` and read their list when tapped; Your first trainings
+and Unfinished forms, which draw rows, read their list at open only while
+their count says there is one to draw. The bell starts from
+`counts.unreadNotices` and keeps its read every 60 seconds; Chat's count
+and Assigned's start from `counts.chatUnread` and `counts.assigned` until
+Chat or Assigned has read its own list. A card or a badge draws
+whichever is newer, the summary or a list read since. Home opened again,
+More opened and the app back at the front read the summary again. A
+count answered null reads that one list at open, and with no summary at
+all every list is read at open as before.
+
+Three journeys, in English and Spanish, each failing on the main of part
+392:
+
+- `onereadopen`: a cleaner, a supervisor and a holder of
+  `approve_supplies` each read the summary once at open and none of the
+  lists it counts; Home's cards, the bell and Chat's count read its
+  counts, Unfinished forms reads its rows since one is counted, and More
+  offers what its features say; the signature card reads the requests
+  once when tapped and opens the three; Findings to follow up and Approve
+  supplies read their lists as they open.
+- `onereadnull`: with the signatures and the chats answered null, only
+  those two lists are read at open, and the card and Chat's count draw
+  from them; with no summary route, every list is read at open and Home
+  draws the same cards.
+- `approveall`: a holder with no supply request is offered Approve
+  supplies, which reads its list as it opens and says "Nothing is waiting
+  for you."; someone without the capability is offered none.
+
+`lightopen` (part 392) now reads this rule: the bell's count is not read
+at open, a supervisor reads no findings at open, and a holder reads no
+supply request at open. The smoke check's More run reads the same: with
+the signature routes not answering, the requests are never asked.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

@@ -10457,7 +10457,7 @@ const moreOffers = async (page) => {
 const PART392_S1_JOURNEYS = [
   {
     id: "lightopen",
-    label: "A lighter opening (API part 384, 6.2): a cleaner's open reads no Library, company property, App support or supply request list, and the clock status and Start Shift's sites once; More offers My company property, App support and the Library by features with nothing read, and each reads its list when it opens, again each time; a supervisor reads the findings once and the workspace when Workspace opens; a holder of approve_supplies reads the supply requests at open",
+    label: "A lighter opening (API part 384, 6.2, with part 396's summary): a cleaner's open reads no Library, company property, App support or supply request list, and the clock status and Start Shift's sites once; More offers My company property, App support and the Library by features with nothing read, and each reads its list when it opens, again each time; a supervisor reads no findings at open and the workspace when Workspace opens; a holder of approve_supplies is offered Approve supplies with no supply request read at open",
     run: async (open, language, expect) => {
       const app = await open({ stubOptions: { library: true, support: true, signatures: true, supplyOrders: true, workspace: true } });
       try {
@@ -10465,8 +10465,10 @@ const PART392_S1_JOURNEYS = [
         await pause(app.page, 3500);
         const early = READ_ON_OPEN.filter(p => getsOf(app.stub, p).length > 0);
         expect("at open nothing reads a list a More screen draws", early.length === 0, JSON.stringify(early));
-        const twice = ["/api/clock/status", "/api/shift-sessions/sites", "/api/users/me/permissions", "/api/notifications/unread-count"].map(p => [p, getsOf(app.stub, p).length]).filter(x => x[1] !== 1);
-        expect("the clock status, Start Shift's sites, the permissions and the bell's count are each read once", twice.length === 0, JSON.stringify(twice));
+        // Part 396: the bell's first count is the summary's, so its own
+        // route is not read at open.
+        const twice = ["/api/clock/status", "/api/shift-sessions/sites", "/api/users/me/permissions", "/api/me/summary"].map(p => [p, getsOf(app.stub, p).length]).filter(x => x[1] !== 1);
+        expect("the clock status, Start Shift's sites, the permissions and the summary are each read once, and the bell's count not at all", twice.length === 0 && getsOf(app.stub, "/api/notifications/unread-count").length === 0, JSON.stringify(twice) + " bell " + getsOf(app.stub, "/api/notifications/unread-count").length);
         const offered = await moreOffers(app.page);
         const want = ["My company property", "App support", "Library"].map(w => say(w, language));
         expect("More offers My company property, App support and the Library with no list read", want.every(w => offered.indexOf(w) !== -1) && READ_ON_OPEN.every(p => getsOf(app.stub, p).length === 0), JSON.stringify(offered));
@@ -10492,7 +10494,9 @@ const PART392_S1_JOURNEYS = [
       try {
         await shows(sup.page, ".sp-content", 8000);
         await pause(sup.page, 3500);
-        expect("a supervisor reads Findings to follow up once at open", getsOf(sup.stub, "/api/inspections/findings").length === 1, getsOf(sup.stub, "/api/inspections/findings").length + " reads");
+        // Part 396: the summary's features say whether More offers it, so
+        // the list is not read at open.
+        expect("a supervisor reads no Findings to follow up at open", getsOf(sup.stub, "/api/inspections/findings").length === 0, getsOf(sup.stub, "/api/inspections/findings").length + " reads");
         const offered = await moreOffers(sup.page);
         expect("More offers Workspace to a supervisor with no projects read", offered.indexOf(say("Workspace", language)) !== -1 && getsOf(sup.stub, "/api/workspace/projects").length === 0, JSON.stringify(offered));
         await openTab(sup.page, "workspace", language);
@@ -10506,7 +10510,10 @@ const PART392_S1_JOURNEYS = [
         await shows(holder.page, ".sp-content", 8000);
         await pause(holder.page, 3500);
         const offered = await moreOffers(holder.page);
-        expect("a holder of approve_supplies reads the supply requests at open, for Home's card and Approve supplies", getsOf(holder.stub, "/api/supplies/requests").length >= 1 && offered.indexOf(say("Approve supplies", language)) !== -1, getsOf(holder.stub, "/api/supplies/requests").length + " reads; " + JSON.stringify(offered));
+        // Part 396 (section 1.4): Approve supplies is offered to every
+        // holder, and Home's card counts from the summary, so the list is
+        // read when the screen opens, not at open.
+        expect("a holder of approve_supplies is offered Approve supplies with no supply request read at open", getsOf(holder.stub, "/api/supplies/requests").length === 0 && offered.indexOf(say("Approve supplies", language)) !== -1, getsOf(holder.stub, "/api/supplies/requests").length + " reads; " + JSON.stringify(offered));
       } finally { await holder.context.close(); }
     },
   },
@@ -10671,5 +10678,149 @@ const PART392_S3_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...PART392_S3_JOURNEYS);
+
+// --- Round 13 of the staff app (part 396), section 1 ----------------------
+//
+// One read at open (ocsa-api Round 14, part 391, section 3): GET
+// /api/me/summary draws More's entries from its features and Home's cards
+// and the bar's counts from its counts; each list is read when its screen
+// or card opens, and a part the summary could not read (null) is read on
+// its own. Fails on the main of part 392, which read every list behind a
+// Home card, the bell, Chat and Assigned at open, and never the summary.
+const OPEN_LISTS = ["/api/signatures/mine", "/api/issues/requests", "/api/chat/channels", "/api/clock/tasks/assigned", "/api/me/findings", "/api/inspections/findings", "/api/training/awaiting", "/api/training/me", "/api/supplies/requests", "/api/sds", "/api/notifications/unread-count"];
+// The summary as the stub answers this person now, read after the checks
+// on what the app sent, so it never counts as one of them.
+const summaryNow = (stub, language) => { const r = stub.handle("GET", "/api/me/summary", "?locale=" + language, null, language, { authorization: "Bearer token-one" }); try { return JSON.parse(r.body); } catch (e) { return null; } };
+// The count on one of the bar's buttons, or on More's: its numeral, "" for
+// none, null when the button is not on the bar.
+const barCount = (page, label) => page.evaluate((want) => {
+  const bar = Array.from(document.querySelectorAll("div")).find((el) => { const s = getComputedStyle(el); return s.position === "fixed" && s.bottom === "0px" && el.querySelectorAll(":scope > button").length >= 5; });
+  const b = bar && Array.from(bar.querySelectorAll(":scope > button")).find(x => x.textContent.trim().replace(/^[\d+]+/, "") === want);
+  if (!b) return null;
+  const n = Array.from(b.querySelectorAll("div")).find(d => d.children.length === 0 && /^\d+\+?$/.test(d.textContent.trim()));
+  return n ? n.textContent.trim() : "";
+}, label);
+const bellLabel = (page) => page.evaluate(() => { const b = Array.from(document.querySelectorAll("button[aria-expanded]")).find(x => x.querySelector("svg")); return b ? b.getAttribute("aria-label") || "" : ""; });
+const PART396_S1_JOURNEYS = [
+  {
+    id: "onereadopen",
+    label: "One read at open (API Round 14, part 391, section 3): a cleaner, a supervisor and a holder of approve_supplies each read GET /api/me/summary once at open and none of the lists it counts; Home's cards, the bell and Chat's count draw its counts, More its features; the signature card reads its list when tapped and opens it; Findings to follow up and Approve supplies read theirs as they open",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { signatures: true, requests: true, training: true, sds: true, library: true, unfinishedForms: true, chat: { unread: { "ch-north": 2 } } } });
+      try {
+        await shows(app.page, ".sp-content", 8000);
+        await pause(app.page, 3500);
+        const early = OPEN_LISTS.filter(p => getsOf(app.stub, p).length > 0);
+        expect("a cleaner reads the summary once at open", getsOf(app.stub, "/api/me/summary").length === 1, getsOf(app.stub, "/api/me/summary").length + " reads");
+        expect("and none of the lists it counts", early.length === 0, JSON.stringify(early));
+        const sum = summaryNow(app.stub, language);
+        const c = sum ? sum.counts : {};
+        const drafts = await shows(app.page, "[data-unfinished-card] [data-unfinished-row]", 4000);
+        expect("Unfinished forms, which draws its rows, reads them at open since the summary counts one", c.unfinishedForms === 1 && drafts && app.stub.state.calls.filter(x => x.method === "GET" && x.path === "/api/agent/drafts").length === 1, c.unfinishedForms + " counted");
+        const card = await textAt(app.page, "[data-sign-card]");
+        expect("Home's card reads the summary's count to sign", c.signaturesToSign === 3 && has(String(card), say("{n} to sign", language).replace("{n}", "3")), String(card));
+        const req = await textAt(app.page, '[data-request-card="home"]');
+        expect("Home's client request card reads the summary's count", c.clientRequests === 1 && has(String(req), say("1 client request needs you", language)), String(req));
+        const todo = await textAt(app.page, '[data-training-card="todo"]');
+        expect("Home's training card reads the summary's count to do", c.trainingToDo === 2 && has(String(todo), say("{n} trainings to do", language).replace("{n}", "2")), String(todo));
+        const bell = await bellLabel(app.page);
+        expect("the bell carries the summary's unread count", c.unreadNotices > 0 && bell === say("{count} unread notifications", language).replace("{count}", String(c.unreadNotices)), bell);
+        expect("Chat's count on the bar is the summary's", (await barCount(app.page, say("Chat", language))) === String(c.chatUnread), JSON.stringify(await barCount(app.page, say("Chat", language))) + " for " + c.chatUnread);
+        const offered = await moreOffers(app.page);
+        const want = ["My training", "Safety data sheets", "Library", "My company property", "App support"].map(w => say(w, language));
+        expect("More offers what the summary's features say, with no list read", want.every(w => offered.indexOf(w) !== -1) && OPEN_LISTS.filter(p => p !== "/api/notifications/unread-count").every(p => getsOf(app.stub, p).length === 0), JSON.stringify(offered));
+        await spokenHere(app, language, expect);
+        await app.page.evaluate(() => { const b = document.querySelector("[data-sign-card]"); if (b) b.click(); });
+        const listed = await shows(app.page, '[data-sign="list"] [data-sign-row]', 6000);
+        const rows = listed ? await app.page.evaluate(() => document.querySelectorAll('[data-sign="list"] [data-sign-row]').length) : 0;
+        expect("tapped, the card reads the requests once and opens the list of three", rows === 3 && getsOf(app.stub, "/api/signatures/mine").length === 1, rows + " rows, " + getsOf(app.stub, "/api/signatures/mine").length + " reads");
+      } finally { await app.context.close(); }
+      const sup = await open({ stubOptions: { person: ROUND1_SUPERVISOR, findingsSeed: true, inspectionWalk: true, workspace: true, training: true } });
+      try {
+        await shows(sup.page, ".sp-content", 8000);
+        await pause(sup.page, 3500);
+        const early = OPEN_LISTS.filter(p => getsOf(sup.stub, p).length > 0);
+        expect("a supervisor reads the summary once at open and none of the lists it counts", getsOf(sup.stub, "/api/me/summary").length === 1 && early.length === 0, JSON.stringify(early));
+        const signoff = await textAt(sup.page, '[data-training-card="signoff"]');
+        expect("Home's sign-off card reads the summary's count", has(String(signoff), say("1 training to sign off", language)), String(signoff));
+        const offered = await moreOffers(sup.page);
+        expect("More offers Findings to follow up, My findings and Workspace from the summary", [say("Findings to follow up", language), say("My findings", language), say("Workspace", language)].every(w => offered.indexOf(w) !== -1) && getsOf(sup.stub, "/api/inspections/findings").length === 0 && getsOf(sup.stub, "/api/me/findings").length === 0, JSON.stringify(offered));
+        await openTab(sup.page, "findingsdue", language);
+        const rows = await shows(sup.page, "[data-follow-ups] [data-follow-up-row]", 8000);
+        expect("Findings to follow up reads its list as it opens and draws it", rows && getsOf(sup.stub, "/api/inspections/findings").length >= 1, getsOf(sup.stub, "/api/inspections/findings").length + " reads");
+        await spokenHere(sup, language, expect);
+      } finally { await sup.context.close(); }
+      const holder = await open({ stubOptions: { person: require("./stub").ORDER_HOLDER, supplyOrders: true } });
+      try {
+        await shows(holder.page, ".sp-content", 8000);
+        await pause(holder.page, 3500);
+        const n = (summaryNow(holder.stub, language) || { counts: {} }).counts.supplyOrdersWaiting;
+        const reads = getsOf(holder.stub, "/api/supplies/requests").length;
+        const cardText = await textAt(holder.page, "[data-supply-orders-card]");
+        expect("a holder's Home card reads the summary's count with no supply request read at open", n > 0 && reads === 0 && has(String(cardText), say("Supply requests to approve ({n})", language).replace("{n}", String(n))), reads + " reads; " + String(cardText));
+        await holder.page.evaluate(() => { const b = document.querySelector("[data-supply-orders-card]"); if (b) b.click(); });
+        const drawn = await shows(holder.page, "[data-supply-orders] [data-supply-order]", 6000);
+        expect("tapped, Approve supplies reads the requests and draws them", drawn && getsOf(holder.stub, "/api/supplies/requests").length >= 1, getsOf(holder.stub, "/api/supplies/requests").length + " reads");
+      } finally { await holder.context.close(); }
+    },
+  },
+  {
+    id: "onereadnull",
+    label: "A part of the summary that failed (API Round 14, part 391, section 3): with the signatures and the chats answered null, only those two lists are read at open, and Home's card and Chat's count draw from them; with no summary route at all, every list is read at open as before and Home draws the same cards",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { signatures: true, requests: true, training: true, chat: { unread: { "ch-north": 2 } }, summaryNull: ["signatures", "chat"] } });
+      try {
+        await shows(app.page, ".sp-content", 8000);
+        await pause(app.page, 3500);
+        const read = OPEN_LISTS.filter(p => getsOf(app.stub, p).length > 0);
+        expect("the two lists the summary could not count are read at open, and no other", JSON.stringify(read) === JSON.stringify(["/api/signatures/mine", "/api/chat/channels"]), JSON.stringify(read));
+        const card = await textAt(app.page, "[data-sign-card]");
+        expect("Home's card counts the list read", has(String(card), say("{n} to sign", language).replace("{n}", "3")), String(card));
+        const listed = String(app.stub.state.chat.channels.reduce((n, ch) => n + (Number(ch.unreadCount) > 0 ? Number(ch.unreadCount) : 0), 0));
+        expect("Chat's count is the list's", (await barCount(app.page, say("Chat", language))) === listed, JSON.stringify(await barCount(app.page, say("Chat", language))) + " for " + listed);
+        const req = await textAt(app.page, '[data-request-card="home"]');
+        expect("Home's client request card still reads the summary's count", has(String(req), say("1 client request needs you", language)) && getsOf(app.stub, "/api/issues/requests").length === 0, String(req));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const old = await open({ stubOptions: { signatures: true, requests: true, training: true, summary: false } });
+      try {
+        await shows(old.page, ".sp-content", 8000);
+        await pause(old.page, 3500);
+        const read = ["/api/signatures/mine", "/api/issues/requests", "/api/chat/channels", "/api/clock/tasks/assigned", "/api/me/findings", "/api/training/me", "/api/sds", "/api/notifications/unread-count"].filter(p => getsOf(old.stub, p).length === 0);
+        expect("with no summary route, every list is read at open as before", read.length === 0, "not read: " + JSON.stringify(read));
+        const card = await textAt(old.page, "[data-sign-card]");
+        const todo = await textAt(old.page, '[data-training-card="todo"]');
+        expect("and Home draws the same cards from them", has(String(card), say("{n} to sign", language).replace("{n}", "3")) && has(String(todo), say("{n} trainings to do", language).replace("{n}", "2")), String(card) + " | " + String(todo));
+      } finally { await old.context.close(); }
+    },
+  },
+  {
+    id: "approveall",
+    label: "Approve supplies for every holder (API Round 14, part 391, section 3): a holder of approve_supplies with no request is offered Approve supplies, which reads the list as it opens and says Nothing is waiting for you., and Home shows no card; someone without the capability is offered none",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: require("./stub").ORDER_HOLDER, supplyOrders: true, ordersNone: true } });
+      try {
+        await shows(app.page, ".sp-content", 8000);
+        await pause(app.page, 3000);
+        expect("Home shows no card to approve", !(await app.page.$("[data-supply-orders-card]")), "a card is drawn");
+        const offered = await moreOffers(app.page);
+        expect("More offers Approve supplies to the holder with no request, with no list read", offered.indexOf(say("Approve supplies", language)) !== -1 && getsOf(app.stub, "/api/supplies/requests").length === 0, JSON.stringify(offered));
+        await openTab(app.page, "supplyorders", language);
+        const none = await shows(app.page, '[data-supply-orders-none="empty"]', 6000);
+        const line = none ? await textAt(app.page, '[data-supply-orders-none="empty"]') : "";
+        expect("Approve supplies reads the list as it opens and says Nothing is waiting for you.", none && String(line).trim() === say("Nothing is waiting for you.", language) && getsOf(app.stub, "/api/supplies/requests").length >= 1, String(line));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const other = await open({ stubOptions: { supplyOrders: true } });
+      try {
+        await shows(other.page, ".sp-content", 8000);
+        await pause(other.page, 3000);
+        const offered = await moreOffers(other.page);
+        expect("someone without approve_supplies is offered no Approve supplies", offered.indexOf(say("Approve supplies", language)) === -1 && getsOf(other.stub, "/api/supplies/requests").length === 0, JSON.stringify(offered));
+      } finally { await other.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART396_S1_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };

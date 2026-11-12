@@ -1983,7 +1983,8 @@ function makeState(opts) {
     // sign and send call, every send made, the next PO number, and
     // orderVendorsNone for a vendor list with none approved.
     supplyOrders: o.supplyOrders === true,
-    orderRequests: o.supplyOrders === true ? ORDER_SEED() : [],
+    // Part 396: ordersNone answers the holder's list with no request yet.
+    orderRequests: o.supplyOrders === true && o.ordersNone !== true ? ORDER_SEED() : [],
     orderCalls: [],
     orderSends: [],
     orderPoSeq: 7,
@@ -2006,6 +2007,13 @@ function makeState(opts) {
     // Part 392: features on the permissions answer (ocsa-api part 384,
     // 5.7); false for an API from before it.
     featuresRoute: o.featuresRoute !== false,
+    // Part 396: GET /api/me/summary (ocsa-api Round 14, part 391,
+    // section 3); summary false is an API from before it, which answers
+    // 404. summaryNull names the summary's parts that failed, each
+    // answered as helpers/meSummary.js answers a part that throws: its
+    // counts null and its feature false.
+    summary: o.summary !== false,
+    summaryNull: Array.isArray(o.summaryNull) ? o.summaryNull.slice() : [],
     // Phone alerts. key is the server's public key, null when it has none,
     // and "missing" for an API with no key route yet. settings is null for
     // an API whose settings route is not there yet, which answers 404.
@@ -4479,6 +4487,92 @@ function createStub(opts) {
   function attemptViewBare(a, topic) {
     return { id: a.id, versionId: a.versionId, topicId: a.topicId, topicName: topic ? topic.name : "", attemptNo: a.attemptNo, locale: a.locale, startedAt: a.startedAt, scoredAt: a.scoredAt, scorePercent: a.scorePercent, passed: a.passed, missed: a.missed.slice(), acknowledgedAt: a.acknowledgedAt, awaitingTrainer: a.awaitingTrainer, trainerSignedAt: a.trainerSignedAt, trainer: a.trainerName ? { name: a.trainerName } : null, demonstrated: a.demonstrated, siteId: a.siteId, voidedAt: a.voidedAt };
   }
+  // The summary, part by part, as helpers/meSummary.js builds it. A part
+  // named in summaryNull answers as one that threw: null counts and a
+  // false feature. A list route this stub does not serve (an API from
+  // before that list) answers nothing to count, as that list would.
+  function summaryNow(search, headers) {
+    const read = (p) => {
+      const r = answerNow("GET", p, search, null, headers, "GET " + p);
+      let body = null;
+      try { body = r && typeof r.body === "string" ? JSON.parse(r.body) : null; } catch (e) { body = null; }
+      return { ok: !!r && r.status === 200, body: body };
+    };
+    const rowsOf = (d, k) => (Array.isArray(d) ? d : d && Array.isArray(d[k]) ? d[k] : []);
+    const failed = (part) => state.summaryNull.indexOf(part) !== -1;
+    const me = String(state.person.id);
+    const management = state.person.role === "admin" || state.person.role === "supervisor";
+    const canStart = ["missing", "expired", "refresherDue", "inProgress", "dueSoon"];
+    const takeable = (i) => !!i && !!i.lesson && i.lesson.kind !== "observation" && Number(i.lesson.attemptsLeft) > 0 && canStart.indexOf(i.status) !== -1;
+    // training: My training's answer (routes/training.js myTrainingFor).
+    const tr = failed("training") ? null : read("/api/training/me");
+    const t = !tr ? null : tr.ok && tr.body && Array.isArray(tr.body.items)
+      ? { has: true, toDo: tr.body.items.filter(takeable).length, firstDay: rowsOf(tr.body, "firstDay").filter(takeable).length, documents: rowsOf(tr.body, "documentsToSign").length }
+      : { has: false, toDo: 0, firstDay: 0, documents: 0 };
+    // sds: a sheet on the list (routes/sds.js sheetRows).
+    const sd = failed("sds") ? null : read("/api/sds");
+    const sds = !!sd && sd.ok && rowsOf(sd.body, "sheets").length > 0;
+    // supplies: a holder of approve_supplies, while any request is on the
+    // list; waiting, those canDecide at decide or sign (the app's
+    // supplyStage).
+    let sup = null;
+    if (!failed("supplies")) {
+      if (state.person.approveSupplies !== true) sup = { show: false, waiting: 0 };
+      else {
+        const rows = rowsOf(read("/api/supplies/requests").body, "requests");
+        const stage = (r) => { const items = Array.isArray(r.items) ? r.items : []; return r.orderedAt || r.ordered_at ? "ordered" : r.signed === true || r.poNumber || r.po_number ? "send" : r.status === "fulfilled" ? "done" : items.some(l => !l.decision) ? "decide" : items.some(l => l.decision === "approved") ? "sign" : "done"; };
+        sup = { show: rows.length > 0, waiting: rows.filter(r => r && r.canDecide === true && (stage(r) === "decide" || stage(r) === "sign")).length };
+      }
+    }
+    // findings: the person's own (GET /api/me/findings, toConfirm), and
+    // whether they may list the office's (mayList) with its needsFollowUp.
+    let f = null;
+    if (!failed("findings")) {
+      const mine = read("/api/me/findings");
+      const due = read("/api/inspections/findings");
+      const dueCounts = due.ok && due.body && due.body.counts && typeof due.body.counts === "object" ? due.body.counts : null;
+      f = { mine: rowsOf(mine.body, "findings").length, toConfirm: rowsOf(mine.body, "toConfirm").length, lists: due.ok, needs: due.ok ? (dueCounts && Number(dueCounts.needsFollowUp)) || 0 : 0 };
+    }
+    // client requests: awaiting the caller's approval, plus assigned to
+    // them and not done.
+    let req = null;
+    if (!failed("clientRequests")) {
+      const rows = rowsOf(read("/api/issues/requests").body, "requests");
+      const done = ["resolved", "closed", "declined"];
+      req = { waiting: rows.filter(r => r && r.canApprove === true).length, mine: rows.filter(r => r && r.canApprove !== true && r.assignedTo && String(r.assignedTo.id) === me && done.indexOf(r.status) === -1).map(r => String(r.id)) };
+    }
+    // drafts: the caller's own, the walk drafts left out.
+    const drafts = failed("drafts") ? null : rowsOf(read("/api/agent/drafts").body, "drafts").filter(d => d && d.id !== undefined && (d.userId === undefined || d.userId === null || String(d.userId) === me) && (!d.status || d.status === "draft") && !(d.answers && d.answers._scheduled_inspection_id)).length;
+    // sign-offs: an admin's or a supervisor's, their own left out.
+    const signOff = failed("signOffs") ? null : !management ? 0 : rowsOf(read("/api/training/awaiting").body, "attempts").filter(a => a && String((a.person && a.person.id) || a.userId || "") !== me).length;
+    const un = failed("unread") ? null : read("/api/notifications/unread-count").body;
+    const unread = un === null ? null : Number(un && un.unread) || 0;
+    const chat = failed("chat") ? null : rowsOf(read("/api/chat/channels").body, "channels").reduce((n, ch) => n + (Number(ch && ch.unreadCount) > 0 ? Number(ch.unreadCount) : 0), 0);
+    const sigs = failed("signatures") ? null : rowsOf(read("/api/signatures/mine").body, "requests").filter(r => r && r.state === "waiting").length;
+    const tasks = failed("assigned") ? null : rowsOf(read("/api/clock/tasks/assigned").body, "tasks");
+    let assigned = null;
+    if (tasks && req) {
+      const keys = new Set(tasks.map(x => (x.source_issue_id || x.issue_id ? "issue:" + (x.source_issue_id || x.issue_id) : "task:" + x.task_id)));
+      req.mine.forEach(id => keys.add("issue:" + id));
+      assigned = keys.size;
+    }
+    return {
+      features: {
+        training: !!t && t.has, property: true, support: true,
+        library: !!state.library && state.person.role !== "client_contact",
+        sds: sds, approveSupplies: !!sup && sup.show,
+        myFindings: !!f && f.mine > 0, findingsToFollowUp: !!f && f.lists,
+        workspace: !!state.workspace && WS_OFFICE.indexOf(state.person.role) !== -1,
+      },
+      counts: {
+        signaturesToSign: sigs, conversationsToConfirm: f ? f.toConfirm : null, supplyOrdersWaiting: sup ? sup.waiting : null,
+        findingsNeedingFollowUp: f ? f.needs : null, clientRequests: req ? req.waiting + req.mine.length : null, unfinishedForms: drafts,
+        trainingToDo: t ? t.toDo : null, firstDayTrainings: t ? t.firstDay : null, documentsToSign: t ? t.documents : null,
+        trainingToSignOff: signOff, unreadNotices: unread, chatUnread: chat, assigned: assigned,
+      },
+    };
+  }
+
   function handle(method, pathname, search, body, headers) {
     const key = method + " " + pathname;
     state.calls.push({ method: method, path: pathname, search: search || "", body: body || null, headers: headers || {} });
@@ -4709,6 +4803,15 @@ function createStub(opts) {
       const management = state.person.role === "admin" || state.person.role === "supervisor";
       const features = { clearances: management, discipline: management, workspace: !!state.workspace && WS_OFFICE.indexOf(state.person.role) !== -1, library: !!state.library && state.person.role !== "client_contact" };
       return json(200, Object.assign({ role: state.person.role, capabilities: capabilities }, state.featuresRoute ? { features: features } : {}));
+    }
+    // Part 396 (ocsa-api Round 14, part 391, section 3, routes/me.js and
+    // helpers/meSummary.js summaryOf): { features, counts }, each value by
+    // the rule of the list route it stands for. As the API reads through
+    // each list's own code, the stub reads its own answer to each list, so
+    // a value is always what that list answers this person now.
+    if (key === "GET /api/me/summary") {
+      if (!state.summary) return json(404, { error: "Endpoint not found" });
+      return json(200, summaryNow(search, headers));
     }
     if (key === "GET /api/users/profile/me") return json(200, {
       user: Object.assign({}, state.person, { isTestAccount: state.person.isTestAccount === true, employeeId: "OCSA-0001", preferredLanguage: "English", addressLine1: "", city: "", state: "", zipCode: "", emergencyContactName: "", emergencyContactPhone: "", birthday: state.midnightDates ? "1990-08-14T00:00:00.000Z" : "1990-08-14" }),
