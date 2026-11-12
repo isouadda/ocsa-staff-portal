@@ -1818,6 +1818,12 @@ function makeState(opts) {
     // helpers/testGuard.js keepOff): 403 testCrew.testSite with testSite
     // true, in the request's language, nothing written. Each refused write
     // is kept in testSiteRefused.
+    // Part 396 (section 3): findingsR14 false is an API from before Round
+    // 14, whose findings carry no title, owners or canDecide and whose
+    // list carries no followUpTopics or counts; findingsUndecided names
+    // the sites a supervisor here is not assigned to.
+    findingsR14: o.findingsR14 !== false,
+    findingsUndecided: Array.isArray(o.findingsUndecided) ? o.findingsUndecided.map(String) : [],
     testSiteMarked: o.testSiteMarked === true,
     testSiteRefuses: Array.isArray(o.testSiteRefuses) ? o.testSiteRefuses.slice() : [],
     testSiteRefused: [],
@@ -1902,7 +1908,13 @@ function makeState(opts) {
     // away once with findingNoteRequired on its first deficient card, laid
     // over the stub, so a check sees the refusal under the card.
     findings: o.findings === true || o.inspectionWalk === true || o.findingsSeed === true,
-    findingRows: o.findingsSeed ? FINDINGS_SEED(o.person || PERSON).rows : [],
+    // Part 396: findingTitles gives a seeded finding an issue title of its
+    // own, as the office may rename an issue, so its title and its card's
+    // label differ.
+    // findingsNoInspection names seeded findings that came from no
+    // scheduled inspection (inspection.scheduledInspectionId null).
+    findingRows: o.findingsSeed ? FINDINGS_SEED(o.person || PERSON).rows.map(r => (o.findingTitles && o.findingTitles[r.id] ? Object.assign({}, r, { title: o.findingTitles[r.id] }) : r))
+      .map(r => (Array.isArray(o.findingsNoInspection) && o.findingsNoInspection.indexOf(r.id) !== -1 ? Object.assign({}, r, { _inspection: Object.assign({}, r._inspection, { scheduledInspectionId: null, templateName: null }) }) : r)) : [],
     // Part 388 (ocsa-api Round 12, part 382): each finding's follow-ups,
     // an ended one kept with endedAt; the calls to the follow-up routes;
     // and a refusal a case lays over one route once ({ route, code },
@@ -3785,7 +3797,9 @@ function createStub(opts) {
   };
   // A capability the signed-in person holds, by their tier, the way GET
   // /api/users/me/permissions answers it.
-  const holds = (cap) => { const tier = state.person.role === "admin" || state.person.role === "supervisor" ? state.person.role : "staff"; return (CAPABILITIES[cap] || []).indexOf(tier) !== -1; };
+  // Part 396: a person's manageInspections, true or false, holds or drops
+  // manage_inspections whatever the role, as the office may set it.
+  const holds = (cap) => { if (cap === "manage_inspections" && typeof state.person.manageInspections === "boolean") return state.person.manageInspections; const tier = state.person.role === "admin" || state.person.role === "supervisor" ? state.person.role : "staff"; return (CAPABILITIES[cap] || []).indexOf(tier) !== -1; };
   // --- building maintenance (part 369): the views helpers/
   // maintenanceRequests.js answers, in English; translate() serves the
   // names in Spanish to a Spanish request.
@@ -3953,6 +3967,15 @@ function createStub(opts) {
       state: f === "done" ? "done" : FU_UNRESOLVED.indexOf(row.status) === -1 ? "resolved" : (f || "needsFollowUp"),
     };
     if (!mine) Object.assign(view, { suggestedTopicId: suggestedTopicFor(card.itemId), correctiveActionId: row.corrective_action_id || null });
+    // Part 396 (ocsa-api Round 14, part 391, 2.1, 2.2 and 2.5,
+    // helpers/findingFollowUps.js findingView and withOffice): every
+    // finding carries title, its issue's; the office's reads carry owners,
+    // the site's (ownersFor), and canDecide (mayDecide's rule at the
+    // finding's site). findingsR14 false is an API from before Round 14.
+    if (state.findingsR14) {
+      view.title = row.title || null;
+      if (!mine) Object.assign(view, { owners: findingOwners(), canDecide: fuMayDecideAt(row.site_id) });
+    }
     return view;
   };
   const fuRefuse = (k, lang, extra) => { const r = FOLLOW_UP_REFUSALS[k]; return json(r.status, Object.assign({ error: refusalIn(r, lang), code: k }, extra || {})); };
@@ -3962,6 +3985,10 @@ function createStub(opts) {
   // the site; every supervisor here is at every site).
   const fuMayList = () => state.person.role === "admin" || state.person.role === "supervisor" || holds("manage_inspections");
   const fuMayDecide = () => holds("manage_inspections") || state.person.role === "supervisor";
+  // Part 396: a supervisor decides only at a site they are assigned to;
+  // findingsUndecided names the sites a supervisor here is not, where a
+  // holder of manage_inspections still decides.
+  const fuMayDecideAt = (siteId) => holds("manage_inspections") || (state.person.role === "supervisor" && state.findingsUndecided.indexOf(String(siteId)) === -1);
   // readChoice: { choice } or { keys }.
   const fuReadChoice = (raw) => {
     if (raw === undefined || raw === null) return { choice: null };
@@ -4821,6 +4848,7 @@ function createStub(opts) {
       // a role.
       capabilities.approve_supplies = state.person.approveSupplies === true;
       if (state.person.fileMaintenance === true) capabilities.file_maintenance_requests = true;
+      if (typeof state.person.manageInspections === "boolean") capabilities.manage_inspections = state.person.manageInspections;
       // Part 392 (ocsa-api part 384, 5.7, routes/users.js featuresOf):
       // features, each whether the same person's list answers them, by
       // the rule its route reads: clearances and discipline for an admin
@@ -6431,20 +6459,24 @@ function createStub(opts) {
         .slice().sort((a, b) => Date.parse(b.reported_at) - Date.parse(a.reported_at)).map(r => findingView(r, lang, false));
       list = st ? list.filter(f => f.state === st) : list.filter(f => f.state !== "done" && f.state !== "resolved");
       if (kind === "none") list = list.filter(f => !f.followUp); else if (kind) list = list.filter(f => f.followUp && f.followUp.kind === kind);
-      return json(200, { findings: list.slice(0, 500), asOf: zoneDate(clockNow()) });
+      // Part 396 (ocsa-api Round 14, 2.1 and 2.3): followUpTopics once,
+      // and counts over every unresolved finding whatever the filters.
+      const every = state.findingRows.filter(r => r.source === "inspection").map(r => findingView(r, lang, false)).filter(f => f.state !== "done" && f.state !== "resolved");
+      const counts = { needsFollowUp: every.filter(f => f.state === "needsFollowUp").length, open: every.filter(f => f.state === "open").length, overdue: every.filter(f => f.state === "overdue").length };
+      return json(200, Object.assign({ findings: list.slice(0, 500), asOf: zoneDate(clockNow()) }, state.findingsR14 ? { followUpTopics: followUpTopicsIn(lang), counts: counts } : {}));
     }
     const oneFindingRead = method === "GET" ? /^\/api\/inspections\/findings\/([^/]+)$/.exec(pathname) : null;
     if (oneFindingRead) {
       if (!fuMayList()) return fuRefuse("access.insufficientPermissions", lang);
       const row = state.findingRows.find(r => r.id === oneFindingRead[1] && r.source === "inspection");
-      return row ? json(200, { finding: findingView(row, lang, false) }) : fuRefuse("inspections.findingNotFound", lang);
+      return row ? json(200, Object.assign({ finding: findingView(row, lang, false) }, state.findingsR14 ? { followUpTopics: followUpTopicsIn(lang) } : {})) : fuRefuse("inspections.findingNotFound", lang);
     }
     const choosing = method === "POST" ? /^\/api\/inspections\/findings\/([^/]+)\/follow-up$/.exec(pathname) : null;
     if (choosing) {
       state.followUpCalls.push({ route: "follow-up", id: choosing[1], body: body || null });
       const row = state.findingRows.find(r => r.id === choosing[1] && r.source === "inspection");
       if (!row) return fuRefuse("inspections.findingNotFound", lang);
-      if (!fuMayDecide()) return fuRefuse("access.insufficientPermissions", lang);
+      if (!fuMayDecideAt(row.site_id)) return fuRefuse("access.insufficientPermissions", lang);
       if (row.status === "closed" || row.status === "declined") return fuRefuse("inspections.findingClosed", lang, { status: row.status });
       const faulted = fuFaultFor("follow-up", lang);
       if (faulted) return faulted;
@@ -6466,7 +6498,7 @@ function createStub(opts) {
       state.followUpCalls.push({ route: "conversation", id: recording[1], body: body || null });
       const row = state.findingRows.find(r => r.id === recording[1] && r.source === "inspection");
       if (!row) return fuRefuse("inspections.findingNotFound", lang);
-      if (!fuMayDecide()) return fuRefuse("access.insufficientPermissions", lang);
+      if (!fuMayDecideAt(row.site_id)) return fuRefuse("access.insufficientPermissions", lang);
       const faulted = fuFaultFor("conversation", lang);
       if (faulted) return faulted;
       const b = body && typeof body === "object" && !Array.isArray(body) ? body : {};
@@ -6619,7 +6651,7 @@ function createStub(opts) {
           state.findingRows.push(row);
           const made = owner && r.follow.choice ? fuChoose(row, r.follow.choice, null).followUp : null;
           return { issueId: row.id, templateItemId: r.x.template_item_id, label: r.item.label, zone: r.item.zone || null, score: r.score, maxScore: r.item.max_score, severity: row.severity, dueAt: row.due_at, owner: owner ? { id: owner.id, name: owner.name } : null,
-            followUp: made ? { id: made.id, kind: made.kind, topic: made.topicId ? { id: made.topicId } : null, dueOn: made.dueOn, state: fuStateOf(made) } : null };
+            followUp: made ? { id: made.id, kind: made.kind, topic: made.topicId ? Object.assign({ id: made.topicId }, state.findingsR14 ? { name: ((FOLLOW_UP_TOPICS.find(x => x.id === made.topicId) || {})[lang === "es" ? "es" : "en"]) || null } : {}) : null, dueOn: made.dueOn, state: fuStateOf(made) } : null };
         });
         // The safety part filed, answered as API Step 319 answers it: its
         // id, the overall result's code and each finding as its row.

@@ -4015,7 +4015,11 @@ export default function OCSAStaffPortal() {
     // 355), once the permissions are in, so its sheet never shows first.
     // A tap on an alert never opens another address by itself.
     const place = notifPlace(openAsk.subjectType, openAsk.subjectId, openAsk.subjectKey);
-    if (place && (place.hrCase || place.concern || place.report || place.maintenance) && caps === null) return;
+    // Part 396 (section 3.5): a finding's notice to the office waits for
+    // the permissions too, so a holder of manage_inspections on a phone
+    // just opened lands on Findings to follow up at it, never on the
+    // issue's sheet.
+    if (place && (place.hrCase || place.concern || place.report || place.maintenance || place.findingDue) && caps === null) return;
     setOpenAsk(null);
     markAlertRead(openAsk);
     if (place) openPlaceAsked(place); else if (openAsk.subjectType) setNotifOpen(true);
@@ -10642,6 +10646,12 @@ function findingOf(x) {
     notes: findingText(x.notes), photos: (Array.isArray(x.photos) ? x.photos : []).map((p, i) => (p && typeof p === "object" && typeof p.url === "string" && p.url ? { id: String(agentField(p, ["id"], i)), url: p.url } : null)).filter(Boolean),
     status: findingText(x.status), foundAt: findingText(x.foundAt), owner: findingPersonOf(x.owner), followUp: followUpOf(x.followUp),
     state: FINDING_STATES.indexOf(x.state) !== -1 ? x.state : "needsFollowUp", suggestedTopicId: x.suggestedTopicId ? String(x.suggestedTopicId) : "",
+    // Part 396 (section 3, ocsa-api Round 14, part 391, section 2): the
+    // finding's own title, its issue's; on the office's reads, owners, the
+    // people it may be given to (null where the answer carries none), and
+    // canDecide, whether this person may choose or record its follow-up
+    // (null where the answer does not say, which reads as before).
+    title: findingText(x.title), owners: Array.isArray(x.owners) ? inspectOwnersOf({ owners: x.owners }) : null, canDecide: typeof x.canDecide === "boolean" ? x.canDecide : null,
   };
 }
 // GET /api/me/findings: { findings, toConfirm }, or null for an answer
@@ -10650,10 +10660,12 @@ function myFindingsOf(d) {
   if (!d || typeof d !== "object" || !Array.isArray(d.findings)) return null;
   return { findings: d.findings.map(findingOf).filter(Boolean), toConfirm: (Array.isArray(d.toConfirm) ? d.toConfirm : []).map(findingOf).filter(Boolean).map(f => f.id) };
 }
-// GET /api/inspections/findings: { findings, asOf }, or null.
+// GET /api/inspections/findings: { findings, asOf }, or null. Part 396:
+// with followUpTopics, the lesson topics a training follow-up may name,
+// read once with the list (null where the answer carries none).
 function findingsDueOf(d) {
   if (!d || typeof d !== "object" || !Array.isArray(d.findings)) return null;
-  return { findings: d.findings.map(findingOf).filter(Boolean) };
+  return { findings: d.findings.map(findingOf).filter(Boolean), followUpTopics: followUpTopicsOf(d) };
 }
 // The lesson topics a training follow-up may name, from the inspection's
 // read (followUpTopics), or null where the read answers none.
@@ -10673,16 +10685,20 @@ const findingStateColor = (s) => (s === "overdue" ? RED : s === "needsFollowUp" 
 
 // What was found: the card, where, when and by whom, its notes and its
 // photos, each photo read again from the list when its link ran out.
+// Part 396 (section 3.3): a finding is named by its title, its issue's,
+// with the card's label beside where the two differ; an answer with no
+// title is named by the card, as before.
 function FindingFound({ f, reread, readKey, t }) {
   const lineSt = { fontSize: 12, color: t.textSec, marginTop: 3, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const name = f.title || f.label;
   const found = f.foundAt ? (f.inspector && f.inspector.name ? tr("Found {date} by {name}", { date: fkDayOf(f.foundAt), name: f.inspector.name }) : tr("Found {date}", { date: fkDayOf(f.foundAt) })) : "";
   return (
     <div>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-        <div role="heading" aria-level={3} style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{f.label}</div>
+        <div role="heading" aria-level={3} data-finding-title={f.id} style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{name}</div>
         <span data-finding-state={f.state} style={trainingChipSt(t, findingStateColor(f.state))}>{tr(FINDING_STATE_WORDS[f.state])}</span>
       </div>
-      <div style={lineSt}>{[f.zone && f.zone !== f.label ? f.zone : "", f.siteName].filter(Boolean).join(" \u00b7 ")}</div>
+      <div style={lineSt}>{[f.label && f.label !== name ? f.label : "", f.zone && f.zone !== f.label && f.zone !== name ? f.zone : "", f.siteName].filter(Boolean).join(" \u00b7 ")}</div>
       {found && <div style={lineSt}>{found}</div>}
       {f.score !== null && f.maxScore !== null && <div style={{ ...lineSt, fontVariantNumeric: "tabular-nums" }}>{tr("{score} of {max}", { score: f.score, max: f.maxScore })}</div>}
       {f.notes && <div data-finding-notes={f.id} style={{ ...lineSt, color: t.text, marginTop: 8, whiteSpace: "pre-line" }}>{f.notes}</div>}
@@ -10824,8 +10840,20 @@ function FollowUpsView({ token, data, onData, onReload, at, showToast, t }) {
   }, [at, data]);
   const list = data ? data.findings.slice().sort((a, b) => FINDING_RANK[a.state] - FINDING_RANK[b.state]) : null;
   const reread = () => api("/api/inspections/findings", { token });
+  // Part 396 (section 3.5): the finding a notice opened, when the list
+  // read does not hold it (followed up since, or past the list's 500), is
+  // read on its own (GET /api/inspections/findings/:id) and drawn first,
+  // so the screen opens at it.
+  const readAt = useRef(null);
+  useEffect(() => {
+    if (!at || !at.id || !data || data.findings.some(x => x.id === at.id) || readAt.current === at.at) return;
+    readAt.current = at.at;
+    api("/api/inspections/findings/" + encodeURIComponent(at.id), { token })
+      .then(d => { const one = findingOf(d && d.finding); if (one) onData(prev => (prev ? Object.assign({}, prev, { findings: [one].concat(prev.findings.filter(x => x.id !== one.id)), followUpTopics: prev.followUpTopics || followUpTopicsOf(d) }) : prev)); })
+      .catch(() => {});
+  }, [at, data]);
   const done = (f, said) => {
-    if (f) onData(prev => (prev ? { findings: findingSwapped(prev.findings, f) } : prev));
+    if (f) onData(prev => (prev ? Object.assign({}, prev, { findings: findingSwapped(prev.findings, f) }) : prev));
     setOpen(null);
     showToast(said);
     onReload();
@@ -10839,8 +10867,11 @@ function FollowUpsView({ token, data, onData, onReload, at, showToast, t }) {
       {(list || []).map(f => {
         const fu = f.followUp;
         const closed = f.status === "closed" || f.status === "declined";
-        const canChoose = !closed && f.state !== "done";
-        const canRecord = !!fu && fu.kind === "conversation" && fu.state !== "done" && !(fu.conversation && fu.conversation.recordedAt);
+        // Part 396 (section 3.2): only on a finding this person may decide
+        // (canDecide); an answer that does not say reads as before.
+        const decides = f.canDecide !== false;
+        const canChoose = decides && !closed && f.state !== "done";
+        const canRecord = decides && !!fu && fu.kind === "conversation" && fu.state !== "done" && !(fu.conversation && fu.conversation.recordedAt);
         return (
           <div key={f.id} ref={el => { rowRefs.current[f.id] = el; }} data-follow-up-row={f.id} style={{ ...fkRowSt(t), padding: "12px", borderLeft: "3px solid " + (at && at.id === f.id ? GOLD : f.state === "overdue" ? RED : t.borderSolid) }}>
             <FindingFound f={f} reread={reread} readKey="office-findings" t={t} />
@@ -10849,7 +10880,7 @@ function FollowUpsView({ token, data, onData, onReload, at, showToast, t }) {
             <FindingConversation c={fu && fu.conversation} t={t} />
             {open && open.id === f.id ? (
               open.panel === "choose"
-                ? <FollowUpChoose token={token} f={f} onDone={(next) => done(next, tr("Follow-up chosen."))} onCancel={() => setOpen(null)} t={t} />
+                ? <FollowUpChoose token={token} f={f} topics={data ? data.followUpTopics : null} onDone={(next) => done(next, tr("Follow-up chosen."))} onCancel={() => setOpen(null)} t={t} />
                 : <FollowUpRecord token={token} f={f} onDone={(next) => done(next, tr("Conversation recorded."))} onCancel={() => setOpen(null)} t={t} />
             ) : (canChoose || canRecord) && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
@@ -10873,8 +10904,13 @@ function readFollowUpChoices(token, scheduledInspectionId) {
   }
   return followUpReads.get(scheduledInspectionId);
 }
-function FollowUpChoose({ token, f, onDone, onCancel, t }) {
-  const [choices, setChoices] = useState(null);
+// Part 396 (section 3.1): the topics come from the list's followUpTopics
+// (topics) and the owners from the finding's own owners, with no read of
+// the inspection, whether or not the finding came from one. An answer
+// from before Round 14, with neither, reads the inspection as before.
+function FollowUpChoose({ token, f, topics, onDone, onCancel, t }) {
+  const given = Array.isArray(topics) && Array.isArray(f.owners) ? { state: "ok", topics: topics, owners: f.owners } : null;
+  const [choices, setChoices] = useState(given);
   const [asked, setAsked] = useState(0);
   const [kind, setKind] = useState(f.followUp ? f.followUp.kind : "training");
   const [topicId, setTopicId] = useState(f.followUp && f.followUp.topic ? f.followUp.topic.id : "");
@@ -10884,6 +10920,7 @@ function FollowUpChoose({ token, f, onDone, onCancel, t }) {
   const sending = useRef(false);
   useEffect(() => {
     let live = true;
+    if (given) { setTopicId(prev => prev || followUpTopicFirst(given.topics, f.suggestedTopicId)); return undefined; }
     if (!f.scheduledInspectionId) { setChoices({ state: "ok", topics: [], owners: [] }); return undefined; }
     readFollowUpChoices(token, f.scheduledInspectionId)
       .then(c => { if (!live) return; setChoices({ state: "ok", topics: c.topics, owners: c.owners }); setTopicId(prev => prev || followUpTopicFirst(c.topics, f.suggestedTopicId)); })

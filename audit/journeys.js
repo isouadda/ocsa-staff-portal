@@ -10885,4 +10885,112 @@ const PART396_S2_JOURNEYS = [
 ];
 JOURNEYS.push(...PART396_S2_JOURNEYS);
 
+// --- Round 13 of the staff app (part 396), section 3 ----------------------
+//
+// Findings without the inspection (ocsa-api Round 14, part 391, section
+// 2): Choose a follow-up from the list's followUpTopics and the finding's
+// owners, the two buttons only where canDecide, a finding named by its
+// title, and the office's notice opening Findings to follow up at the
+// finding on a phone just opened. Fails on the main of part 392, which
+// read the inspection for the topics and owners (and had none for a
+// finding with no inspection), offered both buttons to everyone who could
+// list, named a finding by its card, and opened a holder of
+// manage_inspections on the issue's sheet.
+const scheduledReads = (stub) => stub.state.calls.filter(c => c.method === "GET" && /^\/api\/inspections\/scheduled\/[^/]+$/.test(c.path));
+const PART396_S3_JOURNEYS = [
+  {
+    id: "findingchoose",
+    label: "Choose a follow-up without the inspection (API Round 14, 2.1): a finding from no scheduled inspection opens Choose a follow-up with the list's topics, its suggested one first, and the site's owners, and saves with an owner picked; another from an inspection opens the same way; no inspection is read",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, inspectionWalk: true, findingsSeed: true, findingsNoInspection: ["fnd-o1"] } });
+      try {
+        await openTab(app.page, "findingsdue", language);
+        await shows(app.page, '[data-follow-up-row="fnd-o1"]', 8000);
+        await fuTap(app.page, '[data-follow-up-open="fnd-o1"]');
+        const sel = await shows(app.page, '[data-follow-up-row="fnd-o1"] [data-follow-up-panel="choose"] select', 6000);
+        const topics = sel ? await app.page.evaluate(() => { const s = document.querySelector('[data-follow-up-row="fnd-o1"] select'); return { value: s.value, names: Array.from(s.options).map(o => o.textContent) }; }) : null;
+        expect("the topics are the list's, the suggested one first chosen", !!topics && topics.value === FOLLOW_UP_TOPICS[1].id && JSON.stringify(topics.names) === JSON.stringify([0, 1, 2].map(i => fuTopicName(i, language))), JSON.stringify(topics));
+        const owners = await app.page.evaluate(() => Array.from(document.querySelectorAll('[data-follow-up-row="fnd-o1"] [data-pick-row]')).map(r => r.getAttribute("data-pick-row")));
+        expect("the owners are the finding's own", owners.indexOf("s-04") !== -1 && owners.indexOf("s-02") !== -1, JSON.stringify(owners));
+        await spokenHere(app, language, expect);
+        await app.page.evaluate(() => { const r = document.querySelector('[data-follow-up-row="fnd-o1"] [data-pick-row="s-04"]'); if (r) r.click(); });
+        await pause(app.page, 300);
+        await fuTap(app.page, '[data-follow-up-send="fnd-o1"]');
+        await waitOn(app.page, () => !document.querySelector('[data-follow-up-panel="choose"]'), null, 6000);
+        const chose = fuCalls(app.stub, "follow-up").map(c => c.body);
+        expect("Save sends the kind, the topic and the owner", JSON.stringify(chose[chose.length - 1]) === JSON.stringify({ kind: "training", topicId: FOLLOW_UP_TOPICS[1].id, ownerId: "s-04" }), JSON.stringify(chose));
+        await pause(app.page, 800);
+        await fuTap(app.page, '[data-follow-up-open="fnd-m3"]');
+        const second = await shows(app.page, '[data-follow-up-row="fnd-m3"] [data-follow-up-panel="choose"] select', 6000);
+        expect("a finding from an inspection opens with the same topics", second, "");
+        expect("no inspection is read for the topics or the owners", scheduledReads(app.stub).length === 0, JSON.stringify(scheduledReads(app.stub).map(c => c.path)));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "findingdecide",
+    label: "Only where canDecide (API Round 14, 2.2): a supervisor who holds no manage_inspections and is not assigned at the site lists the findings with neither Choose a follow-up nor Record the conversation; a holder of manage_inspections at the same site has both",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: Object.assign({}, ROUND1_SUPERVISOR, { manageInspections: false }), inspectionWalk: true, findingsSeed: true, findingsUndecided: ["site-north"] } });
+      try {
+        await openTab(app.page, "findingsdue", language);
+        const rows = await shows(app.page, "[data-follow-ups] [data-follow-up-row]", 8000);
+        const buttons = await app.page.evaluate(() => document.querySelectorAll("[data-follow-ups] [data-follow-up-open], [data-follow-ups] [data-follow-up-record]").length);
+        expect("the findings are listed with no Choose a follow-up and no Record the conversation", rows && buttons === 0, buttons + " buttons");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const holder = await open({ stubOptions: { person: ROUND1_SUPERVISOR, inspectionWalk: true, findingsSeed: true, findingsUndecided: ["site-north"] } });
+      try {
+        await openTab(holder.page, "findingsdue", language);
+        await shows(holder.page, "[data-follow-ups] [data-follow-up-row]", 8000);
+        const both = await holder.page.evaluate(() => ({ choose: !!document.querySelector('[data-follow-up-open="fnd-o1"]'), record: !!document.querySelector('[data-follow-up-record="fnd-o2"]') }));
+        expect("a holder of manage_inspections has both", both.choose && both.record, JSON.stringify(both));
+      } finally { await holder.context.close(); }
+    },
+  },
+  {
+    id: "findingtitle",
+    label: "A finding named by its title (API Round 14, 2.5): Findings to follow up and My findings name each finding by its issue's title, with the card beside it where the two differ",
+    run: async (open, language, expect) => {
+      const titles = { "fnd-o1": "Invented: the front door mat curled again", "fnd-m3": "Invented: handprints on the lobby doors" };
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, inspectionWalk: true, findingsSeed: true, findingTitles: titles } });
+      try {
+        await openTab(app.page, "findingsdue", language);
+        await shows(app.page, '[data-follow-up-row="fnd-o1"] [role="heading"]', 8000);
+        const due = await textAt(app.page, '[data-follow-up-row="fnd-o1"] [role="heading"]');
+        const row = await textAt(app.page, '[data-follow-up-row="fnd-o1"]');
+        expect("Findings to follow up names it by its title, the card beside it", String(due).trim() === titles["fnd-o1"] && has(String(row), "Floor mats are straight and dry"), JSON.stringify({ due }));
+        await spokenHere(app, language, expect);
+        await openTab(app.page, "myfindings", language);
+        await shows(app.page, '[data-my-finding="fnd-m3"] [role="heading"]', 8000);
+        const mine = await textAt(app.page, '[data-my-finding="fnd-m3"] [role="heading"]');
+        expect("My findings names it by its title", String(mine).trim() === titles["fnd-m3"], String(mine));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "findingnotice",
+    label: "The office's finding notice on a phone just opened (API Round 14, 2.6): /?open=inspection_finding:<id> opens Findings to follow up at that finding for a holder of manage_inspections who is no supervisor, never the issue's sheet; and for a supervisor at a finding the list no longer holds, read on its own and drawn first",
+    run: async (open, language, expect) => {
+      const lead = Object.assign({}, PERSON, { id: "u-lead", role: "lead", manageInspections: true });
+      const app = await open({ path: "/?open=inspection_finding:fnd-o1", stubOptions: { person: lead, inspectionWalk: true, findingsSeed: true } });
+      try {
+        const at = await shows(app.page, '[data-follow-ups] [data-follow-up-row="fnd-o1"]', 10000);
+        const sheet = await app.page.evaluate(() => !!document.querySelector("[data-issue-sheet]"));
+        const marked = at ? await app.page.evaluate(() => { const r = document.querySelector('[data-follow-up-row="fnd-o1"]'); const b = r ? r.getBoundingClientRect() : null; return !!b && b.top < window.innerHeight && b.bottom > 0; }) : false;
+        expect("a holder of manage_inspections lands on Findings to follow up at the finding", at && marked && !sheet, JSON.stringify({ at, marked, sheet }));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const sup = await open({ path: "/?open=inspection_finding:fnd-m1", stubOptions: { person: ROUND1_SUPERVISOR, inspectionWalk: true, findingsSeed: true } });
+      try {
+        const at = await shows(sup.page, '[data-follow-ups] [data-follow-up-row="fnd-m1"]', 10000);
+        const first = at ? await sup.page.evaluate(() => { const r = document.querySelector("[data-follow-ups] [data-follow-up-row]"); return r ? r.getAttribute("data-follow-up-row") : null; }) : null;
+        const one = sup.stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/inspections/findings/fnd-m1").length;
+        expect("a supervisor's finding the list no longer holds is read on its own and drawn", at && one === 1, JSON.stringify({ at, first, one }));
+      } finally { await sup.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART396_S3_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };

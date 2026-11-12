@@ -1929,6 +1929,53 @@ Two journeys, in English and Spanish, each failing on the main of part
   Shift, and Report an issue refused says them under the Site field and
   keeps the report.
 
+## Findings without the inspection (part 396, section 3)
+
+The stub's findings answer as ocsa-api Round 14 builds them (part 391,
+section 2, `helpers/findingFollowUps.js`): every finding carries `title`,
+its issue's; the office's reads carry `owners`, the site's
+(`findingOwners`), and `canDecide`, a holder of `manage_inspections` or a
+supervisor assigned at the finding's site; `GET /api/inspections/findings`
+answers `followUpTopics` once and `counts { needsFollowUp, open, overdue }`
+over every unresolved finding; `GET /api/inspections/findings/:id`
+answers `followUpTopics` beside the finding; and the completion's short
+follow-up names its topic, `topic: { id, name }`. `findingsR14: false`
+is an API from before Round 14. `findingsUndecided: ["site-north"]`
+names the sites a supervisor here is not assigned to,
+`findingsNoInspection` the seeded findings from no scheduled inspection,
+and `findingTitles` gives a seeded finding an issue title of its own. A
+person's `manageInspections`, true or false, holds or drops the
+capability whatever the role.
+
+Choose a follow-up takes its topics from the list's `followUpTopics` and
+its owners from the finding's `owners`, with no read of the inspection;
+Choose a follow-up and Record the conversation show only where
+`canDecide` is true; a finding is named by its `title` on My findings and
+Findings to follow up, the card beside it where the two differ; and the
+office's alert, `/?open=inspection_finding:<id>`, waits for the
+permissions on a phone just opened and lands on Findings to follow up at
+the finding, read on its own when the list does not hold it. An answer
+from before Round 14 reads as before. The walk's result already named
+each finding's topic from `followUp.topic.name` (part 388).
+
+Four journeys, in English and Spanish, each failing on the main of part
+392:
+
+- `findingchoose`: a finding from no scheduled inspection opens Choose a
+  follow-up with the list's topics, its suggested one chosen, and the
+  site's owners, and saves with an owner; another from an inspection
+  opens the same way; no inspection is read.
+- `findingdecide`: a supervisor without `manage_inspections`, not
+  assigned at the site, lists the findings with neither button; a holder
+  has both.
+- `findingtitle`: Findings to follow up and My findings name a finding
+  by its title, with the card beside it.
+- `findingnotice`: `/?open=inspection_finding:<id>` on a phone just
+  opened lands a holder of `manage_inspections` who is no supervisor on
+  Findings to follow up at the finding, never the issue's sheet; a
+  supervisor's finding the list no longer holds is read on its own and
+  drawn.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names
