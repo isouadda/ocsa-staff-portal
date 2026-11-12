@@ -1810,6 +1810,37 @@ Two journeys, in English and Spanish, each failing on the main of part
 `taprun` and `taprunrefused` (part 383) now run with `runIds: false`, the
 path for a run whose id no read names.
 
+## The walk by name (part 392, section 3)
+
+The stub's safety walk reads answer as ocsa-api Round 13 builds them
+(part 384, 5.2 and 5.3, `helpers/inspectionSafety.js`):
+
+- `lastWalk` on `GET /api/inspections/safety-walks?siteId=` and
+  `lastSafetyWalk` on `GET /api/inspections/scheduled/:id` carry
+  `inspection: { id, templateName, scheduledDate } | null`, null for a walk
+  filed on its own, with `scheduledInspectionId` beside it (`walkOf`).
+- `GET /api/inspections/safety-walks?siteId=` answers `{ siteId, lastWalk,
+  openWalk }`, `openWalk: { scheduledInspectionId, templateName,
+  scheduledDate } | null` the inspection at the site this month, on or
+  before today on the company's clock, neither completed nor cancelled,
+  that carries the walk, the earliest first (`openWalk`).
+- `walkNames: false` is an API from before part 384, which answers
+  neither.
+
+The walk says "Safety walk done on {inspection} at {time}" from
+`lastSafetyWalk.inspection.templateName`, with no read of the other
+inspection, and Start an inspection's switch reads the open one from
+`openWalk`, with no read of the site's scheduled list. An answer from
+before part 384 reads both as before.
+
+One journey, in English and Spanish, failing on the main of part 388:
+
+- `walkbyname`: the open walk at North Building says the safety walk was
+  done on the readiness check at 10:42 with no read of that inspection,
+  and Start an inspection at South Building names the open inspection
+  carrying the walk from the site's safety walk read alone, with no read
+  of `GET /api/inspections/scheduled?site_id=`.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

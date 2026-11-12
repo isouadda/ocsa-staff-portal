@@ -1392,11 +1392,15 @@ const inspectSafetyToStart = (d) => { const s = inspectSafetyPartOf(d); return !
 // safety walk, lastWalk { at, day, scheduledInspectionId, responseId,
 // thisMonth } | null, whoever filed it, one filed on its own included,
 // and GET /api/inspections/scheduled/:id answers the same as
-// lastSafetyWalk. The site's list, GET /api/inspections/scheduled?site_id=,
-// is still read for one open at the site that carries the safety walk,
-// which no answer names. { done: { id, at, day } | null, open: { id, name }
-// | null }: open is one at the site started or due by today this month
-// that still carries the safety walk. The id left out is the walk asking.
+// lastSafetyWalk. Part 392 (ocsa-api part 384, 5.2 and 5.3): lastWalk
+// names the inspection it was walked on, inspection { id, templateName,
+// scheduledDate } | null, and the same read answers openWalk {
+// scheduledInspectionId, templateName, scheduledDate } | null, the
+// inspection open at the site this month on or before today that carries
+// the walk, the earliest first, so the site's list, GET
+// /api/inspections/scheduled?site_id=, is no longer read for it. An answer
+// with no openWalk reads the list as before. { done: { id, at, day } |
+// null, open: { id, name } | null }. The id left out is the walk asking.
 // ------------------------------------------------------------
 function companyYmdAt(ms) {
   const p = {};
@@ -1405,17 +1409,29 @@ function companyYmdAt(ms) {
 }
 const carriesSafety = (r) => !!r && r.with_safety !== false && r.withSafety !== false;
 // A site's last safety walk as the API answers it, or null.
+// Part 392: named, its inspection's template name; "" for a walk filed on
+// its own or an inspection with no name; undefined for an answer from
+// before part 384, which carries no inspection.
 function lastWalkOf(v) {
   if (!v || typeof v !== "object" || !Number.isFinite(Date.parse(v.at))) return null;
   const id = v.scheduledInspectionId === null || v.scheduledInspectionId === undefined || v.scheduledInspectionId === "" ? null : String(v.scheduledInspectionId);
-  return { at: v.at, day: typeof v.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v.day) ? v.day : companyYmdAt(Date.parse(v.at)), inspectionId: id, responseId: v.responseId === null || v.responseId === undefined ? null : String(v.responseId), thisMonth: v.thisMonth === true };
+  const insp = v.inspection && typeof v.inspection === "object" ? v.inspection : null;
+  const named = !Object.prototype.hasOwnProperty.call(v, "inspection") ? undefined : insp && typeof insp.templateName === "string" ? insp.templateName.trim() : "";
+  return { at: v.at, day: typeof v.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v.day) ? v.day : companyYmdAt(Date.parse(v.at)), inspectionId: id, responseId: v.responseId === null || v.responseId === undefined ? null : String(v.responseId), thisMonth: v.thisMonth === true, named: named };
+}
+// The open walk a site's read answers (part 392), as { id, name }, or null.
+function openWalkOf(v) {
+  if (!v || typeof v !== "object" || v.scheduledInspectionId === null || v.scheduledInspectionId === undefined || v.scheduledInspectionId === "") return null;
+  return { id: String(v.scheduledInspectionId), name: typeof v.templateName === "string" ? v.templateName.trim() : "" };
 }
 async function siteSafetyThisMonth(token, siteId, leaveOut) {
-  const [walks, list] = await Promise.all([
-    api("/api/inspections/safety-walks?siteId=" + encodeURIComponent(siteId), { token }),
-    api("/api/inspections/scheduled?site_id=" + encodeURIComponent(siteId), { token }).catch(() => null),
-  ]);
+  const walks = await api("/api/inspections/safety-walks?siteId=" + encodeURIComponent(siteId), { token });
   const last = lastWalkOf(walks && walks.lastWalk);
+  if (walks && typeof walks === "object" && Object.prototype.hasOwnProperty.call(walks, "openWalk")) {
+    const ow = openWalkOf(walks.openWalk);
+    return { done: last && last.thisMonth ? { id: last.inspectionId || last.responseId || "", at: last.at, day: last.day } : null, open: ow && ow.id !== String(leaveOut || "") ? ow : null };
+  }
+  const list = await api("/api/inspections/scheduled?site_id=" + encodeURIComponent(siteId), { token }).catch(() => null);
   const rows = (Array.isArray(list) ? list : (list && Array.isArray(list.inspections) ? list.inspections : [])).filter(r => r && r.id !== undefined && r.id !== null && String(r.id) !== String(leaveOut || "") && (r.site_id === undefined || String(r.site_id) === String(siteId)));
   const today = companyYmdAt(Date.now());
   const month = today.slice(0, 7);
@@ -20332,17 +20348,20 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
       // inspection, stops asking for it. It says on which and when, starts
       // no draft of it, and is sent without it, given up first (part 383).
       // Since ocsa-api part 378 the read answers the site's last walk,
-      // lastSafetyWalk, so nothing else is read to learn it; the other
-      // inspection is read once, for its name, and one that cannot be read,
-      // or a walk filed on its own, is said by its day.
+      // lastSafetyWalk, so nothing else is read to learn it; since part 384
+      // it names the other inspection too, and a walk filed on its own, or
+      // one whose inspection has no name, is said by its day.
       const lastWalk = lastWalkOf(d && d.lastSafetyWalk);
       if (inspectSafetyPartOf(d) && !inspectSafetyFiled(d) && lastWalk && lastWalk.thisMonth && lastWalk.inspectionId !== String(d.id)) {
         // One started after it, its switch turned on by the person, still
         // asks for it: they can turn it on either way.
         const after = d.created_at && isFinite(Date.parse(d.created_at)) && Date.parse(d.created_at) > Date.parse(lastWalk.at);
         if (!after) {
-          let name = "";
-          if (lastWalk.inspectionId) { try { const o = await api("/api/inspections/scheduled/" + encodeURIComponent(lastWalk.inspectionId), { token }); name = o && typeof o.template_name === "string" ? o.template_name.trim() : ""; } catch (e) { name = ""; } }
+          // Part 392: named by lastSafetyWalk.inspection (ocsa-api part
+          // 384, 5.2), with no second read; an answer from before it reads
+          // the other inspection once, as before.
+          let name = typeof lastWalk.named === "string" ? lastWalk.named : "";
+          if (lastWalk.named === undefined && lastWalk.inspectionId) { try { const o = await api("/api/inspections/scheduled/" + encodeURIComponent(lastWalk.inspectionId), { token }); name = o && typeof o.template_name === "string" ? o.template_name.trim() : ""; } catch (e) { name = ""; } }
           d = Object.assign({}, d, { with_safety: false, withSafety: false, safetyDoneOn: { id: lastWalk.inspectionId || lastWalk.responseId || "", name: name, at: lastWalk.at, day: lastWalk.day } });
         }
       }

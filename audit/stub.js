@@ -1924,6 +1924,10 @@ function makeState(opts) {
     // tasks.badShiftRun whatever they name.
     lastEnded: o.lastSession === "closed" ? { id: "sess-0", site: "site-north", startedAt: NOW.getTime() - 15 * 60 * 60 * 1000, endedAt: NOW.getTime() - 2 * 60 * 60 * 1000, byApi: true } : null,
     badShiftRun: Number(o.badShiftRun) || 0,
+    // Part 392: a walk named by its inspection, and the open one, on the
+    // safety walk reads (ocsa-api part 384, 5.2 and 5.3); false for an API
+    // from before part 384.
+    walkNames: o.walkNames !== false,
     // Part 392: the runs a session has joined, by key, whose shiftRun
     // carries its id (ocsa-api part 384, 5.1); runIds false is an API from
     // before part 384, whose reads name no run's id.
@@ -3840,14 +3844,32 @@ function createStub(opts) {
   // site: a done inspection's (its result's completed_at and
   // safety_response_id), the walk filed with this run's completion, or
   // one filed on its own.
+  // Part 392 (ocsa-api part 384, 5.2, helpers/inspectionSafety.js
+  // walkOf): it names the inspection it was walked on, inspection { id,
+  // templateName, scheduledDate }, null for a walk filed on its own;
+  // scheduledInspectionId stays beside it. walkNames false is an API from
+  // before part 384, which answers neither inspection nor openWalk.
   const lastWalkAt = (siteId) => {
     const walks = state.inspections.filter(i => String(i.site_id) === String(siteId) && i.status === "completed" && i.result && i.result.safety_response_id && i.result.completed_at)
-      .map(i => ({ at: i.result.completed_at, scheduledInspectionId: String(i.id), responseId: String(i.result.safety_response_id) }));
-    if (state.walkAlone && String(state.walkAlone.siteId) === String(siteId)) walks.push({ at: state.walkAlone.at, scheduledInspectionId: null, responseId: "frm-walk-alone" });
+      .map(i => ({ at: i.result.completed_at, scheduledInspectionId: String(i.id), responseId: String(i.result.safety_response_id), inspection: { id: String(i.id), templateName: i.template_name || null, scheduledDate: i.scheduled_date ? String(i.scheduled_date).slice(0, 10) : null } }));
+    if (state.walkAlone && String(state.walkAlone.siteId) === String(siteId)) walks.push({ at: state.walkAlone.at, scheduledInspectionId: null, responseId: "frm-walk-alone", inspection: null });
     const newest = walks.sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
     if (!newest) return null;
     const day = zoneDate(Date.parse(newest.at));
-    return { at: newest.at, day: day, scheduledInspectionId: newest.scheduledInspectionId, responseId: newest.responseId, thisMonth: day.slice(0, 7) === zoneDate(clockNow()).slice(0, 7) };
+    return Object.assign({ at: newest.at, day: day, scheduledInspectionId: newest.scheduledInspectionId, responseId: newest.responseId, thisMonth: day.slice(0, 7) === zoneDate(clockNow()).slice(0, 7) }, state.walkNames ? { inspection: newest.inspection } : {});
+  };
+  // Part 392 (ocsa-api part 384, 5.3, helpers/inspectionSafety.js
+  // openWalk): the inspection at the site this month, on or before today
+  // on the company's clock, neither completed nor cancelled, that carries
+  // the walk, the earliest first: { scheduledInspectionId, templateName,
+  // scheduledDate }, or null.
+  const openWalkAt = (siteId) => {
+    const today = zoneDate(clockNow());
+    const first = today.slice(0, 8) + "01";
+    const day = (i) => String(i.scheduled_date || "").slice(0, 10);
+    const hit = state.inspections.filter(i => !i.gone && String(i.site_id) === String(siteId) && i.with_safety !== false && i.withSafety !== false && i.status !== "completed" && i.status !== "cancelled" && day(i) >= first && day(i) <= today)
+      .sort((a, b) => day(a).localeCompare(day(b)) || String(a.created_at || "").localeCompare(String(b.created_at || "")) || String(a.id).localeCompare(String(b.id)))[0];
+    return hit ? { scheduledInspectionId: String(hit.id), templateName: hit.template_name || null, scheduledDate: day(hit) } : null;
   };
   // Part 383 (API part 378, its 7, helpers/inspectionFindings.js
   // ownersFor): every active staff member but test accounts and client
@@ -6488,7 +6510,7 @@ function createStub(opts) {
     if (key === "GET /api/inspections/safety-walks") {
       const siteId = new URLSearchParams(search || "").get("siteId") || "";
       if (!siteId) return json(400, { error: "Check the details and try again.", code: "inspections.badDetails", keys: ["siteId"] });
-      return json(200, { siteId: siteId, lastWalk: lastWalkAt(siteId) });
+      return json(200, Object.assign({ siteId: siteId, lastWalk: lastWalkAt(siteId) }, state.walkNames ? { openWalk: openWalkAt(siteId) } : {}));
     }
     // Part 383 (API part 378, its 8.2): an open inspection gives up its
     // safety walk once another at its site holds this month's: the

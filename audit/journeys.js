@@ -10634,5 +10634,42 @@ const PART392_S2_JOURNEYS = [
 ];
 JOURNEYS.push(...PART392_S2_JOURNEYS);
 
+// --- Round 12 of the staff app (part 392), section 3 ----------------------
+//
+// The walk by name (ocsa-api part 384, 5.2 and 5.3): lastWalk and
+// lastSafetyWalk name the inspection they were walked on, and the site's
+// safety walk read answers the open one, openWalk. Fails on the main of
+// part 388, which read the other inspection again for its name and read
+// the site's whole scheduled list to find the open one.
+const OPEN_SOUTH = { id: "in-open-south", template_name: "Invented south evening check", site_id: "site-south", site_name: "South Building", scheduled_date: "2026-10-01", status: "scheduled", with_safety: true, items: [] };
+const PART392_S3_JOURNEYS = [
+  {
+    id: "walkbyname",
+    label: "The walk by name (API part 384, 5.2 and 5.3): an open walk at a site whose safety walk was done on another inspection this month says on which and at what time with no read of that inspection; Start an inspection at a site with an open inspection carrying the walk says which, from the site's safety walk read alone, with no read of the site's scheduled list",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: ROUND1_SUPERVISOR, inspectionWalk: true, startInspection: true, inspections: [DONE_NORTH, OPEN_SOUTH] } });
+      try {
+        await openTab(app.page, "inspect", language);
+        if (!(await openInspectionNamed(app, INSPECTION_W.template_name))) { expect("the walk opens", false, (await bodyText(app.page)).slice(0, 200)); return; }
+        const done = await shows(app.page, '[data-walk-safety-done="' + DONE_NORTH.id + '"]', 6000);
+        const line = done ? await app.page.evaluate(() => document.querySelector("[data-walk-safety-done]").innerText.trim()) : "";
+        const lead = say("Safety walk done on {inspection} at {time}", language).split("{time}")[0].replace("{inspection}", DONE_NORTH.template_name);
+        const reads = app.stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/inspections/scheduled/" + DONE_NORTH.id);
+        expect("the walk says the safety walk was done on the other inspection, by its name and time, with no read of that inspection", done && line.indexOf(lead) === 0 && /10:42/.test(line) && reads.length === 0, JSON.stringify({ line, reads: reads.length }));
+        await spokenHere(app, language, expect);
+        await tapBack(app.page, language);
+        await shows(app.page, "[data-inspect-start]", 8000);
+        if (!(await startSheetAt(app, "site-south"))) { expect("the sheet picks South Building", false, "no chip"); return; }
+        await switchSettled(app, "open");
+        const south = await startSwitch(app);
+        const lists = app.stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/inspections/scheduled" && /site_id=/.test(c.search || ""));
+        const walks = app.stub.state.calls.filter(c => c.method === "GET" && c.path === "/api/inspections/safety-walks" && /siteId=site-south/.test(c.search || ""));
+        expect("at a site with an open inspection carrying the walk, the switch starts off and names it, from the site's safety walk read alone", south.on === "false" && south.kind === "open" && south.line === say("Safety walk on {inspection}, already started at this site", language).replace("{inspection}", OPEN_SOUTH.template_name) && walks.length === 1 && lists.length === 0, JSON.stringify({ south, walks: walks.length, lists: lists.length }));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART392_S3_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };
