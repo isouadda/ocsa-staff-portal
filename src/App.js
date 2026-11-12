@@ -1288,6 +1288,12 @@ const isTestAccount = (user) => !!user && (user.isTestAccount === true || user.i
 const siteIdOf = (r) => String(r && r.id !== undefined && r.id !== null ? r.id : r && r.siteId !== undefined ? r.siteId : "");
 const siteIsTest = (r) => !!r && (r.is_test === true || r.isTest === true || testSiteIds.has(siteIdOf(r)));
 function learnTestSites(rows) { (Array.isArray(rows) ? rows : []).forEach(r => { if (r && (r.is_test === true || r.isTest === true)) testSiteIds.add(siteIdOf(r)); }); return rows; }
+// Part 396 (section 2.1): one [TEST] on the test site's name. A name that
+// already starts with [TEST], as a test site may be named in the office,
+// or one this app already marked, is shown as it is, so no list ever
+// offers "[TEST] [TEST] ..." (the robot's Round 3 finding 1).
+const TEST_MARKED = /^\s*\[TEST\]/i;
+const testNamed = (name) => { const n = String(name === undefined || name === null ? "" : name); return TEST_MARKED.test(n) ? n : tr("[TEST] {name}", { name: n }); };
 // A list of sites for the person: the test site left out for a real
 // person, its name marked for a test account. nameKey names the field the
 // list draws.
@@ -1295,8 +1301,14 @@ function sitesForPerson(user, rows, nameKey) {
   learnTestSites(rows);
   const test = isTestAccount(user);
   const key = nameKey || "name";
-  return (Array.isArray(rows) ? rows : []).filter(r => r && (test || !siteIsTest(r))).map(r => (test && siteIsTest(r) ? Object.assign({}, r, { [key]: tr("[TEST] {name}", { name: String(r[key] || "") }) }) : r));
+  return (Array.isArray(rows) ? rows : []).filter(r => r && (test || !siteIsTest(r))).map(r => (test && siteIsTest(r) ? Object.assign({}, r, { [key]: testNamed(r[key]) }) : r));
 }
+// Part 396 (section 2.2): a write the API refused because it names the
+// test site and the person is neither a test account nor an admin (403
+// testCrew.testSite, testSite true, ocsa-api Round 14 section 1). Its
+// error, in the person's language, is shown as it is, under the button or
+// the field it is about; null for any other answer.
+const testSiteSaid = (err) => (err && err.status === 403 && (err.code === "testCrew.testSite" || (err.body && err.body.testSite === true)) ? saidOf(err) || null : null);
 // The rows of the schedule and the shift board (site_is_test, Round 12
 // 3.2): the test site's name marked for a test account; on the shift
 // board (board true), its shifts left out for a real person, since a
@@ -1304,7 +1316,7 @@ function sitesForPerson(user, rows, nameKey) {
 function shiftRowsForPerson(user, rows, board) {
   if (!Array.isArray(rows)) return rows;
   const test = isTestAccount(user);
-  return rows.filter(r => !(board && !test && r && r.site_is_test === true)).map(r => (test && r && r.site_is_test === true && typeof r.site_name === "string" ? Object.assign({}, r, { site_name: tr("[TEST] {name}", { name: r.site_name }) }) : r));
+  return rows.filter(r => !(board && !test && r && r.site_is_test === true)).map(r => (test && r && r.site_is_test === true && typeof r.site_name === "string" ? Object.assign({}, r, { site_name: testNamed(r.site_name) }) : r));
 }
 // Start Shift's three lists (GET /api/shift-sessions/sites) carry no flag:
 // the test sites this session read elsewhere are left out or marked.
@@ -2720,6 +2732,9 @@ export default function OCSAStaffPortal() {
   // The notice shown when Start is refused because a shift is still open
   // somewhere. Cleared on the next choice, start, or end.
   const [startBlock, setStartBlock] = useState(null);
+  // A start the API refused at the test site (part 396): its words, drawn
+  // under Start Shift until another site is chosen or another start goes.
+  const [startFault, setStartFault] = useState(null);
   // The sheet that asks which shift the session is working. null, or
   // "start" once Start Shift opened a session at a site with shifts, or
   // "change" from Change shift on the checklist. A session at such a site
@@ -3294,7 +3309,7 @@ export default function OCSAStaffPortal() {
 
   const handleStartSession = async (siteId) => {
     if (!siteId) { showToast(tr("Select a site first"), "error"); return; }
-    setLoading(true); setStartBlock(null);
+    setLoading(true); setStartBlock(null); setStartFault(null);
     try {
       // 201 is a new session. 200 is the same site already open, which
       // the API answers with that session, so it takes the same path and
@@ -3317,6 +3332,9 @@ export default function OCSAStaffPortal() {
         const at = err.body && err.body.openSession ? err.body.openSession.siteName : null;
         setStartBlock(at ? tr("A shift is still open at {site}. End it before starting another.", { site: at }) : tr("A shift is still open. End it before starting another."));
         refreshClockStatus().catch(e => console.warn("Clock status:", e.message));
+      } else if (testSiteSaid(err)) {
+        // Part 396 (section 2.2): the API's own words, under Start Shift.
+        setStartFault(testSiteSaid(err));
       } else { showToast(tr(err.message), "error"); }
     }
     setLoading(false);
@@ -4734,7 +4752,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "support" && destCtx.support && <SupportView userId={user && user.id} token={token} tickets={support} read={supportRead} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} focus={supportAt} t={t} />}
               {activeTab === "supplyorders" && (destCtx.supplyOrders || !!supplyAt) && <SupplyOrdersView token={token} user={user} holder={supplyHolder === true} rows={supplyOrders} onReload={() => loadSupplyOrders()} onRow={takeSupplyOrder} at={supplyAt} onAt={setSupplyAt} getOpts={getOpts} showToast={showToast} t={t} />}
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
-              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={firstTrainingsFrom} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} count={summaryCount("signaturesToSign", "sign")} onOpen={openSign} onOpenCard={openSignCard} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} count={summary === null ? "wait" : summary === false ? undefined : summary.counts.unfinishedForms} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} count={summaryCount("clientRequests", "requests")} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} count={supplyHolder ? summaryCount("supplyOrdersWaiting", "supply") : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} todoCount={summaryCount("trainingToDo", "training")} waitingCount={isAdmin ? summaryCount("trainingToSignOff", "awaiting") : null} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} onSelectSite={handleSelectSite} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSitesForPerson(user, sessionSites)} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} statusFailed={statusFailed} onRetryStatus={() => { refreshClockStatus().catch(() => setStatusFailed(true)); }} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
+              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={firstTrainingsFrom} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} count={summaryCount("signaturesToSign", "sign")} onOpen={openSign} onOpenCard={openSignCard} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} count={summary === null ? "wait" : summary === false ? undefined : summary.counts.unfinishedForms} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} count={summaryCount("clientRequests", "requests")} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} count={supplyHolder ? summaryCount("supplyOrdersWaiting", "supply") : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} todoCount={summaryCount("trainingToDo", "training")} waitingCount={isAdmin ? summaryCount("trainingToSignOff", "awaiting") : null} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} startFault={startFault} onSelectSite={(id) => { setStartFault(null); handleSelectSite(id); }} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSitesForPerson(user, sessionSites)} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} statusFailed={statusFailed} onRetryStatus={() => { refreshClockStatus().catch(() => setStatusFailed(true)); }} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} at={scheduleAt} />}
               {activeTab === "tasks" && <TasksView token={token} rereadList={() => (checklistAsk ? api(checklistAsk, { token }) : Promise.reject(Object.assign(new Error(ERR_GENERIC), { status: 404 })))} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} shiftChoices={siteShifts} shiftNames={shiftNames} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} alsoHere={alsoHere} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView userId={user && user.id} assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
@@ -6366,7 +6384,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
 // site on the list, and each of the person's own such sites, scheduled
 // today or assigned, offers its list to read with no shift open
 // (onReadList).
-function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startBlock, onSelectSite, onStartSession, onEndSession, siteChoices, siteChoicesFailed, onRetrySites, loading, completedCount, taskCount, taskListLoaded, reference, siteReference, onReadList, watchSites, endWaiting, statusFailed, onRetryStatus, t }) {
+function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startBlock, startFault, onSelectSite, onStartSession, onEndSession, siteChoices, siteChoicesFailed, onRetrySites, loading, completedCount, taskCount, taskListLoaded, reference, siteReference, onReadList, watchSites, endWaiting, statusFailed, onRetryStatus, t }) {
   // The timer below is the one number on any screen wide enough to reach
   // the edge of its card, so this screen has to know the text size.
   const { textSize: clockTextSize } = useContext(TextSizeCtx);
@@ -6492,6 +6510,7 @@ function ClockView({ clockStatus, currentTime, selectedSite, pendingSite, startB
         {siteChoices && groups.length > 0 && !ci && (
           <button ref={startRef} data-start-shift="1" onClick={() => onStartSession(pendingSite)} disabled={!pendingSite || loading} style={{ ...mkPrimaryBtn(t, loading || !pendingSite), marginTop: 4, cursor: !pendingSite || loading ? "default" : "pointer" }}>{loading ? tr("Starting...") : pendingSite ? tr("Start Shift at {site}", { site: pendingName }) : tr("Start Shift")}</button>
         )}
+        {startFault && !ci && <div role="alert" data-start-fault="1" style={{ marginTop: 8, padding: "10px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, fontSize: 13, color: wsLateInk(t), lineHeight: 1.45, overflowWrap: "anywhere" }}>{startFault}</div>}
       </div>}
     </div>
   );
@@ -9812,6 +9831,10 @@ function RequestNoteSheet({ id, title, line, label, required, button, photos, to
 function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, attachIssuePhoto, showToast, user, sites, t, token, getOpts, lkColorMap, requests, onRequestsChanged, openRequest, onOpenIssue }) {
   const [showForm, setShowForm] = useState(false); const [title, setTitle] = useState(""); const [desc, setDesc] = useState("");
   const [sev, setSev] = useState("medium"); const [zone, setZone] = useState(""); const [selSite, setSelSite] = useState("");
+  // A report the API refused at the test site (part 396, section 2.2): its
+  // words, under the Site field, or under Submit Issue where no Site
+  // field is drawn, until the site changes or the report goes again.
+  const [siteFault, setSiteFault] = useState(null);
   const [photo, setPhoto] = useState(null); const [photoPreview, setPhotoPreview] = useState(null); const [uploading, setUploading] = useState(false);
   const fileRef = useRef(null);
   // An issue that went whose photo did not attach: the issue, the photo
@@ -9840,6 +9863,8 @@ function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, attachI
       setShowForm(true);
     });
   const labelSt = mkLabel(t); const inputSt = mkInput(t);
+  const siteField = !clockStatus?.clockedIn && !!sites && sites.length > 0;
+  const issueFaultSt = { marginTop: 8, padding: "10px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, fontSize: 13, color: wsLateInk(t), lineHeight: 1.45, overflowWrap: "anywhere" };
   const sevOpts = getOpts("issue_severities");
   const sevColors = lkColorMap("issue_severities");
   const sevs = sevOpts.length > 0 ? sevOpts.map(o => ({ v: o.v, l: o.l, c: sevColors[o.v] || ORANGE })) : [{ v: "low", l: tr("Low"), c: GREEN }, { v: "medium", l: tr("Med"), c: ORANGE }, { v: "high", l: tr("High"), c: RED }];
@@ -9854,7 +9879,7 @@ function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, attachI
   // The form clears only once the issue is in. A send that fails keeps
   // every field and the photo, says why, and Submit Issue tries again; a
   // photo already up is not sent a second time (Round 1, PORT-01).
-  const handleSubmit = async () => { if (!title.trim()) { showToast(tr("Enter issue title"), "error"); return; } const siteId = clockStatus?.clockedIn ? clockStatus.shift.siteId : selSite; if (!siteId) { showToast(tr("Select a site"), "error"); return; } setUploading(true); try { let photoUrl = null; if (photo) { photoUrl = photoUp.current && photoUp.current.file === photo ? photoUp.current.url : await uploadPhoto(photo, token); photoUp.current = { file: photo, url: photoUrl }; } const sig = JSON.stringify([siteId, title.trim(), desc.trim(), zone.trim(), sev, photoUrl]); if (!reportId.current || reportId.current.sig !== sig) reportId.current = { id: newClientId(), sig: sig }; setSentAs({ rid: reportId.current, photoUrl: photoUrl }); const done = await submitIssue(title.trim(), desc.trim(), zone.trim(), sev, photoUrl, siteId, reportId.current.id); if (done && done.photoFault && done.issue) setPhotoLeft({ issueId: done.issue.id, url: photoUrl, preview: photoPreview }); photoUp.current = null; reportId.current = null; setSentAs(null); setTitle(""); setDesc(""); setZone(""); setSev("medium"); setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; setShowForm(false); } catch (err) { if (err && err.code === "issues.clientIdInvalid") reportId.current = null; showToast(tr(err.message), "error"); } setUploading(false); };
+  const handleSubmit = async () => { if (!title.trim()) { showToast(tr("Enter issue title"), "error"); return; } const siteId = clockStatus?.clockedIn ? clockStatus.shift.siteId : selSite; if (!siteId) { showToast(tr("Select a site"), "error"); return; } setUploading(true); setSiteFault(null); try { let photoUrl = null; if (photo) { photoUrl = photoUp.current && photoUp.current.file === photo ? photoUp.current.url : await uploadPhoto(photo, token); photoUp.current = { file: photo, url: photoUrl }; } const sig = JSON.stringify([siteId, title.trim(), desc.trim(), zone.trim(), sev, photoUrl]); if (!reportId.current || reportId.current.sig !== sig) reportId.current = { id: newClientId(), sig: sig }; setSentAs({ rid: reportId.current, photoUrl: photoUrl }); const done = await submitIssue(title.trim(), desc.trim(), zone.trim(), sev, photoUrl, siteId, reportId.current.id); if (done && done.photoFault && done.issue) setPhotoLeft({ issueId: done.issue.id, url: photoUrl, preview: photoPreview }); photoUp.current = null; reportId.current = null; setSentAs(null); setTitle(""); setDesc(""); setZone(""); setSev("medium"); setPhoto(null); setPhotoPreview(null); if (fileRef.current) fileRef.current.value = ""; setShowForm(false); } catch (err) { if (err && err.code === "issues.clientIdInvalid") reportId.current = null; if (testSiteSaid(err)) setSiteFault(testSiteSaid(err)); else showToast(tr(err.message), "error"); } setUploading(false); };
   const attachAgain = async () => { if (!photoLeft || uploading) return; setUploading(true); try { await attachIssuePhoto(photoLeft.issueId, photoLeft.url); setPhotoLeft(null); showToast(tr("Photo attached")); } catch (err) { showToast(tr(err.message), "error"); } setUploading(false); };
   return (
     <div style={{ padding: "16px" }}>
@@ -9862,13 +9887,14 @@ function IssuesView({ clockStatus, issues, failed, onRetry, submitIssue, attachI
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{isAdmin ? tr("Issues") : tr("Report an Issue")}</div>{isAdmin && <button onClick={() => setShowForm(!showForm)} style={mkTapFrame()}><span style={{ display: "inline-flex", alignItems: "center", padding: "7px 13px", borderRadius: R.sm, border: showForm ? "1px solid " + t.borderSolid : "none", background: showForm ? t.cardAlt : GOLD, color: showForm ? t.text : NAVY, fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{showForm ? tr("Cancel") : tr("+ Report")}</span></button>}</div>
       {photoLeft && (<div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", marginBottom: 14, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, boxShadow: t.shadow }}>{photoLeft.preview ? <img src={photoLeft.preview} alt={tr("Preview")} style={{ width: 44, height: 44, objectFit: "cover", borderRadius: R.sm, flexShrink: 0, border: "1px solid " + t.borderSolid }} /> : <CamIco sz={18} c={t.textMut} style={{ flexShrink: 0 }} />}<div role="alert" style={{ flex: 1, minWidth: 0, fontSize: 12, color: t.textSec, lineHeight: 1.5 }}>{tr("Issue reported. Its photo did not attach.")}</div><button type="button" onClick={attachAgain} disabled={uploading} style={{ minHeight: TAP, padding: "0 14px", flexShrink: 0, borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, opacity: uploading ? 0.6 : 1 }}>{tr("Try again")}</button></div>)}
       {(showForm || !isAdmin) && (<div style={{ padding: 14, marginBottom: 14, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, animation: "fadeIn 0.3s ease", boxShadow: t.popShadow }}>
-        {!clockStatus?.clockedIn && sites && sites.length > 0 && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Site")}</label><select value={selSite} onChange={e => setSelSite(e.target.value)} style={inputSt}><option value="">{tr("Select site...")}</option>{sites.map(s => <option key={s.siteId} value={s.siteId}>{s.siteName}</option>)}</select></div>)}
+        {siteField && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Site")}</label><select value={selSite} onChange={e => { setSelSite(e.target.value); setSiteFault(null); }} style={inputSt}><option value="">{tr("Select site...")}</option>{sites.map(s => <option key={s.siteId} value={s.siteId}>{s.siteName}</option>)}</select>{siteFault && <div role="alert" data-issue-site-fault="field" style={issueFaultSt}>{siteFault}</div>}</div>)}
         <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Title")}</label><input value={title} onChange={e => setTitle(e.target.value)} placeholder={tr("Brief description")} style={inputSt} /></div>
         <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Details")}</label><textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder={tr("Additional details...")} rows={3} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
         <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Zone")}</label><input value={zone} onChange={e => setZone(e.target.value)} placeholder={tr("e.g. Restroom, Lobby")} style={inputSt} /></div>
         <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Severity")}</label><div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{sevs.map(s => (<button key={s.v} onClick={() => setSev(s.v)} style={{ flex: 1, minHeight: TAP, padding: "9px", borderRadius: R.sm, border: sev === s.v ? "2px solid " + s.c : "1px solid " + t.borderSolid, background: sev === s.v ? s.c + "1A" : "transparent", cursor: "pointer", color: ink(t, s.c), fontSize: 12, fontWeight: 600, textAlign: "center", fontFamily: FONT_HEAD, letterSpacing: "0.3px" }}>{s.l}</button>))}</div></div>
         <div style={{ marginBottom: 14 }}><label style={labelSt}>{tr("Photo")}</label><input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{ display: "none" }} />{!photoPreview ? (<button onClick={() => fileRef.current?.click()} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px", background: t.hover, border: "1px dashed " + GOLD, borderRadius: R.sm, cursor: "pointer", color: t.goldText, fontSize: 12, fontWeight: 600 }}><CamIco sz={18} c={t.goldText} /><div style={{ textAlign: "left" }}><div>{tr("Take Photo or Choose from Gallery")}</div><div style={{ fontSize: 10, color: t.textMut, fontWeight: 400, marginTop: 2 }}>{tr("JPG, PNG up to 10MB")}</div></div></button>) : (<div style={{ position: "relative" }}><img src={photoPreview} alt={tr("Preview")} style={{ width: "100%", height: 160, objectFit: "cover", borderRadius: R.sm, border: "1px solid " + t.borderSolid }} /><button onClick={removePhoto} aria-label={tr("Remove photo")} style={mkTapFrame({ position: "absolute", top: -2, right: -2 })}><span style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(0,0,0,0.7)", color: "#F8F7F4", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>{tr("x")}</span></button><div style={{ fontSize: 10, color: ink(t, GREEN), marginTop: 4 }}>{tr("Photo attached:")} {photo?.name}</div></div>)}</div>
         <button onClick={handleSubmit} disabled={uploading} style={{ width: "100%", minHeight: TAP, padding: "13px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 13, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", opacity: uploading ? 0.6 : 1 }}>{uploading ? tr("Uploading...") : tr("Submit Issue")}</button>
+        {siteFault && !siteField && <div role="alert" data-issue-site-fault="submit" style={issueFaultSt}>{siteFault}</div>}
       </div>)}
       {isAdmin && failed && visibleIssues.length === 0 && !showForm && <ListFault icon={AlertIco} text={tr("This list did not load.")} onRetry={onRetry} t={t} />}
       {isAdmin && !failed && visibleIssues.length === 0 && !showForm && <div style={{ padding: "32px 20px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, fontSize: 13, color: t.textMut, boxShadow: t.shadow }}>{tr("No issues reported yet.")}</div>}

@@ -1900,6 +1900,35 @@ at open, a supervisor reads no findings at open, and a holder reads no
 supply request at open. The smoke check's More run reads the same: with
 the signature routes not answering, the requests are never asked.
 
+## The test site (part 396, section 2)
+
+The stub's test site can be named the way the office may name it:
+`testSiteMarked` serves it as "[TEST] Invented Test Building". The
+portal marks a test site's name with one "[TEST] " and shows a name that
+already starts with [TEST] as it is (`testNamed`), so no list offers
+"[TEST] [TEST] ...", the robot's Round 3 finding 1.
+
+`testSiteRefuses: ["POST /api/issues"]` refuses each write named as
+ocsa-api Round 14 refuses a write at the test site by someone who is
+neither a test account nor an admin (part 391, section 1,
+`helpers/testGuard.js keepOff`): 403 `{ error, code:
+"testCrew.testSite", testSite: true }`, its words in the request's
+language (`TEST_SITE_REFUSAL`, the API's `helpers/words.js`), nothing
+written, and each refused write kept in `testSiteRefused`. The portal
+shows `error` as it is (`testSiteSaid`): under Start Shift, and under
+Report an issue's Site field, or under Submit Issue where no Site field
+is drawn.
+
+Two journeys, in English and Spanish, each failing on the main of part
+392:
+
+- `testsitename`: a test account whose test site is already named
+  [TEST] reads it once on Report an issue's Site list and on My
+  Schedule.
+- `testsiterefused`: Start Shift refused says the API's words under Start
+  Shift, and Report an issue refused says them under the Site field and
+  keeps the report.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

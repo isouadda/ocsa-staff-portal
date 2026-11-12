@@ -10823,4 +10823,66 @@ const PART396_S1_JOURNEYS = [
 ];
 JOURNEYS.push(...PART396_S1_JOURNEYS);
 
+// --- Round 13 of the staff app (part 396), section 2 ----------------------
+//
+// The test site (ocsa-api Round 14, part 391, section 1): one [TEST] on
+// its name, and a write the API refuses as one at the test site said in
+// its words under the button or the field it is about. Fails on the main
+// of part 392, which marked a name already starting with [TEST] again
+// (the robot's Round 3 finding 1) and said the refusal in a toast.
+const TEST_SITE_NAME = "Invented Test Building";
+const PART396_S2_JOURNEYS = [
+  {
+    id: "testsitename",
+    label: "One [TEST] on the test site's name (the robot's Round 3 finding 1): a test account whose test site is already named [TEST] reads it once on Report an issue's Site list and on My Schedule, never [TEST] [TEST]",
+    run: async (open, language, expect) => {
+      const crew = Object.assign({}, PERSON, { id: "u-test-crew", isTestAccount: true });
+      const app = await open({ stubOptions: { person: crew, testSite: true, testSiteMarked: true, clockedIn: false } });
+      try {
+        await openTab(app.page, "issues", language);
+        await shows(app.page, ".sp-content select", 8000);
+        const options = await app.page.evaluate(() => { const sel = document.querySelector(".sp-content select"); return sel ? Array.from(sel.options).map(o => o.value + "|" + o.textContent) : []; });
+        const test = options.find(o => o.indexOf("site-test|") === 0) || "";
+        expect("Report an issue offers the test site with one [TEST]", test === "site-test|[TEST] " + TEST_SITE_NAME, JSON.stringify(options));
+        await spokenHere(app, language, expect);
+        await openTab(app.page, "schedule", language);
+        await pause(app.page, 2000);
+        const text = await bodyText(app.page);
+        expect("My Schedule names it with one [TEST] and never two", !has(text, "[TEST] [TEST]"), text.slice(0, 300));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "testsiterefused",
+    label: "A write at the test site refused (API Round 14, part 391, section 1): Start Shift refused 403 testCrew.testSite says the API's words under Start Shift, and Report an issue refused the same way says them under the Site field and keeps the report",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { clockedIn: false, testSiteRefuses: ["POST /api/shift-sessions", "POST /api/issues"] } });
+      const words = require("./stub").TEST_SITE_REFUSAL[language];
+      try {
+        await openTab(app.page, "clock", language);
+        await pause(app.page, 1200);
+        await pickSite(app.page, "North Building");
+        await pause(app.page, 600);
+        await app.page.evaluate(() => { const b = document.querySelector("[data-start-shift]"); if (b) b.click(); });
+        const under = await shows(app.page, "[data-start-fault]", 6000);
+        const said = under ? await textAt(app.page, "[data-start-fault]") : "";
+        const below = under ? await app.page.evaluate(() => { const b = document.querySelector("[data-start-shift]"); const f = document.querySelector("[data-start-fault]"); return !!b && !!f && f.getBoundingClientRect().top >= b.getBoundingClientRect().bottom - 1; }) : false;
+        expect("Start Shift refused says the API's words under Start Shift", under && String(said).trim() === words && below && app.stub.state.testSiteRefused.length === 1, JSON.stringify({ said, below }));
+        await spokenHere(app, language, expect);
+        await openTab(app.page, "issues", language);
+        await shows(app.page, ".sp-content select", 8000);
+        await app.page.selectOption(".sp-content select", "site-north");
+        await typeNth(app.page, ".sp-content input", 0, "Invented: a cracked tile by the door");
+        await clickText(app.page, say("Submit Issue", language));
+        const field = await shows(app.page, '[data-issue-site-fault="field"]', 6000);
+        const fieldSaid = field ? await textAt(app.page, '[data-issue-site-fault="field"]') : "";
+        const kept = await app.page.evaluate(() => { const i = document.querySelector(".sp-content input"); return i ? i.value : null; });
+        expect("Report an issue refused says the API's words under the Site field and keeps the report", field && String(fieldSaid).trim() === words && kept === "Invented: a cracked tile by the door", JSON.stringify({ fieldSaid, kept }));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART396_S2_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };

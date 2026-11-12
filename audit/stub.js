@@ -1034,6 +1034,13 @@ const START_SITES = [
 // Part 380: the robot's test site (sites.is_test, API Round 10), behind
 // testSite. Every name invented.
 const TEST_SITE = { id: "site-test", name: "Invented Test Building", status: "active", is_test: true };
+// Part 396: the API's words for a write at the test site by a real person
+// (ocsa-api helpers/words.js testCrew.testSite), as it answers them.
+const TEST_SITE_REFUSAL = {
+  en: "This is the test site. Only test accounts and admins can make changes here.",
+  es: "Este es el sitio de prueba. Solo las cuentas de prueba y los administradores pueden hacer cambios aqu\u00ed.",
+  fr: "C'est le site de test. Seuls les comptes de test et les administrateurs peuvent y faire des modifications.",
+};
 const START_REFUSALS = {
   "inspections.scheduleFieldsRequired": { status: 400, en: "Template, site, and date are required", es: "Se necesitan la plantilla, el sitio y la fecha" },
 };
@@ -1804,6 +1811,16 @@ function makeState(opts) {
     photoSignReads: [],
     // Part 380: the robot's test site on the site lists that answer it.
     testSite: o.testSite === true,
+    // Part 396 (section 2): testSiteMarked names the test site "[TEST] ..."
+    // as the office may; testSiteRefuses lists the writes ("POST
+    // /api/issues") the API refuses as one naming the test site by someone
+    // who neither is a test account nor an admin (ocsa-api Round 14,
+    // helpers/testGuard.js keepOff): 403 testCrew.testSite with testSite
+    // true, in the request's language, nothing written. Each refused write
+    // is kept in testSiteRefused.
+    testSiteMarked: o.testSiteMarked === true,
+    testSiteRefuses: Array.isArray(o.testSiteRefuses) ? o.testSiteRefuses.slice() : [],
+    testSiteRefused: [],
     photoLost: Array.isArray(o.photoLost) ? o.photoLost.slice() : [],
     uploadSeq: 0,
     // A step of a site's checklist with a reference photo, by task id.
@@ -3292,7 +3309,9 @@ const TWIN_PAIRS = [
   // session the API closed itself (API part 378).
   .concat([[BAD_SHIFT_RUN.en, BAD_SHIFT_RUN.es], [CLOSED_NOTE.en, CLOSED_NOTE.es]])
   // Part 383: the certificate route's refusals (API part 378).
-  .concat(["training.badDetails", "training.badFile", "training.fileTooLarge", "training.topicNotFound", "training.notOutsideCourse"].map(k => [TRAINING_REFUSALS[k].en, TRAINING_REFUSALS[k].es]));
+  .concat(["training.badDetails", "training.badFile", "training.fileTooLarge", "training.topicNotFound", "training.notOutsideCourse"].map(k => [TRAINING_REFUSALS[k].en, TRAINING_REFUSALS[k].es]))
+  // Part 396: a write at the test site refused (API Round 14, section 1).
+  .concat([[TEST_SITE_REFUSAL.en, TEST_SITE_REFUSAL.es]]);
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -3627,6 +3646,10 @@ const EQ_ITEM = { id: "eq-smoke", name: "Invented floor scrubber", category: "Fl
 
 function createStub(opts) {
   const state = makeState(opts);
+  // Part 396 (section 2.1): the test site's name as the API answers it;
+  // with testSiteMarked it already starts with [TEST], as a test site may
+  // be named in the office.
+  const testSiteName = () => (state.testSiteMarked ? "[TEST] " + TEST_SITE.name : TEST_SITE.name);
   // Part 375: a session open at a site with named shifts is in the run its
   // start picks, the label a case names (sessionRun) winning.
   {
@@ -3736,14 +3759,14 @@ function createStub(opts) {
   const schedule = () => state.schedule || {
     scheduled: [{ id: "sh-1", scheduled_date: "2026-10-02", start_time: "17:00", end_time: "23:00", site_name: "North Building", status: "scheduled", building_name: "Main Hall", floor_number: "2" }]
       // Part 388: a test account with testSite holds a shift at the test site.
-      .concat(state.testSite && state.person.isTestAccount === true ? [{ id: "sh-test", scheduled_date: "2026-10-03", start_time: "09:00", end_time: "13:00", site_name: TEST_SITE.name, site_id: TEST_SITE.id, status: "scheduled", building_name: null, floor_number: null }] : []),
+      .concat(state.testSite && state.person.isTestAccount === true ? [{ id: "sh-test", scheduled_date: "2026-10-03", start_time: "09:00", end_time: "13:00", site_name: testSiteName(), site_id: TEST_SITE.id, status: "scheduled", building_name: null, floor_number: null }] : []),
     actual: [{ id: "ac-1", clock_in_time: iso(NOW.getTime() - 3 * 60 * 60 * 1000), shift_status: "active", site_name: "North Building" }],
     pickups: [],
   };
   // Part 388 (API Round 12, 3.2, routes/pickups.js): site_is_test on every
   // row of the staff app's schedule (all four lanes, one shift) and shift
   // board (available, my pickups), true for the test site's.
-  const flagRows = (rows) => (Array.isArray(rows) ? rows.map(x => (x && typeof x === "object" ? Object.assign({}, x, { site_is_test: x.site_is_test === true || x.site_id === TEST_SITE.id || x.site_name === TEST_SITE.name }) : x)) : rows);
+  const flagRows = (rows) => (Array.isArray(rows) ? rows.map(x => (x && typeof x === "object" ? Object.assign({}, x, { site_is_test: x.site_is_test === true || x.site_id === TEST_SITE.id || x.site_name === testSiteName() }) : x)) : rows);
   const flagLanes = (d) => { const out = Object.assign({}, d); ["scheduled", "actual", "pickups", "pendingDrops"].forEach(k => { if (Array.isArray(out[k])) out[k] = flagRows(out[k]); }); return out; };
 
   // --- the checklist day, as Step 124 answers it
@@ -4342,7 +4365,7 @@ function createStub(opts) {
     const q = new URLSearchParams(search || "");
     // Part 380: with testSite, the robot's test site too. Part 388 (API
     // Round 12, 3.2): every row carries isTest.
-    if (key === "GET /api/forms/my-sites") return management ? json(200, { sites: SITES.map(x => ({ id: x.siteId, name: x.siteName, isTest: false })).concat(state.testSite ? [{ id: TEST_SITE.id, name: TEST_SITE.name, isTest: true }] : []) }) : null;
+    if (key === "GET /api/forms/my-sites") return management ? json(200, { sites: SITES.map(x => ({ id: x.siteId, name: x.siteName, isTest: false })).concat(state.testSite ? [{ id: TEST_SITE.id, name: testSiteName(), isTest: true }] : []) }) : null;
     // The register's two other labels open the way the smoke check's does.
     const label = FK_EQUIPMENT.find(x => key === "GET /api/equipment/by-qr/" + x.qrCode);
     if (label) return json(200, { equipment: Object.assign({ siteId: "site-north", siteName: "North Building" }, label), events: [] });
@@ -4595,6 +4618,11 @@ function createStub(opts) {
     if (state.pinGate && state.mustSetPin && /^Bearer /.test(String((headers || {}).authorization || "")) && MUST_SET_PIN_OPEN.indexOf(key) === -1 && !SIGNED_OUT.some(re => re.test(key))) {
       return json(MUST_SET_PIN.status, { error: refusalIn(MUST_SET_PIN, languageOf(search, state)), code: "auth.mustSetPin" });
     }
+    if (state.testSiteRefuses.indexOf(key) !== -1) {
+      state.testSiteRefused.push({ key: key, body: body || null });
+      const lang = languageOf(search, state);
+      return json(403, { error: TEST_SITE_REFUSAL[lang] || TEST_SITE_REFUSAL.en, code: "testCrew.testSite", testSite: true });
+    }
     const refused = refusalFor(key, search);
     if (refused) return refused;
     if (state.holdMs[key] > 0) {
@@ -4706,7 +4734,7 @@ function createStub(opts) {
     // Part 388 (API Round 12, 3.1 and 3.2): user.isTestAccount, and isTest
     // on each of the person's sites; a test account with testSite is
     // assigned the test site too.
-    if (key === "GET /api/auth/me") return json(200, Object.assign({ user: Object.assign({}, state.person, { isTestAccount: state.person.isTestAccount === true }), sites: (state.assignedSites || SITES).map(withMode).map(x => Object.assign({}, x, { isTest: x.isTest === true || x.siteId === TEST_SITE.id })).concat(state.testSite && state.person.isTestAccount === true && !state.assignedSites ? [{ siteId: TEST_SITE.id, siteName: TEST_SITE.name, isTest: true }] : []), preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
+    if (key === "GET /api/auth/me") return json(200, Object.assign({ user: Object.assign({}, state.person, { isTestAccount: state.person.isTestAccount === true }), sites: (state.assignedSites || SITES).map(withMode).map(x => Object.assign({}, x, { isTest: x.isTest === true || x.siteId === TEST_SITE.id })).concat(state.testSite && state.person.isTestAccount === true && !state.assignedSites ? [{ siteId: TEST_SITE.id, siteName: testSiteName(), isTest: true }] : []), preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
     // Register as routes/auth.js answers it since part 363 (API-117): a
     // phone (its digits) or an email (any case) that already has an
     // account answers exactly as a new one does, 201 auth.registered with
@@ -5003,7 +5031,7 @@ function createStub(opts) {
     if (key === "GET /api/sites") {
       const every = state.person.role === "admin" || state.person.role === "supervisor";
       const rows = state.startInspection ? START_SITES.map(x => Object.assign({}, x)) : SITES.map(withMode);
-      return json(200, every ? rows.map(x => Object.assign({ is_test: false }, x)).concat(state.testSite ? [Object.assign({}, TEST_SITE, state.startInspection ? {} : { siteId: TEST_SITE.id, siteName: TEST_SITE.name })] : []) : rows.map(x => Object.assign({ is_test: false }, x)));
+      return json(200, every ? rows.map(x => Object.assign({ is_test: false }, x)).concat(state.testSite ? [Object.assign({}, TEST_SITE, { name: testSiteName() }, state.startInspection ? {} : { siteId: TEST_SITE.id, siteName: testSiteName() })] : []) : rows.map(x => Object.assign({ is_test: false }, x)));
     }
     // Part 375: a site's named shifts (routes/siteShifts.js GET), the
     // active ones in order, each named in the language asked for; [] at a
@@ -5080,7 +5108,7 @@ function createStub(opts) {
       { id: "pk-3", scheduled_date: "2026-10-10", start_time: "22:00", end_time: "06:00", site_name: "West Building", origin: "no_show", service_category: "Day porter" },
       { id: "pk-4", scheduled_date: "2026-10-11", start_time: "08:00", end_time: "12:00", site_name: "South Building", origin: "extra_coverage", service_category: "Day porter" },
       { id: "pk-5", scheduled_date: "2026-10-12", start_time: "14:00", end_time: "18:00", site_name: "North Building", origin: "new_shift", service_category: "Day porter" },
-    ].concat(state.testSite ? [{ id: "pk-test", scheduled_date: "2026-10-13", start_time: "09:00", end_time: "13:00", site_name: TEST_SITE.name, site_id: TEST_SITE.id, origin: "extra_coverage", service_category: "Day porter" }] : [])));
+    ].concat(state.testSite ? [{ id: "pk-test", scheduled_date: "2026-10-13", start_time: "09:00", end_time: "13:00", site_name: testSiteName(), site_id: TEST_SITE.id, origin: "extra_coverage", service_category: "Day porter" }] : [])));
     if (key === "GET /api/pickups/my-pickups") return json(200, flagRows(state.myPickups));
     // Part 359: a drop as routes/pickups.js answers it since part 357
     // (API-52): the open shift it wrote, and a second ask for the same
@@ -7157,7 +7185,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { runIdFor: runIdOf, FOLLOW_UP_REFUSALS, FOLLOW_UP_TOPICS, CLOSED_NOTE, BAD_SHIFT_RUN, DROP_REFUSALS, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { TEST_SITE, TEST_SITE_REFUSAL, runIdFor: runIdOf, FOLLOW_UP_REFUSALS, FOLLOW_UP_TOPICS, CLOSED_NOTE, BAD_SHIFT_RUN, DROP_REFUSALS, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
