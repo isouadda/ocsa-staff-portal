@@ -1841,6 +1841,141 @@ One journey, in English and Spanish, failing on the main of part 388:
   carrying the walk from the site's safety walk read alone, with no read
   of `GET /api/inspections/scheduled?site_id=`.
 
+## One read at open (part 396, section 1)
+
+The stub answers `GET /api/me/summary` as ocsa-api Round 14 builds it
+(part 391, section 3, `routes/me.js` and `helpers/meSummary.js summaryOf`):
+`{ features, counts }`, each value by the rule of the list route it
+stands for. As the API reads through each list's own code, the stub reads
+its own answer to each list (`summaryNow`), so a value is always what
+that list answers the same person: My training's items and first-day
+items with a try left, and its documents to sign; a sheet on the safety
+data sheets' list; a holder's supply requests at decide or sign; the
+person's findings and the conversations waiting for them, and whether
+they may list the office's with its `counts.needsFollowUp`; the client
+requests awaiting their approval or assigned to them and not done; their
+own drafts, walk drafts left out; an admin's or a supervisor's sign-offs,
+their own left out; the bell's unread count; the chats' unread summed;
+the signature requests waiting; and the assigned tasks and requests, an
+issue once. `summary: false` is an API from before Round 14, which
+answers 404. `summaryNull: ["signatures", "chat"]` answers those parts
+as a part that threw: its counts null and its feature false. `ordersNone`
+answers a holder's supply requests with none.
+
+At open the portal reads the clock status, the permissions, the summary,
+the site's tasks with a shift open, Home's week and Start Shift's sites.
+More's entries come from `features`, Approve supplies from the
+permissions' `approve_supplies` for every holder. Home's cards draw their
+line from `counts` and read their list when tapped; Your first trainings
+and Unfinished forms, which draw rows, read their list at open only while
+their count says there is one to draw. The bell starts from
+`counts.unreadNotices` and keeps its read every 60 seconds; Chat's count
+and Assigned's start from `counts.chatUnread` and `counts.assigned` until
+Chat or Assigned has read its own list. A card or a badge draws
+whichever is newer, the summary or a list read since. Home opened again,
+More opened and the app back at the front read the summary again. A
+count answered null reads that one list at open, and with no summary at
+all every list is read at open as before.
+
+Three journeys, in English and Spanish, each failing on the main of part
+392:
+
+- `onereadopen`: a cleaner, a supervisor and a holder of
+  `approve_supplies` each read the summary once at open and none of the
+  lists it counts; Home's cards, the bell and Chat's count read its
+  counts, Unfinished forms reads its rows since one is counted, and More
+  offers what its features say; the signature card reads the requests
+  once when tapped and opens the three; Findings to follow up and Approve
+  supplies read their lists as they open.
+- `onereadnull`: with the signatures and the chats answered null, only
+  those two lists are read at open, and the card and Chat's count draw
+  from them; with no summary route, every list is read at open and Home
+  draws the same cards.
+- `approveall`: a holder with no supply request is offered Approve
+  supplies, which reads its list as it opens and says "Nothing is waiting
+  for you."; someone without the capability is offered none.
+
+`lightopen` (part 392) now reads this rule: the bell's count is not read
+at open, a supervisor reads no findings at open, and a holder reads no
+supply request at open. The smoke check's More run reads the same: with
+the signature routes not answering, the requests are never asked.
+
+## The test site (part 396, section 2)
+
+The stub's test site can be named the way the office may name it:
+`testSiteMarked` serves it as "[TEST] Invented Test Building". The
+portal marks a test site's name with one "[TEST] " and shows a name that
+already starts with [TEST] as it is (`testNamed`), so no list offers
+"[TEST] [TEST] ...", the robot's Round 3 finding 1.
+
+`testSiteRefuses: ["POST /api/issues"]` refuses each write named as
+ocsa-api Round 14 refuses a write at the test site by someone who is
+neither a test account nor an admin (part 391, section 1,
+`helpers/testGuard.js keepOff`): 403 `{ error, code:
+"testCrew.testSite", testSite: true }`, its words in the request's
+language (`TEST_SITE_REFUSAL`, the API's `helpers/words.js`), nothing
+written, and each refused write kept in `testSiteRefused`. The portal
+shows `error` as it is (`testSiteSaid`): under Start Shift, and under
+Report an issue's Site field, or under Submit Issue where no Site field
+is drawn.
+
+Two journeys, in English and Spanish, each failing on the main of part
+392:
+
+- `testsitename`: a test account whose test site is already named
+  [TEST] reads it once on Report an issue's Site list and on My
+  Schedule.
+- `testsiterefused`: Start Shift refused says the API's words under Start
+  Shift, and Report an issue refused says them under the Site field and
+  keeps the report.
+
+## Findings without the inspection (part 396, section 3)
+
+The stub's findings answer as ocsa-api Round 14 builds them (part 391,
+section 2, `helpers/findingFollowUps.js`): every finding carries `title`,
+its issue's; the office's reads carry `owners`, the site's
+(`findingOwners`), and `canDecide`, a holder of `manage_inspections` or a
+supervisor assigned at the finding's site; `GET /api/inspections/findings`
+answers `followUpTopics` once and `counts { needsFollowUp, open, overdue }`
+over every unresolved finding; `GET /api/inspections/findings/:id`
+answers `followUpTopics` beside the finding; and the completion's short
+follow-up names its topic, `topic: { id, name }`. `findingsR14: false`
+is an API from before Round 14. `findingsUndecided: ["site-north"]`
+names the sites a supervisor here is not assigned to,
+`findingsNoInspection` the seeded findings from no scheduled inspection,
+and `findingTitles` gives a seeded finding an issue title of its own. A
+person's `manageInspections`, true or false, holds or drops the
+capability whatever the role.
+
+Choose a follow-up takes its topics from the list's `followUpTopics` and
+its owners from the finding's `owners`, with no read of the inspection;
+Choose a follow-up and Record the conversation show only where
+`canDecide` is true; a finding is named by its `title` on My findings and
+Findings to follow up, the card beside it where the two differ; and the
+office's alert, `/?open=inspection_finding:<id>`, waits for the
+permissions on a phone just opened and lands on Findings to follow up at
+the finding, read on its own when the list does not hold it. An answer
+from before Round 14 reads as before. The walk's result already named
+each finding's topic from `followUp.topic.name` (part 388).
+
+Four journeys, in English and Spanish, each failing on the main of part
+392:
+
+- `findingchoose`: a finding from no scheduled inspection opens Choose a
+  follow-up with the list's topics, its suggested one chosen, and the
+  site's owners, and saves with an owner; another from an inspection
+  opens the same way; no inspection is read.
+- `findingdecide`: a supervisor without `manage_inspections`, not
+  assigned at the site, lists the findings with neither button; a holder
+  has both.
+- `findingtitle`: Findings to follow up and My findings name a finding
+  by its title, with the card beside it.
+- `findingnotice`: `/?open=inspection_finding:<id>` on a phone just
+  opened lands a holder of `manage_inspections` who is no supervisor on
+  Findings to follow up at the finding, never the issue's sheet; a
+  supervisor's finding the list no longer holds is read on its own and
+  drawn.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names
