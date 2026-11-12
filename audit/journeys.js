@@ -9807,9 +9807,9 @@ const PART383_S2_JOURNEYS = [
   },
   {
     id: "taprun",
-    label: "A tap names its run (API part 378, 6.6): the run's id is learned from the first check the API takes in it, a tap made then and kept on the phone across a change of shift is kept and sent after it with the run it showed, and lands in that run; the next shift's list reads it open",
+    label: "A tap names its run (API part 378, 6.6): where no read names the run's id (null, part 392), it is learned from the first check the API takes in it, a tap made then and kept on the phone across a change of shift is kept and sent after it with the run it showed, and lands in that run; the next shift's list reads it open",
     run: async (open, language, expect) => {
-      const app = await open({ stubOptions: { namedShifts: true, links: {}, completions: [] } });
+      const app = await open({ stubOptions: { namedShifts: true, links: {}, completions: [], runIds: false } });
       try {
         await openTab(app.page, "tasks", language);
         await shows(app.page, '[data-task-row="task-4"]', 8000);
@@ -9855,7 +9855,7 @@ const PART383_S2_JOURNEYS = [
     id: "taprunrefused",
     label: "A run the check could not belong to (API part 378, 6.6): a kept tap sent with its run and refused tasks.badShiftRun is sent once more without it, the same tap, and lands in the session's run",
     run: async (open, language, expect) => {
-      const app = await open({ stubOptions: { namedShifts: true, links: {}, completions: [], badShiftRun: 1 } });
+      const app = await open({ stubOptions: { namedShifts: true, links: {}, completions: [], badShiftRun: 1, runIds: false } });
       try {
         await openTab(app.page, "tasks", language);
         await shows(app.page, '[data-task-row="task-4"]', 8000);
@@ -10538,5 +10538,101 @@ const PART392_S1_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...PART392_S1_JOURNEYS);
+
+// --- Round 12 of the staff app (part 392), section 2 ----------------------
+//
+// A run's id on the first tap (ocsa-api part 384, 5.1): the status, every
+// session answer and every row of the list carry shiftRun.id, so the first
+// check of a run names it, the one kept with no signal included. Fails on
+// the main of part 388, which named a run only once a check in it had
+// come back, so a run's first tap, and one kept before that, went
+// without it.
+const statusRunId = (stub) => stub.state.calls.some(c => c.method === "GET" && c.path === "/api/clock/status") ? require("./stub").runIdFor(stub.state.run) : null;
+const PART392_S2_JOURNEYS = [
+  {
+    id: "runfirsttap",
+    label: "A run's id on the first tap (API part 384, 5.1): the first check of the run, made with no signal and kept on the phone, names the run's id the status shows; kept across a change of shift, it is sent after it with that id and lands in the run it was made in; the next check names it too",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { namedShifts: true, links: {}, completions: [] } });
+      try {
+        await openTab(app.page, "tasks", language);
+        await shows(app.page, '[data-task-row="task-4"]', 8000);
+        await pause(app.page, 600);
+        const evening = app.stub.state.run;
+        const id = statusRunId(app.stub);
+        expect("the status names the evening run's id", !!evening && evening.label === "Evening shift" && typeof id === "string" && id.length === 36, JSON.stringify({ label: evening && evening.label, id }));
+        app.stub.state.drop["POST /api/clock/tasks/task-2/complete"] = { once: false };
+        await tapRow(app.page, language, itemName("task-2", language));
+        await pause(app.page, 900);
+        const kept = (await keptQueue(app.page)).find(x => x.taskId === "task-2") || null;
+        expect("the run's first check, kept with no signal, names the run's id", !!kept && kept.runId === id, JSON.stringify(kept));
+        await spokenHere(app, language, expect);
+        await app.page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.textContent.trim() === w); if (b) b.click(); }, say("Change shift", language));
+        await pause(app.page, 900);
+        await pickShift(app.page, servedIn("Night shift", language));
+        await pause(app.page, 300);
+        await clickText(app.page, say("Use this shift", language));
+        await pause(app.page, 2500);
+        const patch = shiftChanges(app.stub)[0];
+        delete app.stub.state.drop["POST /api/clock/tasks/task-2/complete"];
+        await app.page.evaluate(() => window.dispatchEvent(new Event("online")));
+        await waitOn(app.page, () => { try { return JSON.parse(window.localStorage.getItem("ocsa-pending-checkoffs") || "[]").length === 0; } catch (e) { return false; } }, null, 8000);
+        await pause(app.page, 600);
+        const calls = app.stub.state.calls;
+        const twos = checkoffsOf(app.stub, "task-2").filter(c => patch && calls.indexOf(c) > calls.indexOf(patch));
+        const filed = app.stub.state.completions.filter(c => c.taskId === "task-2");
+        expect("sent after the change of shift with that id, it lands in the evening run", !!patch && twos.length === 1 && twos[0].body && twos[0].body.shiftRunId === id && filed.length === 1 && filed[0].run && filed[0].run.label === "Evening shift", JSON.stringify(twos.map(c => c.body)) + " filed in " + JSON.stringify(filed.map(c => (c.run ? c.run.label : "none"))));
+        await shows(app.page, '[data-task-row="task-4"]', 8000);
+        await pause(app.page, 600);
+        const night = statusRunId(app.stub);
+        await tapRow(app.page, language, itemName("task-4", language));
+        await pause(app.page, 1500);
+        const fours = checkoffsOf(app.stub, "task-4");
+        expect("the night run's first check names the night run's id at once", fours.length === 1 && !!night && night !== id && fours[0].body && fours[0].body.shiftRunId === night, JSON.stringify(fours.map(c => c.body)) + " night " + night);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "runidrefused",
+    label: "A run's id the API refuses (API part 378, 6.6, with part 384's id): the run's first check, kept with no signal under the status's run id and sent after a change of shift, refused tasks.badShiftRun, is sent once more without it, the same tap, and lands in the session's run; the new run's first check names the new run's id",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { namedShifts: true, links: {}, completions: [], badShiftRun: 1 } });
+      try {
+        await openTab(app.page, "tasks", language);
+        await shows(app.page, '[data-task-row="task-4"]', 8000);
+        await pause(app.page, 600);
+        const id = statusRunId(app.stub);
+        app.stub.state.drop["POST /api/clock/tasks/task-4/complete"] = { once: false };
+        await tapRow(app.page, language, itemName("task-4", language));
+        await pause(app.page, 900);
+        await app.page.evaluate((w) => { const b = Array.from(document.querySelectorAll(".sp-content button")).find(x => x.textContent.trim() === w); if (b) b.click(); }, say("Change shift", language));
+        await pause(app.page, 900);
+        await pickShift(app.page, servedIn("Night shift", language));
+        await pause(app.page, 300);
+        await clickText(app.page, say("Use this shift", language));
+        await pause(app.page, 2500);
+        const patch = shiftChanges(app.stub)[0];
+        delete app.stub.state.drop["POST /api/clock/tasks/task-4/complete"];
+        await app.page.evaluate(() => window.dispatchEvent(new Event("online")));
+        await waitOn(app.page, () => { try { return JSON.parse(window.localStorage.getItem("ocsa-pending-checkoffs") || "[]").length === 0; } catch (e) { return false; } }, null, 8000);
+        await pause(app.page, 600);
+        const calls = app.stub.state.calls;
+        const fours = checkoffsOf(app.stub, "task-4").filter(c => patch && calls.indexOf(c) > calls.indexOf(patch));
+        const filed = app.stub.state.completions.filter(c => c.taskId === "task-4");
+        expect("named with the status's run id and refused, the same tap is sent once more without it and lands in the session's run", fours.length === 2 && fours[0].body.shiftRunId === id && !Object.prototype.hasOwnProperty.call(fours[1].body || {}, "shiftRunId") && fours[0].body.clientId === fours[1].body.clientId && filed.length === 1 && filed[0].run && filed[0].run.label === "Night shift", JSON.stringify(fours.map(c => c.body)) + " filed in " + JSON.stringify(filed.map(c => (c.run ? c.run.label : "none"))));
+        await shows(app.page, '[data-task-row="task-2"]', 8000);
+        await pause(app.page, 600);
+        const night = statusRunId(app.stub);
+        await tapRow(app.page, language, itemName("task-2", language));
+        await pause(app.page, 1500);
+        const twos = checkoffsOf(app.stub, "task-2");
+        expect("the night run's first check names the night run's id", twos.length === 1 && !!night && night !== id && twos[0].body && twos[0].body.shiftRunId === night, JSON.stringify(twos.map(c => c.body)));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART392_S2_JOURNEYS);
+
 
 module.exports = { runJourneys, JOURNEYS };

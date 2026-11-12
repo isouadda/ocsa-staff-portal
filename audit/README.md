@@ -1776,6 +1776,40 @@ The smoke check's More run reads the same: with the signature routes not
 answering, More offers My company property, read once as it opened; and
 someone without `approve_supplies` never reads the supply requests.
 
+## A run's id on the first tap (part 392, section 2)
+
+The stub's `shiftRun` carries `id` as ocsa-api Round 13 builds it (part
+384, 5.1, `helpers/shiftRuns.js runView`): `{ id, label, display,
+startsAt, endsAt, runDate }` on the clock status (top and session), every
+session answer and every row of `GET /api/sites/:id/tasks`. The id is the
+run's own (`runIdFor`, the same uuid a check-off's
+`completion.shift_run_id` names), for the session's run and every run a
+session joined (`state.joinedRuns`), and null for a window no session has
+joined. `runIds: false` is an API from before part 384, whose reads name
+no run's id. As on the API, a check naming the session's own run is never
+refused; one naming another run is checked as part 378 checks it.
+
+The phone sends `shiftRunId` from the run's id the status shows, else the
+list's for the same run, on every check, the first of a run and one kept
+with no signal included. With a null id it learns the id from the first
+check's answer, as before. An id the API refused (`tasks.badShiftRun`) is
+not used again.
+
+Two journeys, in English and Spanish, each failing on the main of part
+388:
+
+- `runfirsttap`: the run's first check, made with no signal and kept,
+  names the run's id the status shows; kept across a change of shift it
+  is sent after it with that id and lands in the evening run; the night
+  run's first check names the night run's id at once.
+- `runidrefused`: a check kept under the evening run's id and sent after
+  a change of shift, refused `tasks.badShiftRun`, is sent once more
+  without it and lands in the night run; the night run's first check
+  names its own id.
+
+`taprun` and `taprunrefused` (part 383) now run with `runIds: false`, the
+path for a run whose id no read names.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

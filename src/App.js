@@ -1952,16 +1952,17 @@ function writePendingEnd(v) {
 const tapOfRun = (x, runKey) => !x.counted || (x.run || null) === (runKey || null);
 // Part 383 (ocsa-api part 378, its 6.6): a tap names its run. A check-off
 // may carry shiftRunId, the run it was made in, so a tap sent after a
-// change of shift lands in its own run. No answer the phone reads names a
-// run's id: the status, every session answer and every row of the list
-// carry shiftRun without one (helpers/shiftRuns.js runView). The one that
-// does is a check-off's own, completion.shift_run_id, the run the API
-// filed it in. So the id is learned from the first check of a run the API
-// takes while the screen still shows that run, kept on this phone by the
-// run's key, and sent with every check made in the run from then on, the
-// ones kept for no signal included. An uncheck carries none (the route
-// takes none). A tap kept by an older build has no runId of its own and
-// is sent as it is.
+// change of shift lands in its own run. Part 392 (ocsa-api part 384, 5.1):
+// the status, every session answer and every row of the list carry the
+// run's id as shiftRun.id, so the first check of a run names it too, the
+// one kept for no signal and sent later included. Where the run's id is
+// null, a run no session has joined yet, the phone does what it did
+// before: it learns the id from the first check of the run the API takes
+// while the screen still shows that run, completion.shift_run_id, keeps it
+// on this phone by the run's key, and sends it with every check made in
+// the run from then on. An uncheck carries none (the route takes none). A
+// tap kept by an older build has no runId of its own and is sent as it
+// is.
 const RUN_IDS_KEY = "ocsa-shift-run-ids";
 const RUN_IDS_MAX = 6;
 const RUN_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -2749,6 +2750,18 @@ export default function OCSAStaffPortal() {
   // site and language from GET /api/sites/:siteId/shifts while the
   // session is in a run, { site, lang, list }, or null.
   const runNow = runKeyOf(statusRun(clockStatus));
+  // Part 392 (ocsa-api part 384, 5.1): the id of the run a key names, as
+  // the status shows it, else as the list read for that run shows it; null
+  // for a run no session has joined, and for an id the API refused for a
+  // check (tasks.badShiftRun), which is not used again.
+  const refusedRunIds = useRef(new Set());
+  const shownRunId = (key) => {
+    if (!key) return null;
+    const fromStatus = statusRun(clockStatus);
+    const fromList = rowsRun(tasks);
+    const id = fromStatus && runKeyOf(fromStatus) === key && fromStatus.id ? fromStatus.id : fromList && runKeyOf(fromList) === key && fromList.id ? fromList.id : null;
+    return id && !refusedRunIds.current.has(id) ? id : null;
+  };
   // The run on the screen now, for a send already under way.
   const runNowRef = useRef(runNow);
   runNowRef.current = runNow;
@@ -3441,7 +3454,9 @@ export default function OCSAStaffPortal() {
     // also keeps whether it is a day's item, the shift run and the session
     // it was made in, so it is never drawn on the next run's list.
     // Part 383: a check made in a run whose id this phone knows names it.
-    const tap = { taskId: taskId, siteId: clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, userId: user ? user.id : null, clientId: newClientId(), completedAt: new Date().toISOString(), done: !done, counted: counted, run: runNow, sessionId: sessionIdNow, runId: !done && runNow ? runIdOf(runNow) : null };
+    // Part 392: the id the status names for the run on the screen, else the
+    // list's for the same run, else the one learned before.
+    const tap = { taskId: taskId, siteId: clockStatus && clockStatus.shift ? clockStatus.shift.siteId : null, userId: user ? user.id : null, clientId: newClientId(), completedAt: new Date().toISOString(), done: !done, counted: counted, run: runNow, sessionId: sessionIdNow, runId: !done && runNow ? (shownRunId(runNow) || runIdOf(runNow)) : null };
     if (!pendingRef.current.some(x => x.tries > 0 && mine(x))) freshTaps.current.add(tap.clientId);
     putPending(pendingRef.current.concat([tap]));
     sendPending();
@@ -3506,6 +3521,7 @@ export default function OCSAStaffPortal() {
         if (bare) {
           if (fresh) freshTaps.current.add(tap.clientId);
           forgetRunId(tap.run, tap.runId);
+          refusedRunIds.current.add(tap.runId);
           putPending(pendingRef.current.map(x => (x.done && x.run === tap.run && x.runId === tap.runId ? { ...x, runId: null, noRunId: true } : x)));
           continue;
         }
@@ -6290,14 +6306,16 @@ const sessionShiftLabel = (cs) => (cs && cs.clockedIn && cs.session && cs.sessio
 // start date. People in one run share one daily list, and the next run
 // starts it fresh. The status (at its top and on its session), every
 // session answer and every row of the task read carry the run as
-// shiftRun: { label, display, startsAt, endsAt, runDate }, display the
+// shiftRun: { id, label, display, startsAt, endsAt, runDate }, display the
 // shift's name in the language asked for and startsAt and endsAt
 // instants. null at a site with no named shifts, which reads as before.
+// Part 392 (ocsa-api part 384, 5.1): id is the run's own, the one a
+// check-off names in shiftRunId, null for a run no session has joined.
 function shiftRunOf(v) {
   if (!v || typeof v !== "object" || typeof v.label !== "string" || !v.label.trim()) return null;
   if (!Number.isFinite(Date.parse(v.startsAt)) || !Number.isFinite(Date.parse(v.endsAt))) return null;
   const display = typeof v.display === "string" && v.display.trim() ? v.display.trim() : v.label.trim();
-  return { label: v.label.trim(), display: display, startsAt: v.startsAt, endsAt: v.endsAt, runDate: typeof v.runDate === "string" && YMD_RE.test(v.runDate) ? v.runDate : null };
+  return { id: typeof v.id === "string" && RUN_ID_RE.test(v.id) ? v.id : null, label: v.label.trim(), display: display, startsAt: v.startsAt, endsAt: v.endsAt, runDate: typeof v.runDate === "string" && YMD_RE.test(v.runDate) ? v.runDate : null };
 }
 // The run the open session joined, from the status: its session's, which
 // a change of shift answers with, else the status's own.
