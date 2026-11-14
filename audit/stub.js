@@ -1034,6 +1034,13 @@ const START_SITES = [
 // Part 380: the robot's test site (sites.is_test, API Round 10), behind
 // testSite. Every name invented.
 const TEST_SITE = { id: "site-test", name: "Invented Test Building", status: "active", is_test: true };
+// Part 396: the API's words for a write at the test site by a real person
+// (ocsa-api helpers/words.js testCrew.testSite), as it answers them.
+const TEST_SITE_REFUSAL = {
+  en: "This is the test site. Only test accounts and admins can make changes here.",
+  es: "Este es el sitio de prueba. Solo las cuentas de prueba y los administradores pueden hacer cambios aqu\u00ed.",
+  fr: "C'est le site de test. Seuls les comptes de test et les administrateurs peuvent y faire des modifications.",
+};
 const START_REFUSALS = {
   "inspections.scheduleFieldsRequired": { status: 400, en: "Template, site, and date are required", es: "Se necesitan la plantilla, el sitio y la fecha" },
 };
@@ -1804,6 +1811,22 @@ function makeState(opts) {
     photoSignReads: [],
     // Part 380: the robot's test site on the site lists that answer it.
     testSite: o.testSite === true,
+    // Part 396 (section 2): testSiteMarked names the test site "[TEST] ..."
+    // as the office may; testSiteRefuses lists the writes ("POST
+    // /api/issues") the API refuses as one naming the test site by someone
+    // who neither is a test account nor an admin (ocsa-api Round 14,
+    // helpers/testGuard.js keepOff): 403 testCrew.testSite with testSite
+    // true, in the request's language, nothing written. Each refused write
+    // is kept in testSiteRefused.
+    // Part 396 (section 3): findingsR14 false is an API from before Round
+    // 14, whose findings carry no title, owners or canDecide and whose
+    // list carries no followUpTopics or counts; findingsUndecided names
+    // the sites a supervisor here is not assigned to.
+    findingsR14: o.findingsR14 !== false,
+    findingsUndecided: Array.isArray(o.findingsUndecided) ? o.findingsUndecided.map(String) : [],
+    testSiteMarked: o.testSiteMarked === true,
+    testSiteRefuses: Array.isArray(o.testSiteRefuses) ? o.testSiteRefuses.slice() : [],
+    testSiteRefused: [],
     photoLost: Array.isArray(o.photoLost) ? o.photoLost.slice() : [],
     uploadSeq: 0,
     // A step of a site's checklist with a reference photo, by task id.
@@ -1885,7 +1908,13 @@ function makeState(opts) {
     // away once with findingNoteRequired on its first deficient card, laid
     // over the stub, so a check sees the refusal under the card.
     findings: o.findings === true || o.inspectionWalk === true || o.findingsSeed === true,
-    findingRows: o.findingsSeed ? FINDINGS_SEED(o.person || PERSON).rows : [],
+    // Part 396: findingTitles gives a seeded finding an issue title of its
+    // own, as the office may rename an issue, so its title and its card's
+    // label differ.
+    // findingsNoInspection names seeded findings that came from no
+    // scheduled inspection (inspection.scheduledInspectionId null).
+    findingRows: o.findingsSeed ? FINDINGS_SEED(o.person || PERSON).rows.map(r => (o.findingTitles && o.findingTitles[r.id] ? Object.assign({}, r, { title: o.findingTitles[r.id] }) : r))
+      .map(r => (Array.isArray(o.findingsNoInspection) && o.findingsNoInspection.indexOf(r.id) !== -1 ? Object.assign({}, r, { _inspection: Object.assign({}, r._inspection, { scheduledInspectionId: null, templateName: null }) }) : r)) : [],
     // Part 388 (ocsa-api Round 12, part 382): each finding's follow-ups,
     // an ended one kept with endedAt; the calls to the follow-up routes;
     // and a refusal a case lays over one route once ({ route, code },
@@ -1983,7 +2012,8 @@ function makeState(opts) {
     // sign and send call, every send made, the next PO number, and
     // orderVendorsNone for a vendor list with none approved.
     supplyOrders: o.supplyOrders === true,
-    orderRequests: o.supplyOrders === true ? ORDER_SEED() : [],
+    // Part 396: ordersNone answers the holder's list with no request yet.
+    orderRequests: o.supplyOrders === true && o.ordersNone !== true ? ORDER_SEED() : [],
     orderCalls: [],
     orderSends: [],
     orderPoSeq: 7,
@@ -2006,6 +2036,13 @@ function makeState(opts) {
     // Part 392: features on the permissions answer (ocsa-api part 384,
     // 5.7); false for an API from before it.
     featuresRoute: o.featuresRoute !== false,
+    // Part 396: GET /api/me/summary (ocsa-api Round 14, part 391,
+    // section 3); summary false is an API from before it, which answers
+    // 404. summaryNull names the summary's parts that failed, each
+    // answered as helpers/meSummary.js answers a part that throws: its
+    // counts null and its feature false.
+    summary: o.summary !== false,
+    summaryNull: Array.isArray(o.summaryNull) ? o.summaryNull.slice() : [],
     // Phone alerts. key is the server's public key, null when it has none,
     // and "missing" for an API with no key route yet. settings is null for
     // an API whose settings route is not there yet, which answers 404.
@@ -3284,7 +3321,9 @@ const TWIN_PAIRS = [
   // session the API closed itself (API part 378).
   .concat([[BAD_SHIFT_RUN.en, BAD_SHIFT_RUN.es], [CLOSED_NOTE.en, CLOSED_NOTE.es]])
   // Part 383: the certificate route's refusals (API part 378).
-  .concat(["training.badDetails", "training.badFile", "training.fileTooLarge", "training.topicNotFound", "training.notOutsideCourse"].map(k => [TRAINING_REFUSALS[k].en, TRAINING_REFUSALS[k].es]));
+  .concat(["training.badDetails", "training.badFile", "training.fileTooLarge", "training.topicNotFound", "training.notOutsideCourse"].map(k => [TRAINING_REFUSALS[k].en, TRAINING_REFUSALS[k].es]))
+  // Part 396: a write at the test site refused (API Round 14, section 1).
+  .concat([[TEST_SITE_REFUSAL.en, TEST_SITE_REFUSAL.es]]);
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -3619,6 +3658,10 @@ const EQ_ITEM = { id: "eq-smoke", name: "Invented floor scrubber", category: "Fl
 
 function createStub(opts) {
   const state = makeState(opts);
+  // Part 396 (section 2.1): the test site's name as the API answers it;
+  // with testSiteMarked it already starts with [TEST], as a test site may
+  // be named in the office.
+  const testSiteName = () => (state.testSiteMarked ? "[TEST] " + TEST_SITE.name : TEST_SITE.name);
   // Part 375: a session open at a site with named shifts is in the run its
   // start picks, the label a case names (sessionRun) winning.
   {
@@ -3728,14 +3771,14 @@ function createStub(opts) {
   const schedule = () => state.schedule || {
     scheduled: [{ id: "sh-1", scheduled_date: "2026-10-02", start_time: "17:00", end_time: "23:00", site_name: "North Building", status: "scheduled", building_name: "Main Hall", floor_number: "2" }]
       // Part 388: a test account with testSite holds a shift at the test site.
-      .concat(state.testSite && state.person.isTestAccount === true ? [{ id: "sh-test", scheduled_date: "2026-10-03", start_time: "09:00", end_time: "13:00", site_name: TEST_SITE.name, site_id: TEST_SITE.id, status: "scheduled", building_name: null, floor_number: null }] : []),
+      .concat(state.testSite && state.person.isTestAccount === true ? [{ id: "sh-test", scheduled_date: "2026-10-03", start_time: "09:00", end_time: "13:00", site_name: testSiteName(), site_id: TEST_SITE.id, status: "scheduled", building_name: null, floor_number: null }] : []),
     actual: [{ id: "ac-1", clock_in_time: iso(NOW.getTime() - 3 * 60 * 60 * 1000), shift_status: "active", site_name: "North Building" }],
     pickups: [],
   };
   // Part 388 (API Round 12, 3.2, routes/pickups.js): site_is_test on every
   // row of the staff app's schedule (all four lanes, one shift) and shift
   // board (available, my pickups), true for the test site's.
-  const flagRows = (rows) => (Array.isArray(rows) ? rows.map(x => (x && typeof x === "object" ? Object.assign({}, x, { site_is_test: x.site_is_test === true || x.site_id === TEST_SITE.id || x.site_name === TEST_SITE.name }) : x)) : rows);
+  const flagRows = (rows) => (Array.isArray(rows) ? rows.map(x => (x && typeof x === "object" ? Object.assign({}, x, { site_is_test: x.site_is_test === true || x.site_id === TEST_SITE.id || x.site_name === testSiteName() }) : x)) : rows);
   const flagLanes = (d) => { const out = Object.assign({}, d); ["scheduled", "actual", "pickups", "pendingDrops"].forEach(k => { if (Array.isArray(out[k])) out[k] = flagRows(out[k]); }); return out; };
 
   // --- the checklist day, as Step 124 answers it
@@ -3754,7 +3797,9 @@ function createStub(opts) {
   };
   // A capability the signed-in person holds, by their tier, the way GET
   // /api/users/me/permissions answers it.
-  const holds = (cap) => { const tier = state.person.role === "admin" || state.person.role === "supervisor" ? state.person.role : "staff"; return (CAPABILITIES[cap] || []).indexOf(tier) !== -1; };
+  // Part 396: a person's manageInspections, true or false, holds or drops
+  // manage_inspections whatever the role, as the office may set it.
+  const holds = (cap) => { if (cap === "manage_inspections" && typeof state.person.manageInspections === "boolean") return state.person.manageInspections; const tier = state.person.role === "admin" || state.person.role === "supervisor" ? state.person.role : "staff"; return (CAPABILITIES[cap] || []).indexOf(tier) !== -1; };
   // --- building maintenance (part 369): the views helpers/
   // maintenanceRequests.js answers, in English; translate() serves the
   // names in Spanish to a Spanish request.
@@ -3922,6 +3967,15 @@ function createStub(opts) {
       state: f === "done" ? "done" : FU_UNRESOLVED.indexOf(row.status) === -1 ? "resolved" : (f || "needsFollowUp"),
     };
     if (!mine) Object.assign(view, { suggestedTopicId: suggestedTopicFor(card.itemId), correctiveActionId: row.corrective_action_id || null });
+    // Part 396 (ocsa-api Round 14, part 391, 2.1, 2.2 and 2.5,
+    // helpers/findingFollowUps.js findingView and withOffice): every
+    // finding carries title, its issue's; the office's reads carry owners,
+    // the site's (ownersFor), and canDecide (mayDecide's rule at the
+    // finding's site). findingsR14 false is an API from before Round 14.
+    if (state.findingsR14) {
+      view.title = row.title || null;
+      if (!mine) Object.assign(view, { owners: findingOwners(), canDecide: fuMayDecideAt(row.site_id) });
+    }
     return view;
   };
   const fuRefuse = (k, lang, extra) => { const r = FOLLOW_UP_REFUSALS[k]; return json(r.status, Object.assign({ error: refusalIn(r, lang), code: k }, extra || {})); };
@@ -3931,6 +3985,10 @@ function createStub(opts) {
   // the site; every supervisor here is at every site).
   const fuMayList = () => state.person.role === "admin" || state.person.role === "supervisor" || holds("manage_inspections");
   const fuMayDecide = () => holds("manage_inspections") || state.person.role === "supervisor";
+  // Part 396: a supervisor decides only at a site they are assigned to;
+  // findingsUndecided names the sites a supervisor here is not, where a
+  // holder of manage_inspections still decides.
+  const fuMayDecideAt = (siteId) => holds("manage_inspections") || (state.person.role === "supervisor" && state.findingsUndecided.indexOf(String(siteId)) === -1);
   // readChoice: { choice } or { keys }.
   const fuReadChoice = (raw) => {
     if (raw === undefined || raw === null) return { choice: null };
@@ -4334,7 +4392,7 @@ function createStub(opts) {
     const q = new URLSearchParams(search || "");
     // Part 380: with testSite, the robot's test site too. Part 388 (API
     // Round 12, 3.2): every row carries isTest.
-    if (key === "GET /api/forms/my-sites") return management ? json(200, { sites: SITES.map(x => ({ id: x.siteId, name: x.siteName, isTest: false })).concat(state.testSite ? [{ id: TEST_SITE.id, name: TEST_SITE.name, isTest: true }] : []) }) : null;
+    if (key === "GET /api/forms/my-sites") return management ? json(200, { sites: SITES.map(x => ({ id: x.siteId, name: x.siteName, isTest: false })).concat(state.testSite ? [{ id: TEST_SITE.id, name: testSiteName(), isTest: true }] : []) }) : null;
     // The register's two other labels open the way the smoke check's does.
     const label = FK_EQUIPMENT.find(x => key === "GET /api/equipment/by-qr/" + x.qrCode);
     if (label) return json(200, { equipment: Object.assign({ siteId: "site-north", siteName: "North Building" }, label), events: [] });
@@ -4479,6 +4537,92 @@ function createStub(opts) {
   function attemptViewBare(a, topic) {
     return { id: a.id, versionId: a.versionId, topicId: a.topicId, topicName: topic ? topic.name : "", attemptNo: a.attemptNo, locale: a.locale, startedAt: a.startedAt, scoredAt: a.scoredAt, scorePercent: a.scorePercent, passed: a.passed, missed: a.missed.slice(), acknowledgedAt: a.acknowledgedAt, awaitingTrainer: a.awaitingTrainer, trainerSignedAt: a.trainerSignedAt, trainer: a.trainerName ? { name: a.trainerName } : null, demonstrated: a.demonstrated, siteId: a.siteId, voidedAt: a.voidedAt };
   }
+  // The summary, part by part, as helpers/meSummary.js builds it. A part
+  // named in summaryNull answers as one that threw: null counts and a
+  // false feature. A list route this stub does not serve (an API from
+  // before that list) answers nothing to count, as that list would.
+  function summaryNow(search, headers) {
+    const read = (p) => {
+      const r = answerNow("GET", p, search, null, headers, "GET " + p);
+      let body = null;
+      try { body = r && typeof r.body === "string" ? JSON.parse(r.body) : null; } catch (e) { body = null; }
+      return { ok: !!r && r.status === 200, body: body };
+    };
+    const rowsOf = (d, k) => (Array.isArray(d) ? d : d && Array.isArray(d[k]) ? d[k] : []);
+    const failed = (part) => state.summaryNull.indexOf(part) !== -1;
+    const me = String(state.person.id);
+    const management = state.person.role === "admin" || state.person.role === "supervisor";
+    const canStart = ["missing", "expired", "refresherDue", "inProgress", "dueSoon"];
+    const takeable = (i) => !!i && !!i.lesson && i.lesson.kind !== "observation" && Number(i.lesson.attemptsLeft) > 0 && canStart.indexOf(i.status) !== -1;
+    // training: My training's answer (routes/training.js myTrainingFor).
+    const tr = failed("training") ? null : read("/api/training/me");
+    const t = !tr ? null : tr.ok && tr.body && Array.isArray(tr.body.items)
+      ? { has: true, toDo: tr.body.items.filter(takeable).length, firstDay: rowsOf(tr.body, "firstDay").filter(takeable).length, documents: rowsOf(tr.body, "documentsToSign").length }
+      : { has: false, toDo: 0, firstDay: 0, documents: 0 };
+    // sds: a sheet on the list (routes/sds.js sheetRows).
+    const sd = failed("sds") ? null : read("/api/sds");
+    const sds = !!sd && sd.ok && rowsOf(sd.body, "sheets").length > 0;
+    // supplies: a holder of approve_supplies, while any request is on the
+    // list; waiting, those canDecide at decide or sign (the app's
+    // supplyStage).
+    let sup = null;
+    if (!failed("supplies")) {
+      if (state.person.approveSupplies !== true) sup = { show: false, waiting: 0 };
+      else {
+        const rows = rowsOf(read("/api/supplies/requests").body, "requests");
+        const stage = (r) => { const items = Array.isArray(r.items) ? r.items : []; return r.orderedAt || r.ordered_at ? "ordered" : r.signed === true || r.poNumber || r.po_number ? "send" : r.status === "fulfilled" ? "done" : items.some(l => !l.decision) ? "decide" : items.some(l => l.decision === "approved") ? "sign" : "done"; };
+        sup = { show: rows.length > 0, waiting: rows.filter(r => r && r.canDecide === true && (stage(r) === "decide" || stage(r) === "sign")).length };
+      }
+    }
+    // findings: the person's own (GET /api/me/findings, toConfirm), and
+    // whether they may list the office's (mayList) with its needsFollowUp.
+    let f = null;
+    if (!failed("findings")) {
+      const mine = read("/api/me/findings");
+      const due = read("/api/inspections/findings");
+      const dueCounts = due.ok && due.body && due.body.counts && typeof due.body.counts === "object" ? due.body.counts : null;
+      f = { mine: rowsOf(mine.body, "findings").length, toConfirm: rowsOf(mine.body, "toConfirm").length, lists: due.ok, needs: due.ok ? (dueCounts && Number(dueCounts.needsFollowUp)) || 0 : 0 };
+    }
+    // client requests: awaiting the caller's approval, plus assigned to
+    // them and not done.
+    let req = null;
+    if (!failed("clientRequests")) {
+      const rows = rowsOf(read("/api/issues/requests").body, "requests");
+      const done = ["resolved", "closed", "declined"];
+      req = { waiting: rows.filter(r => r && r.canApprove === true).length, mine: rows.filter(r => r && r.canApprove !== true && r.assignedTo && String(r.assignedTo.id) === me && done.indexOf(r.status) === -1).map(r => String(r.id)) };
+    }
+    // drafts: the caller's own, the walk drafts left out.
+    const drafts = failed("drafts") ? null : rowsOf(read("/api/agent/drafts").body, "drafts").filter(d => d && d.id !== undefined && (d.userId === undefined || d.userId === null || String(d.userId) === me) && (!d.status || d.status === "draft") && !(d.answers && d.answers._scheduled_inspection_id)).length;
+    // sign-offs: an admin's or a supervisor's, their own left out.
+    const signOff = failed("signOffs") ? null : !management ? 0 : rowsOf(read("/api/training/awaiting").body, "attempts").filter(a => a && String((a.person && a.person.id) || a.userId || "") !== me).length;
+    const un = failed("unread") ? null : read("/api/notifications/unread-count").body;
+    const unread = un === null ? null : Number(un && un.unread) || 0;
+    const chat = failed("chat") ? null : rowsOf(read("/api/chat/channels").body, "channels").reduce((n, ch) => n + (Number(ch && ch.unreadCount) > 0 ? Number(ch.unreadCount) : 0), 0);
+    const sigs = failed("signatures") ? null : rowsOf(read("/api/signatures/mine").body, "requests").filter(r => r && r.state === "waiting").length;
+    const tasks = failed("assigned") ? null : rowsOf(read("/api/clock/tasks/assigned").body, "tasks");
+    let assigned = null;
+    if (tasks && req) {
+      const keys = new Set(tasks.map(x => (x.source_issue_id || x.issue_id ? "issue:" + (x.source_issue_id || x.issue_id) : "task:" + x.task_id)));
+      req.mine.forEach(id => keys.add("issue:" + id));
+      assigned = keys.size;
+    }
+    return {
+      features: {
+        training: !!t && t.has, property: true, support: true,
+        library: !!state.library && state.person.role !== "client_contact",
+        sds: sds, approveSupplies: !!sup && sup.show,
+        myFindings: !!f && f.mine > 0, findingsToFollowUp: !!f && f.lists,
+        workspace: !!state.workspace && WS_OFFICE.indexOf(state.person.role) !== -1,
+      },
+      counts: {
+        signaturesToSign: sigs, conversationsToConfirm: f ? f.toConfirm : null, supplyOrdersWaiting: sup ? sup.waiting : null,
+        findingsNeedingFollowUp: f ? f.needs : null, clientRequests: req ? req.waiting + req.mine.length : null, unfinishedForms: drafts,
+        trainingToDo: t ? t.toDo : null, firstDayTrainings: t ? t.firstDay : null, documentsToSign: t ? t.documents : null,
+        trainingToSignOff: signOff, unreadNotices: unread, chatUnread: chat, assigned: assigned,
+      },
+    };
+  }
+
   function handle(method, pathname, search, body, headers) {
     const key = method + " " + pathname;
     state.calls.push({ method: method, path: pathname, search: search || "", body: body || null, headers: headers || {} });
@@ -4500,6 +4644,11 @@ function createStub(opts) {
     if (dropped) { if (dropped.once) delete state.drop[key]; return { abort: true }; }
     if (state.pinGate && state.mustSetPin && /^Bearer /.test(String((headers || {}).authorization || "")) && MUST_SET_PIN_OPEN.indexOf(key) === -1 && !SIGNED_OUT.some(re => re.test(key))) {
       return json(MUST_SET_PIN.status, { error: refusalIn(MUST_SET_PIN, languageOf(search, state)), code: "auth.mustSetPin" });
+    }
+    if (state.testSiteRefuses.indexOf(key) !== -1) {
+      state.testSiteRefused.push({ key: key, body: body || null });
+      const lang = languageOf(search, state);
+      return json(403, { error: TEST_SITE_REFUSAL[lang] || TEST_SITE_REFUSAL.en, code: "testCrew.testSite", testSite: true });
     }
     const refused = refusalFor(key, search);
     if (refused) return refused;
@@ -4612,7 +4761,7 @@ function createStub(opts) {
     // Part 388 (API Round 12, 3.1 and 3.2): user.isTestAccount, and isTest
     // on each of the person's sites; a test account with testSite is
     // assigned the test site too.
-    if (key === "GET /api/auth/me") return json(200, Object.assign({ user: Object.assign({}, state.person, { isTestAccount: state.person.isTestAccount === true }), sites: (state.assignedSites || SITES).map(withMode).map(x => Object.assign({}, x, { isTest: x.isTest === true || x.siteId === TEST_SITE.id })).concat(state.testSite && state.person.isTestAccount === true && !state.assignedSites ? [{ siteId: TEST_SITE.id, siteName: TEST_SITE.name, isTest: true }] : []), preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
+    if (key === "GET /api/auth/me") return json(200, Object.assign({ user: Object.assign({}, state.person, { isTestAccount: state.person.isTestAccount === true }), sites: (state.assignedSites || SITES).map(withMode).map(x => Object.assign({}, x, { isTest: x.isTest === true || x.siteId === TEST_SITE.id })).concat(state.testSite && state.person.isTestAccount === true && !state.assignedSites ? [{ siteId: TEST_SITE.id, siteName: testSiteName(), isTest: true }] : []), preferences: state.accountPreferences }, state.mustSetPin ? { mustSetPin: true } : {}));
     // Register as routes/auth.js answers it since part 363 (API-117): a
     // phone (its digits) or an email (any case) that already has an
     // account answers exactly as a new one does, 201 auth.registered with
@@ -4699,6 +4848,7 @@ function createStub(opts) {
       // a role.
       capabilities.approve_supplies = state.person.approveSupplies === true;
       if (state.person.fileMaintenance === true) capabilities.file_maintenance_requests = true;
+      if (typeof state.person.manageInspections === "boolean") capabilities.manage_inspections = state.person.manageInspections;
       // Part 392 (ocsa-api part 384, 5.7, routes/users.js featuresOf):
       // features, each whether the same person's list answers them, by
       // the rule its route reads: clearances and discipline for an admin
@@ -4709,6 +4859,15 @@ function createStub(opts) {
       const management = state.person.role === "admin" || state.person.role === "supervisor";
       const features = { clearances: management, discipline: management, workspace: !!state.workspace && WS_OFFICE.indexOf(state.person.role) !== -1, library: !!state.library && state.person.role !== "client_contact" };
       return json(200, Object.assign({ role: state.person.role, capabilities: capabilities }, state.featuresRoute ? { features: features } : {}));
+    }
+    // Part 396 (ocsa-api Round 14, part 391, section 3, routes/me.js and
+    // helpers/meSummary.js summaryOf): { features, counts }, each value by
+    // the rule of the list route it stands for. As the API reads through
+    // each list's own code, the stub reads its own answer to each list, so
+    // a value is always what that list answers this person now.
+    if (key === "GET /api/me/summary") {
+      if (!state.summary) return json(404, { error: "Endpoint not found" });
+      return json(200, summaryNow(search, headers));
     }
     if (key === "GET /api/users/profile/me") return json(200, {
       user: Object.assign({}, state.person, { isTestAccount: state.person.isTestAccount === true, employeeId: "OCSA-0001", preferredLanguage: "English", addressLine1: "", city: "", state: "", zipCode: "", emergencyContactName: "", emergencyContactPhone: "", birthday: state.midnightDates ? "1990-08-14T00:00:00.000Z" : "1990-08-14" }),
@@ -4900,7 +5059,7 @@ function createStub(opts) {
     if (key === "GET /api/sites") {
       const every = state.person.role === "admin" || state.person.role === "supervisor";
       const rows = state.startInspection ? START_SITES.map(x => Object.assign({}, x)) : SITES.map(withMode);
-      return json(200, every ? rows.map(x => Object.assign({ is_test: false }, x)).concat(state.testSite ? [Object.assign({}, TEST_SITE, state.startInspection ? {} : { siteId: TEST_SITE.id, siteName: TEST_SITE.name })] : []) : rows.map(x => Object.assign({ is_test: false }, x)));
+      return json(200, every ? rows.map(x => Object.assign({ is_test: false }, x)).concat(state.testSite ? [Object.assign({}, TEST_SITE, { name: testSiteName() }, state.startInspection ? {} : { siteId: TEST_SITE.id, siteName: testSiteName() })] : []) : rows.map(x => Object.assign({ is_test: false }, x)));
     }
     // Part 375: a site's named shifts (routes/siteShifts.js GET), the
     // active ones in order, each named in the language asked for; [] at a
@@ -4977,7 +5136,7 @@ function createStub(opts) {
       { id: "pk-3", scheduled_date: "2026-10-10", start_time: "22:00", end_time: "06:00", site_name: "West Building", origin: "no_show", service_category: "Day porter" },
       { id: "pk-4", scheduled_date: "2026-10-11", start_time: "08:00", end_time: "12:00", site_name: "South Building", origin: "extra_coverage", service_category: "Day porter" },
       { id: "pk-5", scheduled_date: "2026-10-12", start_time: "14:00", end_time: "18:00", site_name: "North Building", origin: "new_shift", service_category: "Day porter" },
-    ].concat(state.testSite ? [{ id: "pk-test", scheduled_date: "2026-10-13", start_time: "09:00", end_time: "13:00", site_name: TEST_SITE.name, site_id: TEST_SITE.id, origin: "extra_coverage", service_category: "Day porter" }] : [])));
+    ].concat(state.testSite ? [{ id: "pk-test", scheduled_date: "2026-10-13", start_time: "09:00", end_time: "13:00", site_name: testSiteName(), site_id: TEST_SITE.id, origin: "extra_coverage", service_category: "Day porter" }] : [])));
     if (key === "GET /api/pickups/my-pickups") return json(200, flagRows(state.myPickups));
     // Part 359: a drop as routes/pickups.js answers it since part 357
     // (API-52): the open shift it wrote, and a second ask for the same
@@ -6300,20 +6459,24 @@ function createStub(opts) {
         .slice().sort((a, b) => Date.parse(b.reported_at) - Date.parse(a.reported_at)).map(r => findingView(r, lang, false));
       list = st ? list.filter(f => f.state === st) : list.filter(f => f.state !== "done" && f.state !== "resolved");
       if (kind === "none") list = list.filter(f => !f.followUp); else if (kind) list = list.filter(f => f.followUp && f.followUp.kind === kind);
-      return json(200, { findings: list.slice(0, 500), asOf: zoneDate(clockNow()) });
+      // Part 396 (ocsa-api Round 14, 2.1 and 2.3): followUpTopics once,
+      // and counts over every unresolved finding whatever the filters.
+      const every = state.findingRows.filter(r => r.source === "inspection").map(r => findingView(r, lang, false)).filter(f => f.state !== "done" && f.state !== "resolved");
+      const counts = { needsFollowUp: every.filter(f => f.state === "needsFollowUp").length, open: every.filter(f => f.state === "open").length, overdue: every.filter(f => f.state === "overdue").length };
+      return json(200, Object.assign({ findings: list.slice(0, 500), asOf: zoneDate(clockNow()) }, state.findingsR14 ? { followUpTopics: followUpTopicsIn(lang), counts: counts } : {}));
     }
     const oneFindingRead = method === "GET" ? /^\/api\/inspections\/findings\/([^/]+)$/.exec(pathname) : null;
     if (oneFindingRead) {
       if (!fuMayList()) return fuRefuse("access.insufficientPermissions", lang);
       const row = state.findingRows.find(r => r.id === oneFindingRead[1] && r.source === "inspection");
-      return row ? json(200, { finding: findingView(row, lang, false) }) : fuRefuse("inspections.findingNotFound", lang);
+      return row ? json(200, Object.assign({ finding: findingView(row, lang, false) }, state.findingsR14 ? { followUpTopics: followUpTopicsIn(lang) } : {})) : fuRefuse("inspections.findingNotFound", lang);
     }
     const choosing = method === "POST" ? /^\/api\/inspections\/findings\/([^/]+)\/follow-up$/.exec(pathname) : null;
     if (choosing) {
       state.followUpCalls.push({ route: "follow-up", id: choosing[1], body: body || null });
       const row = state.findingRows.find(r => r.id === choosing[1] && r.source === "inspection");
       if (!row) return fuRefuse("inspections.findingNotFound", lang);
-      if (!fuMayDecide()) return fuRefuse("access.insufficientPermissions", lang);
+      if (!fuMayDecideAt(row.site_id)) return fuRefuse("access.insufficientPermissions", lang);
       if (row.status === "closed" || row.status === "declined") return fuRefuse("inspections.findingClosed", lang, { status: row.status });
       const faulted = fuFaultFor("follow-up", lang);
       if (faulted) return faulted;
@@ -6335,7 +6498,7 @@ function createStub(opts) {
       state.followUpCalls.push({ route: "conversation", id: recording[1], body: body || null });
       const row = state.findingRows.find(r => r.id === recording[1] && r.source === "inspection");
       if (!row) return fuRefuse("inspections.findingNotFound", lang);
-      if (!fuMayDecide()) return fuRefuse("access.insufficientPermissions", lang);
+      if (!fuMayDecideAt(row.site_id)) return fuRefuse("access.insufficientPermissions", lang);
       const faulted = fuFaultFor("conversation", lang);
       if (faulted) return faulted;
       const b = body && typeof body === "object" && !Array.isArray(body) ? body : {};
@@ -6488,7 +6651,7 @@ function createStub(opts) {
           state.findingRows.push(row);
           const made = owner && r.follow.choice ? fuChoose(row, r.follow.choice, null).followUp : null;
           return { issueId: row.id, templateItemId: r.x.template_item_id, label: r.item.label, zone: r.item.zone || null, score: r.score, maxScore: r.item.max_score, severity: row.severity, dueAt: row.due_at, owner: owner ? { id: owner.id, name: owner.name } : null,
-            followUp: made ? { id: made.id, kind: made.kind, topic: made.topicId ? { id: made.topicId } : null, dueOn: made.dueOn, state: fuStateOf(made) } : null };
+            followUp: made ? { id: made.id, kind: made.kind, topic: made.topicId ? Object.assign({ id: made.topicId }, state.findingsR14 ? { name: ((FOLLOW_UP_TOPICS.find(x => x.id === made.topicId) || {})[lang === "es" ? "es" : "en"]) || null } : {}) : null, dueOn: made.dueOn, state: fuStateOf(made) } : null };
         });
         // The safety part filed, answered as API Step 319 answers it: its
         // id, the overall result's code and each finding as its row.
@@ -7054,7 +7217,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { runIdFor: runIdOf, FOLLOW_UP_REFUSALS, FOLLOW_UP_TOPICS, CLOSED_NOTE, BAD_SHIFT_RUN, DROP_REFUSALS, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { TEST_SITE, TEST_SITE_REFUSAL, runIdFor: runIdOf, FOLLOW_UP_REFUSALS, FOLLOW_UP_TOPICS, CLOSED_NOTE, BAD_SHIFT_RUN, DROP_REFUSALS, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

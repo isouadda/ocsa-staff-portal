@@ -412,12 +412,13 @@ async function cleaner(browser, language) {
   check("every More item opens" + tag + ": " + items.join(", "), items.length > 0 && badMore.length === 0, badMore.join("; ") || "More holds nothing");
   // Step 271: with the signature routes not answering, Home has no card to
   // sign. Part 392: More offers My company property to everyone, and its
-  // list is read only when it opens, so each route was asked once: the
-  // requests at open, for Home, and the property as it opened above.
+  // list is read only when it opens, so it was asked once, as it opened
+  // above. Part 396: the summary counts the requests at open, none, so
+  // the requests route is never asked.
   await tapBar(page, 0);
   const signAsked = app.stub.state.calls.filter(c => c.path.indexOf("/api/signatures") === 0).length;
   const propertyAsked = app.stub.state.calls.filter(c => c.path === "/api/hr/property/mine").length;
-  check("with the signature routes not answering, Home has no card to sign, and More offers My company property, read once as it opened" + tag, !(await page.$("[data-sign-card]")) && items.indexOf(say(language, "My company property")) !== -1 && signAsked === 1 && propertyAsked === 1, (await page.$("[data-sign-card]")) ? "Home shows a card" : items.indexOf(say(language, "My company property")) === -1 ? "More does not offer My company property" : signAsked + " calls to the requests, " + propertyAsked + " to the property");
+  check("with the signature routes not answering, Home has no card to sign, and More offers My company property, read once as it opened" + tag, !(await page.$("[data-sign-card]")) && items.indexOf(say(language, "My company property")) !== -1 && signAsked === 0 && propertyAsked === 1, (await page.$("[data-sign-card]")) ? "Home shows a card" : items.indexOf(say(language, "My company property")) === -1 ? "More does not offer My company property" : signAsked + " calls to the requests, " + propertyAsked + " to the property");
 
   // A form from Forms.
   await tapMore(page, say(language, "Forms"));

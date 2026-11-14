@@ -1528,3 +1528,4 @@ Save the conversation,Guardar la conversación,Enregistrer la conversation,"Reco
 Conversation recorded.,Conversación registrada.,Conversation enregistrée.,"Findings to follow up, once a conversation is saved"
 From an inspection finding. Due {date},De un hallazgo de inspección. Vence el {date},Issue d'un constat d'inspection. Échéance : {date},"My training, on a training chosen as a finding's follow-up"
 From an inspection finding.,De un hallazgo de inspección.,Issue d'un constat d'inspection.,"My training, on a training chosen as a finding's follow-up, with no day"
+Nothing is waiting for you.,No hay nada pendiente para usted.,Rien ne vous attend.,"Approve supplies, when no request is on its list"
