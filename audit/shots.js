@@ -416,6 +416,10 @@ const SHOTS = [
   // Training, and joining a session.
   { name: "first-trainings", entry: E("Your first trainings"), o: { signedIn: true, stub: { training: true, documents: true } },
     go: (s) => s.waitFor(() => !!document.querySelector("[data-first-trainings]")) },
+  // Part 404: a document to sign again and no first-day training: the
+  // card reads To read and sign.
+  { name: "sign-card", entry: E("Your first trainings"), o: { signedIn: true, stub: { training: true, documents: true, firstDayNone: true } },
+    go: (s) => s.waitFor(() => !!document.querySelector('[data-first-heading="sign"]')) },
   { name: "my-training", entry: E("See your training"), o: { signedIn: true, stub: { training: true, outsideCourse: true } },
     go: async (s) => { if (!(await s.go("My training"))) return false; return s.waitFor(() => !!document.querySelector("[data-training-start]")); } },
   { name: "training-portal", entry: E("Find and take your trainings"), o: { signedIn: true, stub: { training: true, trainingPortal: true } },
@@ -769,6 +773,21 @@ const SHOTS = [
       s.stub.state.offline = true;
       await s.page.evaluate((x) => eval(x.js)(x.w, false).click(), { js: MARK_JS, w: w });
       if (!(await s.waitText(s.say("Saved on this phone. It sends when you have signal.")))) return false;
+      await s.top();
+      return true;
+    } },
+  // Part 404: the app started again with weak signal and the list read
+  // failing: the list kept on this phone, with its no-signal line.
+  { name: "tasks-kept", entry: E("Check off tasks with no signal"), o: { signedIn: true },
+    go: async (s) => {
+      if (!(await s.go("Tasks"))) return false;
+      const w = marks(s);
+      if (!(await s.waitFor((x) => !!eval(x.js)(x.w, false), { js: MARK_JS, w: w }))) return false;
+      await s.page.context().route(/\/api\/sites\/[^/]+\/tasks(\?|$)/, (r) => r.abort());
+      await s.page.reload();
+      await s.pause(2500);
+      if (!(await s.go("Tasks"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector("[data-tasks-kept]")))) return false;
       await s.top();
       return true;
     } },
