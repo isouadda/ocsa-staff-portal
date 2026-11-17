@@ -2159,6 +2159,20 @@ One journey, in English and Spanish, failing on the main of part 399:
 - `signheading`: only a document reads To read and sign; a document and a
   first-day training keep Your first trainings.
 
+## The API's words for two time off types (part 404, section 4)
+
+The owner chose the API's words everywhere (Nov 17): Paid sick leave reads
+**Permiso por enfermedad pagado** and Unpaid time off **Tiempo libre sin
+goce de sueldo** in Spanish, taken from ocsa-api's
+`translation/api_words.csv` (`timeOff.leaveType.paid_sick` and
+`.unpaid`), with their French from the same rows, which the
+portal already had. `src/words.js`,
+`translation/portal_words.csv` and the guide's two entries that bolded
+the old words carry them, so the form, the request list and the balances
+say the same as the dashboard and Help, for new requests and old ones
+alike. The stub's twins for the two names follow the table, so its
+Spanish is now the API's as well.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

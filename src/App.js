@@ -5569,7 +5569,9 @@ const leaveWord = (value, label) => tr(label || LEAVE_WORDS[value] || value || "
 // A leave type's name in the screen's language (part 399). A type the
 // portal's own table names reads as it always did, so every request filed
 // before part 395 (PTO, Bereavement and personal, Jury duty, Military
-// leave, and Paid sick leave and Unpaid time off) keeps its name. A type
+// leave, and Paid sick leave and Unpaid time off) keeps its name; since
+// part 404 the table holds the API's own words for the last two, so the
+// form, the list and the balances say them alike. A type
 // it does not name, such as Vacation, Personal day or Bereavement (API
 // part 395), takes the API's own words in the screen's language: words
 // on a type or a request, else the type's name.

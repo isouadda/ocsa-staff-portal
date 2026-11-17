@@ -230,7 +230,7 @@ Nothing scheduled this day.,No hay nada programado este día.,Rien de prévu ce 
 On Site,En sitio,Sur place,Schedule
 Only you and the person who approves time off can read this.,Solo usted y la persona que aprueba el tiempo libre pueden leer esto.,Seuls vous et la personne qui approuve les congés pouvez lire ceci.,Schedule
 Other,Otro,Autre,Schedule
-Paid sick leave,Licencia por enfermedad pagada,Congé maladie payé,"Schedule, from the API"
+Paid sick leave,Permiso por enfermedad pagado,Congé maladie payé,"Schedule, from the API"
 Part of the day,Parte del día,Une partie de la journée,Schedule
 Personal,Asunto personal,Raison personnelle,Schedule
 Pickup,Turnos libres,Services libres,"Schedule, Bar and More"
@@ -263,7 +263,7 @@ Time off requested. You get a notice when it is decided.,Tiempo libre solicitado
 To,Hasta,À,Schedule
 Today,Hoy,Aujourd'hui,"Schedule, Tasks"
 Type,Tipo,Type,Schedule
-Unpaid time off,Tiempo libre sin pago,Congé sans solde,"Schedule, from the API"
+Unpaid time off,Tiempo libre sin goce de sueldo,Congé sans solde,"Schedule, from the API"
 Week,Semana,Semaine,Schedule
 Worked,Trabajado,Effectué,Schedule
 Worked Shift,Turno trabajado,Service effectué,Schedule

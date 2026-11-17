@@ -3444,7 +3444,8 @@ const TWIN_PAIRS = [
   // the balances (their names, units, notices, reasons and refusals, the
   // ADP line and the notes), the policy's lines, and the posted-through
   // note as the stub fills it. Paid sick leave and Unpaid time off keep
-  // the twin the portal's own table gives them above.
+  // the twin the portal's own table gives them above, which since part 404
+  // is the API's own (the owner's choice of Nov 17).
   .concat(Object.keys(R15_WORDS).filter(k => R15_WORDS[k].en.indexOf("{") === -1).map(k => [R15_WORDS[k].en, R15_WORDS[k].es]))
   .concat(R15_LINES.map(l => [l.en, l.es]))
   .concat([[r15Say("leave.note.hoursPostedThrough", "en", { date: r15DateWords(R15_POSTED_THROUGH, "en") }), r15Say("leave.note.hoursPostedThrough", "es", { date: r15DateWords(R15_POSTED_THROUGH, "es") })]]);

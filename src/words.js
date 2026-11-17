@@ -343,7 +343,9 @@ export const WORDS = {
   "On Site": "En sitio",
   "Only you and the person who approves time off can read this.": "Solo usted y la persona que aprueba el tiempo libre pueden leer esto.",
   "Other": "Otro",
-  "Paid sick leave": "Licencia por enfermedad pagada",
+  // Part 404: the API's own words for these two (its translation/api_words.csv
+  // timeOff.leaveType.paid_sick and .unpaid), the owner's choice of Nov 17.
+  "Paid sick leave": "Permiso por enfermedad pagado",
   "Part of the day": "Parte del d\u00eda",
   "Personal": "Asunto personal",
   "Pickup": "Turnos libres",
@@ -376,7 +378,7 @@ export const WORDS = {
   "To": "Hasta",
   "Today": "Hoy",
   "Type": "Tipo",
-  "Unpaid time off": "Tiempo libre sin pago",
+  "Unpaid time off": "Tiempo libre sin goce de sueldo",
   "Week": "Semana",
   "Worked": "Trabajado",
   "Worked Shift": "Turno trabajado",
