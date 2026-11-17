@@ -1337,6 +1337,102 @@ const LEAVE_WORDS = {
   belowZero: ["This would take the {kind} balance below zero: {hours} hours left after it.", "Esto dejar\u00eda el saldo de {kind} por debajo de cero: quedar\u00edan {hours} horas."],
   waiting: ["This falls in the waiting period: {kind} can be used from {date}.", "Esto cae en el per\u00edodo de espera: {kind} se puede usar a partir del {date}."],
 };
+// Part 399: the time off form under the handbook's policy, as ocsa-api
+// Round 15 (part 395, main at 3df0967) answers it: helpers/timeOff.js
+// (OFFERED, TYPE_RULES, offeredType, readRequestBody, noticeOf),
+// routes/timeOff.js (the types route, takeRequest) and
+// helpers/leaveBalances.js (HANDBOOK_RULES, offerFor, hoursForRequest,
+// requestLeave, balancesFor, summaryOf). The words, the policy's lines
+// and the handbook's holidays below were read out of that code, run, in
+// English, Spanish and French (helpers/words.js, helpers/workingDays.js).
+// timeOffR15 false is an API from before part 395.
+const R15_WORDS = {
+  "timeOff.leaveType.vacation": { en: "Vacation", es: "Vacaciones", fr: "Vacances" },
+  "timeOff.leaveType.paid_sick": { en: "Paid sick leave", es: "Permiso por enfermedad pagado", fr: "Cong\u00e9 maladie pay\u00e9" },
+  "timeOff.leaveType.personal": { en: "Personal day", es: "D\u00eda personal", fr: "Journ\u00e9e personnelle" },
+  "timeOff.leaveType.bereavement": { en: "Bereavement", es: "Duelo", fr: "Deuil" },
+  "timeOff.leaveType.unpaid": { en: "Unpaid time off", es: "Tiempo libre sin goce de sueldo", fr: "Cong\u00e9 sans solde" },
+  "timeOff.unit.day": { en: "Whole days only", es: "Solo d\u00edas completos", fr: "Journ\u00e9es enti\u00e8res seulement" },
+  "timeOff.unit.hour": { en: "In whole hours", es: "En horas completas", fr: "En heures enti\u00e8res" },
+  "timeOff.notice.twoWeeks": { en: "Ask at least 2 weeks ahead. A request inside 2 weeks needs a reason, and the office decides it case by case.", es: "P\u00eddalas con al menos 2 semanas de anticipaci\u00f3n. Una solicitud con menos de 2 semanas necesita un motivo, y la oficina la decide caso por caso.", fr: "Demandez-les au moins 2 semaines \u00e0 l'avance. Une demande \u00e0 moins de 2 semaines a besoin d'un motif, et le bureau la d\u00e9cide au cas par cas." },
+  "timeOff.notice.fortyEightHours": { en: "Ask at least 48 hours ahead. A request inside 48 hours needs a reason, and the office decides it case by case.", es: "P\u00eddalo con al menos 48 horas de anticipaci\u00f3n. Una solicitud con menos de 48 horas necesita un motivo, y la oficina la decide caso por caso.", fr: "Demandez-la au moins 48 heures \u00e0 l'avance. Une demande \u00e0 moins de 48 heures a besoin d'un motif, et le bureau la d\u00e9cide au cas par cas." },
+  "timeOff.notice.sickAsap": { en: "Tell your supervisor as soon as you can. When you know ahead, ask at least 4 hours before your shift when you can. A late sick request is never refused for its timing, and you never have to find someone to cover.", es: "Avise a su supervisor lo antes posible. Cuando lo sepa con tiempo, pida al menos 4 horas antes de su turno cuando pueda. Una solicitud tard\u00eda por enfermedad nunca se rechaza por el momento en que llega, y nunca tiene que buscar a alguien que lo cubra.", fr: "Pr\u00e9venez votre superviseur d\u00e8s que possible. Quand vous le savez \u00e0 l'avance, demandez au moins 4 heures avant votre quart quand c'est possible. Une demande de maladie tardive n'est jamais refus\u00e9e pour son moment, et vous n'avez jamais \u00e0 trouver un rempla\u00e7ant." },
+  "timeOff.notOffered.notForClass": { en: "Vacation and personal days are for full-time staff.", es: "Las vacaciones y los d\u00edas personales son para el personal de tiempo completo.", fr: "Les vacances et les journ\u00e9es personnelles sont r\u00e9serv\u00e9es au personnel \u00e0 temps plein." },
+  "timeOff.notOffered.unionSite": { en: "Your site follows its union agreement, so OCSA vacation and personal days do not apply.", es: "Su sitio sigue su convenio sindical, as\u00ed que las vacaciones y los d\u00edas personales de OCSA no aplican.", fr: "Votre site suit sa convention syndicale, donc les vacances et les journ\u00e9es personnelles d'OCSA ne s'appliquent pas." },
+  "timeOff.notOffered.classMissing": { en: "Your employment class is not on file yet, so vacation and personal days cannot be offered. Ask the office to add it.", es: "Su clase de empleo a\u00fan no est\u00e1 registrada, as\u00ed que no se pueden ofrecer vacaciones ni d\u00edas personales. Pida a la oficina que la agregue.", fr: "Votre cat\u00e9gorie d'emploi n'est pas encore enregistr\u00e9e, donc les vacances et les journ\u00e9es personnelles ne peuvent pas \u00eatre propos\u00e9es. Demandez au bureau de l'ajouter." },
+  "timeOff.typeNotOffered": { en: "That kind of time off is no longer offered. Choose Vacation, Sick, Personal, Bereavement or Unpaid.", es: "Ese tipo de tiempo libre ya no se ofrece. Elija Vacaciones, Enfermedad, Personal, Duelo o Sin goce de sueldo.", fr: "Ce type de cong\u00e9 n'est plus propos\u00e9. Choisissez Vacances, Maladie, Personnel, Deuil ou Sans solde." },
+  "timeOff.wholeDaysOnly": { en: "This time off is taken in whole days, so leave out the times and the hours.", es: "Este tiempo libre se toma en d\u00edas completos, as\u00ed que deje en blanco las horas.", fr: "Ce cong\u00e9 se prend en journ\u00e9es enti\u00e8res, laissez donc les heures vides." },
+  "timeOff.wholeHoursOnly": { en: "Sick time is taken in whole hours. Use a whole number of hours.", es: "El tiempo por enfermedad se toma en horas completas. Use un n\u00famero entero de horas.", fr: "Le cong\u00e9 maladie se prend en heures enti\u00e8res. Indiquez un nombre entier d'heures." },
+  "timeOff.reasonInsideNotice.vacation": { en: "Vacation is asked for at least 2 weeks ahead. Add a reason, and the office will decide this request case by case.", es: "Las vacaciones se piden con al menos 2 semanas de anticipaci\u00f3n. Agregue un motivo y la oficina decidir\u00e1 esta solicitud caso por caso.", fr: "Les vacances se demandent au moins 2 semaines \u00e0 l'avance. Ajoutez un motif et le bureau d\u00e9cidera de cette demande au cas par cas." },
+  "timeOff.reasonInsideNotice.personal": { en: "A personal day is asked for at least 48 hours ahead. Add a reason, and the office will decide this request case by case.", es: "Un d\u00eda personal se pide con al menos 48 horas de anticipaci\u00f3n. Agregue un motivo y la oficina decidir\u00e1 esta solicitud caso por caso.", fr: "Une journ\u00e9e personnelle se demande au moins 48 heures \u00e0 l'avance. Ajoutez un motif et le bureau d\u00e9cidera de cette demande au cas par cas." },
+  "timeOff.notOfferedToYou": { en: "This kind of time off is not offered to you.", es: "Este tipo de tiempo libre no se le ofrece.", fr: "Ce type de cong\u00e9 ne vous est pas propos\u00e9." },
+  "leave.note.adpOfficial": { en: "This is the app's figure. ADP self-service holds the official balance.", es: "Esta es la cifra de la aplicaci\u00f3n. El autoservicio de ADP tiene el saldo oficial.", fr: "Ceci est le chiffre de l'application. Le libre-service ADP d\u00e9tient le solde officiel." },
+  "leave.note.hoursPostedThrough": { en: "Hours worked have posted through {date}.", es: "Las horas trabajadas se registraron hasta el {date}.", fr: "Les heures travaill\u00e9es sont enregistr\u00e9es jusqu'au {date}." },
+  "leave.note.hoursNotPosted": { en: "Hours worked post from the payroll system's hours file. None has been taken for this person yet, so these hours have not posted.", es: "Las horas trabajadas se registran desde el archivo de horas del sistema de n\u00f3mina. A\u00fan no se ha cargado ninguno para esta persona, as\u00ed que estas horas no se han registrado.", fr: "Les heures travaill\u00e9es sont enregistr\u00e9es \u00e0 partir du fichier d'heures du syst\u00e8me de paie. Aucun n'a encore \u00e9t\u00e9 pris pour cette personne, donc ces heures ne sont pas enregistr\u00e9es." },
+  "leave.note.classMissing": { en: "No employment class is on file, so vacation and personal days are not offered. The office can add it.", es: "No hay clase de empleo registrada, as\u00ed que no se ofrecen vacaciones ni d\u00edas personales. La oficina puede agregarla.", fr: "Aucune cat\u00e9gorie d'emploi n'est enregistr\u00e9e, donc les vacances et les journ\u00e9es personnelles ne sont pas propos\u00e9es. Le bureau peut l'ajouter." },
+  "leave.warning.overUseCap": { en: "This request would take the {kind} used this year past {amount}.", es: "Esta solicitud llevar\u00eda el uso de {kind} de este a\u00f1o por encima de {amount}.", fr: "Cette demande porterait l'utilisation de {kind} cette ann\u00e9e au-del\u00e0 de {amount}." },
+  "leave.policy.handbookName": { en: "Employee handbook (OCSA-HR-002)", es: "Manual del empleado (OCSA-HR-002)", fr: "Manuel de l'employ\u00e9 (OCSA-HR-002)" },
+  "leave.summary.holidaysHandbook": { en: "Paid holidays: the company's holidays, as the handbook lists them.", es: "D\u00edas feriados pagados: los feriados de la empresa, como los indica el manual.", fr: "Jours f\u00e9ri\u00e9s pay\u00e9s\u00a0: les jours f\u00e9ri\u00e9s de l'entreprise, tels que le manuel les \u00e9num\u00e8re." },
+};
+const R15_LINES = [
+  { kind: "vacation", classes: ["full_time"], en: "For full-time staff; Granted in full on the work anniversary each tier is reached, then the current tier each January 1; with years of service: 5 days from 1 years, 10 days from 3 years, 15 days from 5 years; usable 90 days after the hire date; nothing carries over to the next year.", es: "Para personal de tiempo completo; Se otorga completo en el aniversario de trabajo en que se alcanza cada nivel, y luego el nivel actual cada 1 de enero; seg\u00fan los a\u00f1os de servicio: 5 d\u00edas desde los 1 a\u00f1os, 10 d\u00edas desde los 3 a\u00f1os, 15 d\u00edas desde los 5 a\u00f1os; se puede usar 90 d\u00edas despu\u00e9s de la fecha de contrataci\u00f3n; nada pasa al a\u00f1o siguiente." },
+  { kind: "paid_sick", classes: ["full_time"], en: "For full-time staff; 40 hours on January 1 each year; in the year of hire, earned at 1 hour per 40 hours worked, up to 40 hours; usable 90 days after the hire date; nothing carries over to the next year.", es: "Para personal de tiempo completo; 40 horas el 1 de enero de cada a\u00f1o; en el a\u00f1o de contrataci\u00f3n, se gana 1 hora por cada 40 horas trabajadas, hasta 40 horas; se puede usar 90 d\u00edas despu\u00e9s de la fecha de contrataci\u00f3n; nada pasa al a\u00f1o siguiente." },
+  { kind: "paid_sick", classes: ["part_time","none","union"], en: "For part-time staff, staff with no employment class on file, staff at a union site; 1 hour for every 40 hours worked, from the payroll system's hours file; at most 40 hours earned a year; at most 40 hours used a year; usable 90 days after the hire date.", es: "Para personal de medio tiempo, personal sin clase de empleo registrada, personal en un sitio sindicalizado; 1 hora por cada 40 horas trabajadas, seg\u00fan el archivo de horas del sistema de n\u00f3mina; como m\u00e1ximo 40 horas ganadas al a\u00f1o; como m\u00e1ximo 40 horas usadas al a\u00f1o; se puede usar 90 d\u00edas despu\u00e9s de la fecha de contrataci\u00f3n." },
+  { kind: "personal", classes: ["full_time"], en: "For full-time staff; Granted in full on the work anniversary each tier is reached, then the current tier each January 1; with years of service: 3 days from 1 years; usable 90 days after the hire date; nothing carries over to the next year.", es: "Para personal de tiempo completo; Se otorga completo en el aniversario de trabajo en que se alcanza cada nivel, y luego el nivel actual cada 1 de enero; seg\u00fan los a\u00f1os de servicio: 3 d\u00edas desde los 1 a\u00f1os; se puede usar 90 d\u00edas despu\u00e9s de la fecha de contrataci\u00f3n; nada pasa al a\u00f1o siguiente." },
+];
+const R15_HOLIDAYS = ["2026-01-01","2026-01-19","2026-05-25","2026-06-19","2026-07-03","2026-09-07","2026-11-26","2026-11-27","2026-12-25","2027-01-01","2027-01-18","2027-05-31","2027-06-18","2027-07-05","2027-09-06","2027-11-25","2027-11-26","2027-12-24","2027-12-31"];
+// The day the stub's hours files have posted through.
+const R15_POSTED_THROUGH = "2026-09-26";
+// Each of the five a new request is offered, in the API's order, and how
+// it is asked for (TYPE_RULES).
+const R15_OFFERED = ["vacation", "paid_sick", "personal", "bereavement", "unpaid"];
+const R15_GATED = ["vacation", "personal"];
+const R15_RULES = {
+  vacation: { unit: "days", increment: "day", partDay: false, notice: { rule: "twoWeeks", aheadDays: 14, aheadHours: null, beforeShiftHours: null, marksInside: true, reasonInsideNotice: true, refusesLate: false } },
+  paid_sick: { unit: "hours", increment: "hour", partDay: true, notice: { rule: "sickAsap", aheadDays: null, aheadHours: null, beforeShiftHours: 4, marksInside: false, reasonInsideNotice: false, refusesLate: false } },
+  personal: { unit: "days", increment: "day", partDay: false, notice: { rule: "fortyEightHours", aheadDays: null, aheadHours: 48, beforeShiftHours: null, marksInside: true, reasonInsideNotice: true, refusesLate: false } },
+  bereavement: { unit: "hours", increment: "any", partDay: true, notice: null },
+  unpaid: { unit: "hours", increment: "any", partDay: true, notice: null },
+};
+// Every type's words (timeOff.leaveType.<value>), the four no longer
+// offered among them, as every request answers them in leaveTypeWords.
+const R15_TYPE_WORDS = {
+  vacation: R15_WORDS["timeOff.leaveType.vacation"], paid_sick: R15_WORDS["timeOff.leaveType.paid_sick"], personal: R15_WORDS["timeOff.leaveType.personal"],
+  bereavement: R15_WORDS["timeOff.leaveType.bereavement"], unpaid: R15_WORDS["timeOff.leaveType.unpaid"],
+  pto: { en: "PTO (paid time off)", es: "PTO (tiempo libre pagado)", fr: "PTO (cong\u00e9s pay\u00e9s)" },
+  bereavement_personal: { en: "Bereavement and personal", es: "Duelo y asuntos personales", fr: "Deuil et raisons personnelles" },
+  jury_duty: { en: "Jury duty", es: "Servicio de jurado", fr: "Devoir de jur\u00e9" },
+  military: { en: "Military leave", es: "Permiso militar", fr: "Cong\u00e9 militaire" },
+};
+// The handbook's rules by class (HANDBOOK_RULES): the kinds each class
+// holds, in the rules' order, and the sick rule's year caps. Supplemental
+// staff hold none.
+const R15_CLASS_KINDS = { full_time: ["vacation", "paid_sick", "personal"], part_time: ["paid_sick"], none: ["paid_sick"], union: ["paid_sick"], supplemental: [] };
+const r15ClassOf = (L) => (L.unionSite ? "union" : L.employmentClass || "none");
+const r15Say = (key, lang, vars) => String((R15_WORDS[key] || {})[lang === "es" ? "es" : "en"] || key).replace(/\{(\w+)\}/g, (whole, k) => (vars && k in vars ? String(vars[k]) : whole));
+const r15DateWords = (day, lang) => {
+  const d = new Date(day + "T12:00:00Z");
+  return lang === "es"
+    ? d.getUTCDate() + " de " + ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"][d.getUTCMonth()] + " de " + d.getUTCFullYear()
+    : ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getUTCMonth()] + " " + d.getUTCDate() + ", " + d.getUTCFullYear();
+};
+const r15AddDays = (day, n) => { const d = new Date(day + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+// One offered type as GET /api/time-off/types answers it (offeredType):
+// name, unitText and the notice's text in the request's language, words
+// in all three.
+const r15Type = (value, lang) => {
+  const r = R15_RULES[value];
+  const words = R15_TYPE_WORDS[value];
+  const unitKey = r.increment === "any" ? null : "timeOff.unit." + r.increment;
+  return {
+    value: value, label: words.en, words: Object.assign({}, words), name: lang === "es" ? words.es : words.en,
+    unit: r.unit, increment: r.increment, partDay: r.partDay,
+    unitWords: unitKey ? Object.assign({}, R15_WORDS[unitKey]) : null,
+    unitText: unitKey ? r15Say(unitKey, "en") : null,
+    notice: r.notice ? Object.assign({}, r.notice, { words: Object.assign({}, R15_WORDS["timeOff.notice." + r.notice.rule]), text: r15Say("timeOff.notice." + r.notice.rule, "en") }) : null,
+  };
+};
+
 const STAFF_ORIGIN = "https://staff.example.invalid";
 const ADMIN_ORIGIN = "https://admin.example.invalid";
 const EVERY_NOTICE = [
@@ -1541,9 +1637,14 @@ const TIME_OFF_REFUSALS = [
   { status: 409, error: "This request was already cancelled", code: "timeOff.alreadyStatus", extra: { status: "cancelled" } },
 ];
 
+// Since Step 289 every request carries leaveTypeWords, and since part 395
+// insideNotice (null for a type with no such rule and for every request
+// filed before) and its type's unit.
 const timeOffRow = (o) => Object.assign({
   id: "to-one", userId: PERSON.id, userName: "Alex Tester",
   leaveType: "paid_sick", leaveTypeLabel: "Paid sick leave",
+  leaveTypeWords: R15_TYPE_WORDS[(o && o.leaveType) || "paid_sick"] ? Object.assign({}, R15_TYPE_WORDS[(o && o.leaveType) || "paid_sick"]) : null,
+  insideNotice: null, unit: R15_RULES[(o && o.leaveType) || "paid_sick"] ? R15_RULES[(o && o.leaveType) || "paid_sick"].unit : "hours",
   startsOn: "2026-10-05", endsOn: "2026-10-05",
   startTime: null, endTime: null, partDay: false,
   hours: null, reason: null, status: "requested",
@@ -1783,7 +1884,19 @@ function makeState(opts) {
     // Part 369: the person's leave as GET /api/leave/me answers it: the
     // handbook's paid sick hours, a balance a case may set, a usable-from
     // day for a new hire, none tracked at all, or no route.
-    leave: { route: o.leaveRoute !== false, none: o.leaveNone === true, balance: typeof o.leaveBalance === "number" ? o.leaveBalance : 40, usableFrom: o.leaveUsableFrom || null, hireDate: o.leaveUsableFrom ? "2026-08-17" : "2024-03-04" },
+    leave: { route: o.leaveRoute !== false, none: o.leaveNone === true, balance: typeof o.leaveBalance === "number" ? o.leaveBalance : 40, usableFrom: o.leaveUsableFrom || null, hireDate: o.leaveUsableFrom ? "2026-08-17" : "2024-03-04",
+      // Part 399 (API part 395): the person's employment class (full_time,
+      // part_time or supplemental; null is none on file), whether their
+      // site is a union site, the days of vacation and personal they hold,
+      // and the sick hours they already used this year.
+      employmentClass: o.employmentClass === undefined ? "full_time" : o.employmentClass, unionSite: o.unionSite === true,
+      vacationDays: typeof o.vacationDays === "number" ? o.vacationDays : 10, personalDays: typeof o.personalDays === "number" ? o.personalDays : 3,
+      sickUsed: typeof o.sickUsed === "number" ? o.sickUsed : 0 },
+    // Part 399: an API with part 395's time off (the five types, their
+    // units and notice, who is offered vacation and personal, the leave in
+    // days with the handbook's holidays, the ADP line); false is one from
+    // before it.
+    timeOffR15: o.timeOffR15 !== false,
     maint: { requests: MAINT_SEED(o.person || PERSON), contacts: MAINT_CONTACTS(), seq: 2, logSeq: 0, emailFails: o.maintEmailFails === true, loseNext: Number(o.maintLoseNext) || 0, photoFails: false,
       // Part 371: the office's address a filing copies (officeCopy), as
       // the contacts read's preview answers it.
@@ -3323,7 +3436,15 @@ const TWIN_PAIRS = [
   // Part 383: the certificate route's refusals (API part 378).
   .concat(["training.badDetails", "training.badFile", "training.fileTooLarge", "training.topicNotFound", "training.notOutsideCourse"].map(k => [TRAINING_REFUSALS[k].en, TRAINING_REFUSALS[k].es]))
   // Part 396: a write at the test site refused (API Round 14, section 1).
-  .concat([[TEST_SITE_REFUSAL.en, TEST_SITE_REFUSAL.es]]);
+  .concat([[TEST_SITE_REFUSAL.en, TEST_SITE_REFUSAL.es]])
+  // Part 399: the words API part 395 serves on the time off routes and on
+  // the balances (their names, units, notices, reasons and refusals, the
+  // ADP line and the notes), the policy's lines, and the posted-through
+  // note as the stub fills it. Paid sick leave and Unpaid time off keep
+  // the twin the portal's own table gives them above.
+  .concat(Object.keys(R15_WORDS).filter(k => R15_WORDS[k].en.indexOf("{") === -1).map(k => [R15_WORDS[k].en, R15_WORDS[k].es]))
+  .concat(R15_LINES.map(l => [l.en, l.es]))
+  .concat([[r15Say("leave.note.hoursPostedThrough", "en", { date: r15DateWords(R15_POSTED_THROUGH, "en") }), r15Say("leave.note.hoursPostedThrough", "es", { date: r15DateWords(R15_POSTED_THROUGH, "es") })]]);
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -3348,8 +3469,14 @@ const ROUTE_WORDS = [
   // Part 369: leave balances. A kind's name, the policy's name and its
   // lines, a note and a warning are the API's words; the person, the site
   // and a code are not.
-  [/^GET \/api\/leave\/me$/, { kindName: "message", text: "message", holidays: "message", message: "message", note: "message", kind: "code", unit: "code", method: "code", source: "code", code: "code", role: "code", status: "code" }],
-  [/^(POST \/api\/time-off|POST \/api\/time-off\/preview|GET \/api\/time-off\/[^/]+)$/, { kindName: "message", message: "message", kind: "code", hoursFrom: "code", code: "code", source: "code" }],
+  [/^GET \/api\/leave\/me$/, { kindName: "message", text: "message", holidays: "message", message: "message", note: "message", kind: "code", unit: "code", method: "code", source: "code", code: "code", role: "code", status: "code", employmentClass: "code", classes: "code" }],
+  // Part 399, ahead of the time off routes' line below, which would match
+  // it first: a type's name comes in the request's language, as do its
+  // unit, its notice and the reason one is not offered; words carry all
+  // three; the rest are codes.
+  [/^GET \/api\/time-off\/types$/, { label: "leave type", name: "name", unitText: "message", text: "message", reasonText: "message", value: "code", unit: "code", increment: "code", rule: "code", reason: "code", employmentClass: "code" }],
+  // Part 399: a request's unit, a day's from and a notice's rule are codes.
+  [/^(POST \/api\/time-off|POST \/api\/time-off\/preview|GET \/api\/time-off\/[^/]+)$/, { kindName: "message", message: "message", kind: "code", hoursFrom: "code", code: "code", source: "code", unit: "code", from: "code", rule: "code" }],
   // Part 369: building maintenance. Its names are the API's words in the
   // request's language; what people typed, the site, a building, a
   // contact and a reference are names; keys are codes.
@@ -3371,7 +3498,6 @@ const ROUTE_WORDS = [
   [/^GET \/api\/lookups$/, { label: "pick list choice", displayLabel: "pick list choice" }],
   [/^GET \/api\/notifications$/, { title: "notice", body: "notice" }],
   [/^GET \/api\/supplies$/, { name: "supply" }],
-  [/^GET \/api\/time-off\/types$/, { label: "leave type" }],
   [/^[A-Z]+ \/api\/forms/, { title: "form text", label: "form text", rows: "form text" }],
   // The customer's form, the same view; the site's and the company's names
   // are names.
@@ -3810,38 +3936,192 @@ function createStub(opts) {
   const leaveOf = (row, lang) => {
     const es = lang === "es";
     const L = state.leave;
+    const r15 = state.timeOffR15;
+    // Part 399: the rule is the person's class's (ruleForRequest); a kind
+    // kept in days counts days (hoursForRequest).
+    const cls = r15ClassOf(L);
+    const kinds = r15 ? (R15_CLASS_KINDS[cls] || []) : ["paid_sick"];
     // In English, served in the request's language on its way out; the
     // warnings name it in that language, as the API writes them.
-    const kindName = row.leaveType === "paid_sick" ? LEAVE_WORDS.sick[0] : row.leaveTypeLabel || row.leaveType;
-    const tracked = row.leaveType === "paid_sick" && !L.none;
+    const kindName = row.leaveType === "paid_sick" ? LEAVE_WORDS.sick[0] : r15 && R15_TYPE_WORDS[row.leaveType] ? R15_TYPE_WORDS[row.leaveType].en : row.leaveTypeLabel || row.leaveType;
+    const tracked = !L.none && kinds.indexOf(row.leaveType) !== -1;
+    const byDays = r15 && tracked && (row.leaveType === "vacation" || row.leaveType === "personal");
     const span = Math.round((Date.parse(String(row.endsOn || row.startsOn) + "T12:00:00Z") - Date.parse(String(row.startsOn) + "T12:00:00Z")) / DAY) + 1;
     const partHours = row.partDay && row.startTime && row.endTime ? (Number(row.endTime.slice(0, 2)) * 60 + Number(row.endTime.slice(3, 5)) - Number(row.startTime.slice(0, 2)) * 60 - Number(row.startTime.slice(3, 5))) / 60 : null;
-    const hours = row.hours !== null && row.hours !== undefined && row.hours !== "" ? Number(row.hours) : partHours !== null ? partHours : Math.max(1, span) * 8;
-    const hoursFrom = row.hours !== null && row.hours !== undefined && row.hours !== "" ? "request" : partHours !== null ? "partDay" : "schedule";
+    const own = row.hours !== null && row.hours !== undefined && row.hours !== "";
+    // The person's scheduled shifts on each day, not cancelled, as
+    // hoursForRequest reads scheduled_shifts.
+    const shiftsOn = r15ShiftsOn;
+    const shiftHours = (s) => { const a = String(s.start_time || "00:00"), b = String(s.end_time || "00:00"); const m = (Number(b.slice(0, 2)) * 60 + Number(b.slice(3, 5)) - Number(a.slice(0, 2)) * 60 - Number(a.slice(3, 5)) + 1440) % 1440; return m / 60; };
+    let hours, hoursFrom, days = null, dayCount;
+    if (byDays) {
+      days = [];
+      dayCount = 0;
+      for (let d = String(row.startsOn), n = 0; d <= String(row.endsOn || row.startsOn) && n < 400; d = r15AddDays(d, 1), n++) {
+        const wd = new Date(d + "T12:00:00Z").getUTCDay();
+        const from = R15_HOLIDAYS.indexOf(d) !== -1 ? "holiday" : shiftsOn(d).length ? "shift" : wd === 0 || wd === 6 ? "dayOff" : "noShift";
+        const counts = from === "shift" || from === "noShift";
+        if (counts) dayCount += 1;
+        days.push({ date: d, hours: counts ? 8 : 0, from: from });
+      }
+      hours = dayCount * 8;
+      hoursFrom = "days";
+    } else if (own) {
+      hours = Number(row.hours); hoursFrom = "request";
+    } else if (partHours !== null) {
+      hours = partHours; hoursFrom = "partDay";
+      if (r15) days = [{ date: row.startsOn, hours: partHours, from: "partDay" }];
+    } else if (r15) {
+      // Each day's shifts, else 8 hours; a sick day held to whole hours.
+      days = [];
+      for (let d = String(row.startsOn), n = 0; d <= String(row.endsOn || row.startsOn) && n < 400; d = r15AddDays(d, 1), n++) {
+        const on = shiftsOn(d);
+        let h = on.length ? Math.round(on.reduce((sum, s) => sum + shiftHours(s), 0) * 100) / 100 : 8;
+        if (row.leaveType === "paid_sick") h = Math.ceil(h - 1e-9);
+        days.push({ date: d, hours: h, from: on.length ? "shift" : "noShift" });
+      }
+      hours = days.reduce((sum, x) => sum + x.hours, 0); hoursFrom = "schedule";
+    } else {
+      hours = Math.max(1, span) * 8; hoursFrom = "schedule";
+    }
     const pending = row.status === "requested";
     const taken = row.status === "approved";
     const givenBack = row.givenBack === true;
-    const balance = tracked ? L.balance : null;
+    const balance = !tracked ? null : row.leaveType === "vacation" ? L.vacationDays * 8 : row.leaveType === "personal" ? L.personalDays * 8 : L.balance;
     const would = balance === null ? null : pending ? Math.round((balance - hours) * 100) / 100 : balance;
     const warnings = [];
     // A warning is the API's sentence with its values in it, so both of
     // its languages are registered as twins the way every word is.
     const warned = (pair, vars) => {
       const en = refusalIn({ en: pair[0], es: pair[1] }, "en", Object.assign({}, vars, { kind: kindName, date: vars.dateEn || vars.date }));
-      const sp = refusalIn({ en: pair[0], es: pair[1] }, "es", Object.assign({}, vars, { kind: TWIN_ES.has(kindName) ? TWIN_ES.get(kindName) : kindName, date: vars.dateEs || vars.date }));
+      const sp = refusalIn({ en: pair[0], es: pair[1] }, "es", Object.assign({}, vars, { kind: TWIN_ES.has(kindName) ? TWIN_ES.get(kindName) : kindName, date: vars.dateEs || vars.date, amount: vars.amountEs || vars.amount }));
       if (!TWIN_ES.has(en)) TWIN_ES.set(en, sp);
       if (!TWIN_EN.has(sp)) TWIN_EN.set(sp, en);
       return es ? sp : en;
     };
     if (pending && tracked && would < 0) warnings.push({ code: "leave.warning.belowZero", message: warned(LEAVE_WORDS.belowZero, { hours: would }) });
     if (pending && tracked && L.usableFrom && String(row.startsOn) < L.usableFrom) {
-      const d = new Date(L.usableFrom + "T12:00:00Z");
-      const dateEs = d.getUTCDate() + " de " + ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"][d.getUTCMonth()] + " de " + d.getUTCFullYear();
-      const dateEn = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getUTCMonth()] + " " + d.getUTCDate() + ", " + d.getUTCFullYear();
-      warnings.push({ code: "leave.warning.inWaitingPeriod", message: warned(LEAVE_WORDS.waiting, { dateEn: dateEn, dateEs: dateEs }) });
+      warnings.push({ code: "leave.warning.inWaitingPeriod", message: warned(LEAVE_WORDS.waiting, { dateEn: r15DateWords(L.usableFrom, "en"), dateEs: r15DateWords(L.usableFrom, "es") }) });
     }
-    return { kind: row.leaveType, kindName: kindName, tracked: tracked, policy: { id: null, name: LEAVE_WORDS.handbook[es ? 1 : 0], source: "default", since: null }, balanceHours: balance, requestHours: hours, hoursFrom: hoursFrom, days: null,
+    // Part 399: the sick rule of part-time staff, no class and a union site
+    // holds 40 hours used a year (useCap), warned and never refused.
+    if (r15 && pending && tracked && row.leaveType === "paid_sick" && cls !== "full_time" && L.sickUsed + hours > 40) {
+      const w = R15_WORDS["leave.warning.overUseCap"];
+      warnings.push({ code: "leave.warning.overUseCap", message: warned([w.en, w.es], { amount: "40 hours", amountEs: "40 horas" }) });
+    }
+    const base = { kind: row.leaveType, kindName: kindName, tracked: tracked, policy: { id: null, name: LEAVE_WORDS.handbook[es ? 1 : 0], source: "default", since: null }, balanceHours: balance, requestHours: hours, hoursFrom: hoursFrom, days: days,
       wouldLeaveHours: would, taken: taken, givenBack: givenBack, usableFrom: tracked ? L.usableFrom : null, warnings: warnings };
+    if (!r15) return base;
+    const perDay = byDays ? 8 : null;
+    return Object.assign(base, {
+      unit: byDays ? "days" : "hours", hoursPerDay: perDay,
+      requestDays: perDay ? dayCount : null,
+      balanceDays: perDay && balance !== null ? Math.round(balance / perDay * 100) / 100 : null,
+      wouldLeaveDays: perDay && would !== null ? Math.round(would / perDay * 100) / 100 : null,
+      appFigure: true, notes: [{ code: "leave.note.adpOfficial", message: r15Say("leave.note.adpOfficial", "en") }],
+    });
+  };
+  // Part 399 (API part 395): the person's scheduled shifts on a day, not
+  // cancelled, earliest first, as hoursForRequest and noticeOf read them.
+  const r15ShiftsOn = (d) => ((schedule() || {}).scheduled || []).filter(s => String(s.scheduled_date || "").slice(0, 10) === d && s.status !== "cancelled").sort((a, b) => String(a.start_time || "").localeCompare(String(b.start_time || "")));
+  // A day and a minute of it on the company's clock, as an instant
+  // (checklistDay.instantOf in SESSION_TIME_ZONE).
+  const r15Instant = (day, minutes) => {
+    const [y, m, d] = day.split("-").map(Number);
+    const want = Date.UTC(y, m - 1, d, 0, minutes);
+    let t = want + 5 * 3600000;
+    const fmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    for (let i = 0; i < 2; i++) {
+      const p = fmt.formatToParts(new Date(t));
+      const g = (k) => Number(p.find(x => x.type === k).value);
+      t += want - Date.UTC(g("year"), g("month") - 1, g("day"), g("hour"), g("minute"));
+    }
+    return t;
+  };
+  // What a person is offered of vacation and personal (offerFor): offered
+  // when the policy they follow holds a rule of it for their class, which
+  // under the handbook is full-time staff at a site that is not a union
+  // site; else the reason, unionSite before classMissing before
+  // notForClass.
+  const r15Offer = () => {
+    const L = state.leave;
+    const employmentClass = ["full_time", "part_time", "supplemental"].indexOf(L.employmentClass) !== -1 ? L.employmentClass : null;
+    const offered = !L.none && !L.unionSite && employmentClass === "full_time";
+    const reason = offered ? null : L.unionSite ? "unionSite" : !employmentClass ? "classMissing" : "notForClass";
+    return { employmentClass: employmentClass, classMissing: !employmentClass, unionSite: L.unionSite, reason: reason, shut: (v) => R15_GATED.indexOf(v) !== -1 && !offered };
+  };
+  // Where a request stands against its type's notice (noticeOf): vacation
+  // inside 14 calendar days of today, personal inside 48 hours of its first
+  // day's start (the first shift that day, else 00:00); sick never marked.
+  const r15Notice = (leaveType, startsOn) => {
+    const rule = R15_RULES[leaveType];
+    if (!rule || !rule.notice) return null;
+    const now = clockNow();
+    const shift = r15ShiftsOn(startsOn)[0];
+    const minutes = shift ? Number(String(shift.start_time).slice(0, 2)) * 60 + Number(String(shift.start_time).slice(3, 5)) : 0;
+    const startsAt = r15Instant(startsOn, minutes);
+    let inside = null;
+    if (rule.notice.marksInside && rule.notice.aheadDays) inside = startsOn < r15AddDays(nyDay(now), rule.notice.aheadDays);
+    else if (rule.notice.marksInside && rule.notice.aheadHours) inside = startsAt - now < rule.notice.aheadHours * 3600000;
+    return { rule: rule.notice.rule, insideNotice: inside, startsAt: iso(startsAt), noticeHours: Math.floor((startsAt - now) / 3600000) };
+  };
+  // The filing's body read as takeRequest reads it since part 395, its
+  // checks in readRequestBody's order: the type, a type no longer offered,
+  // the dates, a part day, the hours, the units, how far back or ahead,
+  // the reason; then vacation and personal to whom they are offered, then
+  // the reason inside the notice. A refusal is answered in English and
+  // served in the request's language, as every refusal here is.
+  const r15Take = (body) => {
+    const b = body && typeof body === "object" && !Array.isArray(body) ? body : {};
+    const said = (status, error, code, extra) => ({ refusal: json(status, Object.assign({ error: error, code: code }, extra || {})) });
+    const no = (key, keys, extra) => said(400, r15Say(key, "en"), key, Object.assign(keys ? { keys: keys } : {}, extra || {}));
+    const lt = typeof b.leaveType === "string" ? b.leaveType.trim() : "";
+    if (!R15_TYPE_WORDS[lt]) return said(400, "Choose a type of time off", "timeOff.typeRequired");
+    if (R15_OFFERED.indexOf(lt) === -1) return no("timeOff.typeNotOffered", ["leaveType"]);
+    const rule = R15_RULES[lt];
+    const dayRe = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dayRe.test(String(b.startsOn || "")) || !dayRe.test(String(b.endsOn || ""))) return said(400, "Dates must be YYYY-MM-DD", "timeOff.datesFormat");
+    if (b.endsOn < b.startsOn) return said(400, "The last day cannot be before the first day", "timeOff.lastBeforeFirst");
+    const startTime = typeof b.startTime === "string" && b.startTime.trim() ? b.startTime.trim() : null;
+    const endTime = typeof b.endTime === "string" && b.endTime.trim() ? b.endTime.trim() : null;
+    if (!!startTime !== !!endTime || (startTime && (b.startsOn !== b.endsOn || startTime === endTime))) return said(400, "A part day needs both a start and an end time, on one day", "timeOff.partDay");
+    let hours = null;
+    if (b.hours !== undefined && b.hours !== null && b.hours !== "") {
+      const n = Number(b.hours);
+      if (!isFinite(n) || n < 0 || n > 999.99) return said(400, "Hours must be a number from 0 to 999.99", "timeOff.hoursRange");
+      hours = Math.round(n * 100) / 100;
+    }
+    const windowMinutes = startTime ? (Number(endTime.slice(0, 2)) * 60 + Number(endTime.slice(3, 5)) - Number(startTime.slice(0, 2)) * 60 - Number(startTime.slice(3, 5)) + 1440) % 1440 : 0;
+    if (rule.increment === "day" && startTime) return no("timeOff.wholeDaysOnly", ["startTime", "endTime"]);
+    if (rule.increment === "day" && hours !== null) return no("timeOff.wholeDaysOnly", ["hours"]);
+    if (rule.increment === "hour" && hours !== null && !Number.isInteger(hours)) return no("timeOff.wholeHoursOnly", ["hours"]);
+    if (rule.increment === "hour" && startTime && windowMinutes % 60 !== 0) return no("timeOff.wholeHoursOnly", ["startTime", "endTime"]);
+    const today = nyDay(clockNow());
+    const between = (a, z) => Math.round((Date.parse(z + "T12:00:00Z") - Date.parse(a + "T12:00:00Z")) / DAY);
+    if (between(b.startsOn, today) > 30) return said(400, "Time off can start at most 30 days ago", "timeOff.tooFarBack");
+    if (between(today, b.startsOn) > 365) return said(400, "Time off can start at most one year ahead", "timeOff.tooFarAhead");
+    let reason = null;
+    if (b.reason !== undefined && b.reason !== null) {
+      reason = String(b.reason);
+      if (reason.length > 1000) return said(400, "Keep the reason to 1000 characters or fewer.", "timeOff.reasonTooLong");
+      if (reason.trim() === "") reason = null;
+    }
+    if (R15_GATED.indexOf(lt) !== -1) {
+      const offer = r15Offer();
+      if (offer.shut(lt)) return said(400, r15Say("timeOff.notOffered." + offer.reason, "en"), "timeOff.notOfferedToYou", { reason: offer.reason, keys: ["leaveType"] });
+    }
+    const notice = r15Notice(lt, b.startsOn);
+    if (notice && notice.insideNotice === true && rule.notice.reasonInsideNotice && !reason) return no("timeOff.reasonInsideNotice." + lt, ["reason"], { notice: notice });
+    return { read: { leaveType: lt, startsOn: b.startsOn, endsOn: b.endsOn, startTime: startTime, endTime: endTime, hours: hours, reason: reason }, notice: notice };
+  };
+  // The request a body would file, as requestShape answers it since part
+  // 395: insideNotice for a type whose notice marks, and its unit.
+  const r15Row = (id, took) => {
+    const r = took.read;
+    const rule = R15_RULES[r.leaveType];
+    return timeOffRow({ id: id, leaveType: r.leaveType, leaveTypeLabel: R15_TYPE_WORDS[r.leaveType].en, leaveTypeWords: Object.assign({}, R15_TYPE_WORDS[r.leaveType]),
+      startsOn: r.startsOn, endsOn: r.endsOn, partDay: !!r.startTime, startTime: r.startTime, endTime: r.endTime, hours: r.hours, reason: r.reason,
+      insideNotice: took.notice && rule.notice.marksInside ? took.notice.insideNotice === true : null, unit: rule.unit });
   };
   const holdsMaint = () => holds("file_maintenance_requests") || state.person.fileMaintenance === true;
   const nyDay = (ms) => new Date(ms).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
@@ -5159,31 +5439,93 @@ function createStub(opts) {
       const lw = (k) => LEAVE_WORDS[k][0];
       const L = state.leave;
       const policy = L.none ? { id: "pol-site", name: lw("site"), source: "site", since: "2026-01-01" } : { id: null, name: lw("handbook"), source: "default", since: null };
-      const sick = { kind: "paid_sick", kindName: lw("sick"), unit: "hours", hoursPerDay: 8, tracked: true, method: "january_1", startHours: 0, grantedHours: 40, usedHours: Math.max(0, 40 - L.balance), givenBackHours: 0, expiredHours: 0, adjustedHours: Math.min(0, L.balance - 40) < -40 ? L.balance : 0, balanceHours: L.balance, balanceDays: null, usableFrom: L.usableFrom, hoursPostedThrough: null, notes: [] };
+      const head = { userId: state.person.id, name: state.person.firstName + " " + state.person.lastName, role: state.person.role, status: "active", hireDate: L.hireDate, site: { id: "site-north", name: "North Building" } };
+      if (!state.timeOffR15) {
+        const sick = { kind: "paid_sick", kindName: lw("sick"), unit: "hours", hoursPerDay: 8, tracked: true, method: "january_1", startHours: 0, grantedHours: 40, usedHours: Math.max(0, 40 - L.balance), givenBackHours: 0, expiredHours: 0, adjustedHours: Math.min(0, L.balance - 40) < -40 ? L.balance : 0, balanceHours: L.balance, balanceDays: null, usableFrom: L.usableFrom, hoursPostedThrough: null, notes: [] };
+        return json(200, {
+          person: head, year: 2026, asOf: "2026-10-01", policy: policy,
+          summary: { lines: [{ kind: "paid_sick", kindName: lw("sick"), text: L.none ? lw("untracked") : lw("sickLine"), note: null }], holidays: lw("holidays"), holidayDays: [] },
+          balances: L.none ? [] : [sick], policyHistory: [],
+        });
+      }
+      // Part 399 (API part 395, balancesFor): the kinds the rules of the
+      // person's class hold, each the app's figure with the ADP line first
+      // in its notes; a kind kept in days answers balanceDays; sick earned
+      // by hours worked says how far they have posted; a person with no
+      // class is told vacation and personal are not offered. summaryOf
+      // answers one line per rule, each naming its classes.
+      const cls = r15ClassOf(L);
+      const adp = { code: "leave.note.adpOfficial", message: r15Say("leave.note.adpOfficial", "en") };
+      const posted = { code: "leave.note.hoursPostedThrough", message: r15Say("leave.note.hoursPostedThrough", "en", { date: r15DateWords(R15_POSTED_THROUGH, "en") }) };
+      const noClass = cls === "none" ? [{ code: "leave.note.classMissing", message: r15Say("leave.note.classMissing", "en") }] : [];
+      const one = (kind) => {
+        const days = kind === "vacation" ? L.vacationDays : kind === "personal" ? L.personalDays : null;
+        const hours = days !== null ? days * 8 : L.balance;
+        const sick = kind === "paid_sick";
+        return { kind: kind, kindName: sick ? lw("sick") : R15_TYPE_WORDS[kind].en, unit: sick ? "hours" : "days", hoursPerDay: 8, tracked: true,
+          method: sick ? (cls === "full_time" ? "january_1" : "per_hours_worked") : "anniversary_then_january_1",
+          startHours: 0, grantedHours: sick ? 40 : hours, usedHours: sick ? Math.max(0, 40 - hours) : 0, givenBackHours: 0, expiredHours: 0, adjustedHours: 0,
+          balanceHours: hours, balanceDays: days, usableFrom: L.usableFrom, hoursPostedThrough: sick ? R15_POSTED_THROUGH : null,
+          notes: [adp].concat(sick ? [posted] : []).concat(noClass),
+          yearCapHours: sick ? 40 : null, useCapHours: sick && cls !== "full_time" ? 40 : null, appFigure: true };
+      };
       return json(200, {
-        person: { userId: state.person.id, name: state.person.firstName + " " + state.person.lastName, role: state.person.role, status: "active", hireDate: L.hireDate, site: { id: "site-north", name: "North Building" } },
+        person: Object.assign({}, head, { employmentClass: ["full_time", "part_time", "supplemental"].indexOf(L.employmentClass) !== -1 ? L.employmentClass : null }),
         year: 2026, asOf: "2026-10-01", policy: policy,
-        summary: { lines: [{ kind: "paid_sick", kindName: lw("sick"), text: L.none ? lw("untracked") : lw("sickLine"), note: null }], holidays: lw("holidays"), holidayDays: [] },
-        balances: L.none ? [] : [sick], policyHistory: [],
+        summary: L.none
+          ? { lines: [{ kind: "paid_sick", kindName: lw("sick"), text: lw("untracked"), note: null, classes: null }], holidays: lw("holidays"), holidayDays: [] }
+          : { lines: R15_LINES.map(l => ({ kind: l.kind, kindName: l.kind === "paid_sick" ? lw("sick") : R15_TYPE_WORDS[l.kind].en, text: l.en, note: null, classes: l.classes.slice() })), holidays: lw("holidays"), holidayDays: [] },
+        balances: L.none ? [] : (R15_CLASS_KINDS[cls] || []).map(one), policyHistory: [],
       });
     }
     // --- time off
-    if (key === "GET /api/time-off/types") return state.timeOffTypesLive ? json(200, { types: state.pto ? [PTO_TYPE].concat(LEAVE_TYPES) : LEAVE_TYPES }) : json(404, { error: "Endpoint not found" });
+    // Part 399 (API part 395): the types a new request is offered, in
+    // order, with their units and notice; vacation and personal only to a
+    // person whose class holds them (offerFor), else under notOffered with
+    // the reason; and the class (routes/timeOff.js GET /types).
+    if (key === "GET /api/time-off/types") {
+      if (!state.timeOffTypesLive) return json(404, { error: "Endpoint not found" });
+      if (!state.timeOffR15) return json(200, { types: state.pto ? [PTO_TYPE].concat(LEAVE_TYPES) : LEAVE_TYPES });
+      const lang = languageOf(search, state);
+      const offer = r15Offer();
+      return json(200, {
+        types: R15_OFFERED.filter(v => !offer.shut(v)).map(v => r15Type(v, lang)),
+        notOffered: R15_OFFERED.filter(v => offer.shut(v)).map((v) => {
+          const t = r15Type(v, lang);
+          return { value: v, label: t.label, words: t.words, name: t.name, reason: offer.reason, reasonWords: Object.assign({}, R15_WORDS["timeOff.notOffered." + offer.reason]), reasonText: r15Say("timeOff.notOffered." + offer.reason, "en") };
+        }),
+        employmentClass: offer.employmentClass, classMissing: offer.classMissing, unionSite: offer.unionSite,
+      });
+    }
     if (pathname === "/api/time-off/mine") return json(200, { requests: state.myTimeOff });
     // Since part 365 the filing, the read of one request and a decision
     // answer leave (helpers/leaveBalances.js requestLeave) beside it.
     // Part 371 (the staff app's A2): the filing's body, answered 200
     // { leave } as the filed request would carry it, writing nothing; the
     // same refusals as the filing (a case's refuse). previewRoute false is
-    // an API without it.
+    // an API without it. Part 399: both read the body as takeRequest does
+    // since part 395 (r15Take) and answer notice beside leave.
     if (key === "POST /api/time-off/preview") {
       if (!state.previewRoute) return json(404, { error: "Endpoint not found" });
+      const lang = languageOf(search, state);
+      if (state.timeOffR15) {
+        const took = r15Take(body);
+        if (took.refusal) return took.refusal;
+        return json(200, { leave: state.leave.route ? leaveOf(r15Row("to-preview", took), lang) : null, notice: took.notice });
+      }
       const row = timeOffRow({ id: "to-preview", leaveType: body && body.leaveType, startsOn: body && body.startsOn, endsOn: body && body.endsOn, partDay: !!(body && body.startTime), startTime: (body && body.startTime) || null, endTime: (body && body.endTime) || null, hours: body && body.hours !== undefined ? body.hours : null });
-      return json(200, { leave: state.leave.route ? leaveOf(row, languageOf(search, state)) : null });
+      return json(200, { leave: state.leave.route ? leaveOf(row, lang) : null });
     }
     if (key === "POST /api/time-off") {
+      const lang = languageOf(search, state);
+      if (state.timeOffR15) {
+        const took = r15Take(body);
+        if (took.refusal) return took.refusal;
+        const row = r15Row("to-new", took);
+        return json(201, { request: row, leave: state.leave.route ? leaveOf(row, lang) : null, notice: took.notice });
+      }
       const row = timeOffRow({ id: "to-new", leaveType: body && body.leaveType, startsOn: body && body.startsOn, endsOn: body && body.endsOn, partDay: !!(body && body.startTime), startTime: (body && body.startTime) || null, endTime: (body && body.endTime) || null, hours: body && body.hours !== undefined ? body.hours : null });
-      return json(201, { request: row, leave: state.leave.route ? leaveOf(row, languageOf(search, state)) : undefined });
+      return json(201, { request: row, leave: state.leave.route ? leaveOf(row, lang) : undefined });
     }
     if (method === "POST" && /^\/api\/time-off\/[^/]+\/cancel$/.test(pathname)) return json(200, { request: timeOffRow({ status: "cancelled", cancelledAt: iso(NOW.getTime()) }) });
     if (method === "GET" && /^\/api\/time-off\/[^/]+$/.test(pathname)) {
@@ -7217,7 +7559,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { TEST_SITE, TEST_SITE_REFUSAL, runIdFor: runIdOf, FOLLOW_UP_REFUSALS, FOLLOW_UP_TOPICS, CLOSED_NOTE, BAD_SHIFT_RUN, DROP_REFUSALS, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { R15_WORDS, R15_TYPE_WORDS, R15_LINES, R15_RULES, TEST_SITE, TEST_SITE_REFUSAL, runIdFor: runIdOf, FOLLOW_UP_REFUSALS, FOLLOW_UP_TOPICS, CLOSED_NOTE, BAD_SHIFT_RUN, DROP_REFUSALS, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

@@ -214,6 +214,8 @@ through it.
 The stub routes it needs sit behind switches in `makeState` (`languages`,
 `sds`, `secondStep`, `workspace`, `customerAsks`, `equipment`,
 `concern`, `fieldKit`, `requests`, `supplyQr`, `findings`, `training`, `documents`, `trainingPortal`, `signatures`, `supplyItems`, `supplyEmpty`, `pinGate`, `handbook`, `handbookSigned`, `support`, `pto`, `scheduleInspections`, `issueSheet`, `unfinishedForms`, `library`, `libraryEmpty`, `supplyOrders`, `orderVendorsNone`, `inspectionWalk`, `startInspection`, `startNoId`, `checklistModes`), off for every other case.
+Since part 399 the time off routes answer API part 395 unless `timeOffR15`
+is false (see that section).
 `library` (Step 307) answers GET /api/library as API Step 305's contract
 gives it: five invented documents in four folders, each folder's name in
 the request's language, the quality manual with a Spanish edition, Parts
@@ -1975,6 +1977,113 @@ Four journeys, in English and Spanish, each failing on the main of part
   Findings to follow up at the finding, never the issue's sheet; a
   supervisor's finding the list no longer holds is read on its own and
   drawn.
+
+## The time off form under the handbook (part 399, section 1)
+
+The stub answers the time off routes as ocsa-api Round 15 builds them
+(part 395, main at 3df0967; `routes/timeOff.js` GET /types and
+`takeRequest`, `helpers/timeOff.js` `OFFERED`, `TYPE_RULES`,
+`offeredType`, `readRequestBody` and `noticeOf`, and
+`helpers/leaveBalances.js` `offerFor`, `hoursForRequest` and
+`requestLeave`). Its words, the policy's lines and the handbook's
+holidays (`R15_WORDS`, `R15_LINES`, `R15_HOLIDAYS`) were read out of
+that code, run with its database left out, in English, Spanish and
+French.
+
+- `GET /api/time-off/types` answers `types` in the API's order (Vacation,
+  Sick, Personal, Bereavement, Unpaid), each with `name` in the request's
+  language, `words`, `unit`, `increment`, `partDay`, `unitText` and
+  `notice`; vacation and personal only to a full-time person at a site
+  that is not a union site, else under `notOffered` with `reason`
+  (`unionSite`, then `classMissing`, then `notForClass`) and `reasonText`;
+  and `employmentClass`, `classMissing` and `unionSite`.
+- The preview and the filing read the body in `readRequestBody`'s order:
+  a type no longer offered 400 `timeOff.typeNotOffered` keys
+  `["leaveType"]`; whole days only 400 `timeOff.wholeDaysOnly` (keys the
+  times, or `["hours"]`); sick in whole hours 400 `timeOff.wholeHoursOnly`
+  (keys `["hours"]`, or the times); vacation or personal not offered 400
+  `timeOff.notOfferedToYou` with `reason` and keys `["leaveType"]`; and
+  vacation inside 14 days, personal inside 48 hours of the first day's
+  start (the first shift that day, else midnight), without a reason 400
+  `timeOff.reasonInsideNotice.<type>` keys `["reason"]` with `notice`. Both
+  answer `notice` beside `leave`; the filed request carries `insideNotice`
+  and `unit`, and every request `leaveTypeWords`.
+- A request's `leave` counts a kind kept in days a day at a time: a paid
+  holiday of the handbook (`from: "holiday"`) and a Saturday or Sunday
+  with no shift (`dayOff`) take nothing, and it answers `requestDays`,
+  `balanceDays` and `wouldLeaveDays`; a sick day read from the schedule
+  is whole hours; a part-time, no-class or union person's sick request
+  past 40 hours used in the year is warned `leave.warning.overUseCap`;
+  and every one is `appFigure` with the ADP line in `notes`.
+
+Switches: `timeOffR15: false` is an API from before part 395 (the six old
+types, `pto` among them behind `pto`); `employmentClass` (`full_time`
+by default, `part_time`, `supplemental`, or `null` for none on file);
+`unionSite`; `vacationDays` (10) and `personalDays` (3) held; and
+`sickUsed`, the sick hours already used this year.
+
+The form names each type in the screen's language (the portal's own word
+for a type its table names, else the API's), draws the inputs its
+`increment` takes, says `unitText` beside the days or the hours and
+`notice.text` under the type, names the types not offered with the API's
+reason, asks for Reason once the API says the request is inside its
+notice, says a refusal under the field its keys name, and draws the
+preview's days.
+
+Seven journeys, in English and Spanish, each failing on the main of part
+396:
+
+- `timeofftypes`: the five types in order and in the screen's language,
+  each type's inputs, unit and notice, and vacation sent with no hours or
+  times typed before it was chosen.
+- `timeoffnotoffered`: a supplemental person, and a full-time person at a
+  union site, read why Vacation and Personal day are not offered.
+- `timeoffclassmissing`: a person with no class reads that the office has
+  to add it.
+- `timeoffnotice`: vacation inside 2 weeks makes Reason required with the
+  API's words under it and is filed with the reason, reading that the
+  office decides it; a personal day inside 48 hours does the same.
+- `timeoffsick`: sick for tomorrow asks no reason, 2.5 hours is refused
+  under Hours, and 4 hours is warned past the year's 40 used and sent.
+- `timeoffkeys`: the four new refusals each under the field its keys name.
+- `timeoffholiday`: vacation across Thanksgiving week marks the two paid
+  holidays and the weekend, 3 days of 10, leaving 7.
+
+The older time off cases read this round's API: `timeoff` asks Unpaid for
+its part of a day in place of Jury duty, `leaveshown` reads part 395's
+line for full-time sick leave, and the smoke check's App support run asks
+an Unpaid request after reading Vacation first and no PTO.
+
+## Balances and past requests (part 399, section 2)
+
+The stub answers `GET /api/leave/me` as `balancesFor` and `summaryOf` do
+since part 395: the kinds the rules of the person's class hold (a
+full-time person Vacation, Paid sick leave and Personal day; part-time,
+no class and a union site Paid sick leave; supplemental none), each the
+app's figure with the ADP line (`leave.note.adpOfficial`) first in its
+notes; a kind kept in days with `balanceDays`; sick earned by hours
+worked with the note saying how far the hours files have posted; a
+person with no class told that vacation and personal days are not
+offered (`leave.note.classMissing`); the policy's four lines, each naming
+its `classes`; and the person's `employmentClass`.
+
+The portal says the ADP line once under the balances, a kind kept in
+days in days alone, and the line whose classes hold the person's class
+(none for a person with no class), else the kind's first. A request of a
+type the portal's own table names (PTO, Bereavement and personal, Jury
+duty, Military leave, Paid sick leave, Unpaid time off) keeps its name,
+so every request filed before part 395 reads as it did; a type the table
+does not name reads the API's `leaveTypeWords` in the screen's language.
+
+Two journeys, in English and Spanish, each failing on the main of part
+396:
+
+- `leaveadp`: a full-time person's three balances, vacation and personal
+  in days, the ADP line once; a part-time person reads the part-time
+  sick line.
+- `timeoffold`: a PTO request and a Bereavement and personal one keep
+  their names and read as before beside a Vacation request named in the
+  screen's language and read in days across Thanksgiving.
 
 ## Known failures
 

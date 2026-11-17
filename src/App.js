@@ -1,6 +1,6 @@
 import { Component, useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
 import clientConfig from './clientConfig';
-import { tr, dateLocale, setWordsLanguage, wordsLanguage, LANGUAGE_NAMES, offeredLanguages, offeredFrom, setOfferedLanguages, isOffered, languageToSend } from "./words";
+import { tr, dateLocale, setWordsLanguage, wordsLanguage, LANGUAGE_NAMES, offeredLanguages, offeredFrom, setOfferedLanguages, isOffered, languageToSend, WORDS } from "./words";
 import { BUILD_STAMP } from "./buildStamp";
 import { detectInstallMode } from "./homeScreenPromptRules";
 
@@ -5441,46 +5441,109 @@ function SetPinScreen({ token, user, onDone, onSignOut, showToast, t }) {
 // API sends none. A type the list does not answer is never shown.
 const LEAVE_WORDS = { pto: "PTO (paid time off)" };
 const leaveWord = (value, label) => tr(label || LEAVE_WORDS[value] || value || "");
+// A leave type's name in the screen's language (part 399). A type the
+// portal's own table names reads as it always did, so every request filed
+// before part 395 (PTO, Bereavement and personal, Jury duty, Military
+// leave, and Paid sick leave and Unpaid time off) keeps its name. A type
+// it does not name, such as Vacation, Personal day or Bereavement (API
+// part 395), takes the API's own words in the screen's language: words
+// on a type or a request, else the type's name.
+const leaveName = (value, label, words, name) => {
+  const known = label || LEAVE_WORDS[value] || "";
+  if (known && Object.prototype.hasOwnProperty.call(WORDS.es, known)) return tr(known);
+  const lang = wordsLanguage();
+  if (words && typeof words === "object" && typeof words[lang] === "string" && words[lang].trim()) return words[lang].trim();
+  if (typeof name === "string" && name.trim()) return name.trim();
+  return leaveWord(value, label);
+};
+const requestTypeName = (r) => leaveName(r && r.leaveType, r && r.leaveTypeLabel, r && r.leaveTypeWords, null);
 // A person's leave balances (part 369, API part 365), as GET
 // /api/leave/me answers them: each kind the person's policy tracks, its
 // hours, its days (the API's for a balance kept in days, else the hours
 // over the policy's hours a day), the policy's own line for it, the day
 // it can first be used, and the API's notes. A kind the policy keeps no
 // balance for is left out.
+//
+// Part 399 (API part 395): a kind kept in days says its days; the line is
+// the one whose classes hold the person's (a person with no class reads
+// the line for none), else the kind's first; and the ADP line, first in
+// every balance's notes, is kept apart so the screen says it once under
+// the balances.
+const ADP_NOTE = "leave.note.adpOfficial";
 const leaveNum = (n) => { if (n === null || n === undefined || n === "") return null; const v = Number(n); return isFinite(v) ? Math.round(v * 100) / 100 : null; };
 function leaveBalancesOf(d) {
   const lines = d && d.summary && Array.isArray(d.summary.lines) ? d.summary.lines : [];
+  const person = d && d.person && typeof d.person === "object" ? d.person : null;
+  const hasClass = !!person && Object.prototype.hasOwnProperty.call(person, "employmentClass");
+  const cls = hasClass ? (fkText(person, ["employmentClass"]) || "none") : null;
   return (d && Array.isArray(d.balances) ? d.balances : []).filter(b => b && typeof b === "object" && b.tracked === true && typeof b.kind === "string").map(b => {
     const hours = leaveNum(b.balanceHours);
     const perDay = leaveNum(b.hoursPerDay);
     const days = leaveNum(b.balanceDays) !== null ? leaveNum(b.balanceDays) : hours !== null && perDay ? leaveNum(hours / perDay) : null;
-    const line = lines.find(l => l && l.kind === b.kind);
-    return { kind: b.kind, name: fkText(b, ["kindName"]) || b.kind, hours: hours, days: days, usableFrom: fkText(b, ["usableFrom"]) || null, line: line ? fkText(line, ["text"]) : "", notes: (Array.isArray(b.notes) ? b.notes : []).map(n => (n && typeof n === "object" ? fkText(n, ["message"]) : "")).filter(Boolean) };
+    const mine = lines.filter(l => l && l.kind === b.kind);
+    const line = (cls && mine.find(l => Array.isArray(l.classes) && l.classes.indexOf(cls) !== -1)) || mine.find(l => !Array.isArray(l.classes)) || mine[0];
+    const notes = (Array.isArray(b.notes) ? b.notes : []).filter(n => n && typeof n === "object" && n.code !== ADP_NOTE).map(n => fkText(n, ["message"])).filter(Boolean);
+    return { kind: b.kind, name: fkText(b, ["kindName"]) || b.kind, unit: b.unit === "days" ? "days" : "hours", hours: hours, days: days, usableFrom: fkText(b, ["usableFrom"]) || null, line: line ? fkText(line, ["text"]) : "", notes: notes };
   }).filter(b => b.hours !== null);
+}
+// The ADP line, as the first balance that carries it says it.
+function leaveAdpOf(d) {
+  for (const b of (d && Array.isArray(d.balances) ? d.balances : [])) {
+    const n = b && Array.isArray(b.notes) ? b.notes.find(x => x && typeof x === "object" && x.code === ADP_NOTE) : null;
+    if (n && fkText(n, ["message"])) return fkText(n, ["message"]);
+  }
+  return "";
 }
 const leaveDays = (n) => (n === 1 ? tr("{n} day", { n: String(n) }) : tr("{n} days", { n: String(n) }));
 const leaveUsableLater = (b) => !!b && !!b.usableFrom && b.usableFrom > ymdLocal(todayLocal());
+// A balance's amount as the screen says it: days for a kind kept in days
+// (part 399), else hours.
+const leaveAmount = (unit, days, hours) => (unit === "days" && leaveNum(days) !== null ? leaveDays(leaveNum(days)) : timeOffHours(hours));
 // What a request did or would do to a balance, from the leave its read,
 // its filing and its decision answer: what it would leave while it waits,
 // with the API's warnings; the hours it took once approved; the hours
 // given back once the office took the approval back. before: the same,
 // read for a request not sent yet (part 373), on the request form.
+//
+// Part 399 (API part 395): a kind kept in days says its days (requestDays,
+// balanceDays, wouldLeaveDays), and while the request waits each day is
+// drawn as the API answers it, a paid holiday and a day off marked as
+// taking nothing. A warning such as more sick hours than a year allows
+// (leave.warning.overUseCap) is said like every warning and stops nothing.
 function TimeOffLeave({ leave, status, before, t }) {
   const lv = leave && typeof leave === "object" ? leave : null;
   if (!lv) return null;
   const kind = fkText(lv, ["kindName"]) || fkText(lv, ["kind"]);
-  const took = timeOffHours(lv.requestHours);
-  const left = timeOffHours(lv.balanceHours);
+  const unit = lv.unit === "days" && leaveNum(lv.requestDays) !== null ? "days" : "hours";
+  const took = leaveAmount(unit, lv.requestDays, lv.requestHours);
+  const left = leaveAmount(unit, lv.balanceDays, lv.balanceHours);
   const warnings = (Array.isArray(lv.warnings) ? lv.warnings : []).map(w => (w && typeof w === "object" ? fkText(w, ["message"]) : "")).filter(Boolean);
   const box = { marginBottom: 14, padding: "10px 12px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.borderSolid };
   const lineSt = { fontSize: 13, color: t.text, lineHeight: 1.5, overflowWrap: "anywhere" };
   if (lv.givenBack === true && took) return (<div data-leave-state="givenBack" style={box}><div style={lineSt}>{tr("{kind}: {hours} went back when the office took back the approval.", { hours: took, kind: kind })}</div>{left && <div style={{ ...lineSt, color: t.textSec, marginTop: 4 }}>{tr("{kind} balance now: {hours}.", { kind: kind, hours: left })}</div>}</div>);
   if (lv.taken === true && took) return (<div data-leave-state="taken" style={box}><div style={lineSt}>{tr("{kind}: this time off took {hours}.", { hours: took, kind: kind })}</div>{left && <div style={{ ...lineSt, color: t.textSec, marginTop: 4 }}>{tr("{kind} balance now: {hours}.", { kind: kind, hours: left })}</div>}</div>);
   if (status !== "requested" || (lv.tracked !== true && warnings.length === 0)) return null;
-  const would = timeOffHours(lv.wouldLeaveHours);
+  const would = leaveAmount(unit, lv.wouldLeaveDays, lv.wouldLeaveHours);
+  const days = (Array.isArray(lv.days) ? lv.days : []).filter(x => x && typeof x === "object" && typeof x.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(x.date));
+  const marked = days.some(x => x.from === "holiday" || x.from === "dayOff");
+  const dayWord = (x) => (x.from === "holiday" ? tr("Paid holiday, not taken") : x.from === "dayOff" ? tr("Day off, not taken") : unit === "days" ? leaveDays(1) : timeOffHours(x.hours));
   return (
-    <div data-leave-state="pending" style={box}>
+    <div data-leave-state="pending" data-leave-unit={unit} style={box}>
       {took && would && <div style={lineSt}>{tr("{kind}: this request is {hours}, and would leave {left}.", { hours: took, kind: kind, left: would })}</div>}
+      {unit === "days" && left && <div data-leave-balance-now="1" style={{ ...lineSt, color: t.textSec, marginTop: 4 }}>{tr("{kind} balance now: {hours}.", { kind: kind, hours: left })}</div>}
+      {(days.length > 1 || marked) && (
+        <div data-leave-days={days.length} style={{ marginTop: 8 }}>
+          {days.map(x => {
+            const none = x.from === "holiday" || x.from === "dayOff";
+            return (
+              <div key={x.date} data-leave-day={x.date} data-leave-from={String(x.from || "")} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap", padding: "4px 0", borderTop: "1px solid " + t.borderSolid, fontSize: 12, lineHeight: 1.45 }}>
+                <span style={{ color: none ? t.textMut : t.text }}>{dueDayText(x.date, { weekday: "short", month: "short", day: "numeric" })}</span>
+                <span style={{ color: none ? ink(t, TIME_OFF_COLOR) : t.textSec, fontWeight: none ? 600 : 400 }}>{dayWord(x)}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
       {warnings.map((w, i) => <div key={i} data-leave-warning="1" role="status" style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 8, padding: "8px 10px", borderRadius: R.md, background: ORANGE + "18", border: "1px solid " + ORANGE + "60" }}><AlertIco sz={16} c={ink(t, ORANGE)} style={{ flexShrink: 0, marginTop: 1 }} /><span style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0, overflowWrap: "anywhere" }}>{w}</span></div>)}
       {warnings.length > 0 && <div style={{ fontSize: 12, color: t.textSec, marginTop: 8, lineHeight: 1.45 }}>{before ? tr("You can still send it. The person who approves time off decides.") : tr("Your request is sent. The person who approves time off decides.")}</div>}
     </div>
@@ -5528,6 +5591,10 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
   // the screen, so before the routes are live the tab reads exactly
   // as it did.
   const [offTypes, setOffTypes] = useState(null);
+  // Part 399 (API part 395): the types the person is not offered, each
+  // with the API's reason, and whether the office has yet to set their
+  // employment class.
+  const [offOffer, setOffOffer] = useState({ notOffered: [], classMissing: false });
   const [myOff, setMyOff] = useState([]);
   // A read that failed is said in its place with Try again (PORT-26):
   // the leave types (the whole time off part waits on them), and the
@@ -5552,7 +5619,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
   useEffect(() => {
     if (compact || !token) return undefined;
     let gone = false;
-    api("/api/leave/me", { token }).then((d) => { if (!gone) setLeaveMe({ state: "ok", list: leaveBalancesOf(d) }); }).catch((err) => { if (!gone) setLeaveMe(prev => (err && err.status === 404 ? { state: "none", list: [] } : prev && prev.state === "ok" ? prev : { state: "failed", list: [] })); });
+    api("/api/leave/me", { token }).then((d) => { if (!gone) setLeaveMe({ state: "ok", list: leaveBalancesOf(d), adp: leaveAdpOf(d) }); }).catch((err) => { if (!gone) setLeaveMe(prev => (err && err.status === 404 ? { state: "none", list: [] } : prev && prev.state === "ok" ? prev : { state: "failed", list: [] })); });
     return () => { gone = true; };
   }, [compact, token, leaveAsked]);
   const balances = leaveMe && leaveMe.state === "ok" ? leaveMe.list : [];
@@ -5658,6 +5725,10 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
         const list = Array.isArray(d) ? d : (Array.isArray(d && d.types) ? d.types : null);
         if (gone || !Array.isArray(list)) return;
         setOffTypes(list); setOffTypesFailed(false);
+        setOffOffer({
+          notOffered: (d && Array.isArray(d.notOffered) ? d.notOffered : []).filter(x => x && typeof x === "object" && typeof x.value === "string").map(x => ({ value: x.value, name: leaveName(x.value, x.label, x.words, x.name), reason: fkText(x, ["reason"]), reasonText: fkText(x, ["reasonText"]) })),
+          classMissing: !!d && d.classMissing === true,
+        });
         loadMyOff();
       } catch (err) { if (!gone) setOffTypesFailed(!(err && err.status === 404)); }
     })();
@@ -5724,9 +5795,32 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
   const openRequest = () => {
     const today = ymdLocal(todayLocal());
     setReqForm({ leaveType: "", startsOn: today, endsOn: today, partDay: false, startTime: "", endTime: "", hours: "", reason: "" });
-    setReqErr(null);
+    setReqErr(null); setReqRefused(null); setReasonAsk(null);
     setReqOpen(true);
   };
+  // Part 399 (API part 395): how a type is asked for. increment day takes
+  // whole days (no part of the day and no hours), hour whole hours, any as
+  // every type was before; an answer with none reads as any.
+  const incrementOf = (value) => {
+    const ty = Array.isArray(offTypes) ? offTypes.find(x => x && x.value === value) : null;
+    return ty && (ty.increment === "day" || ty.increment === "hour") ? ty.increment : "any";
+  };
+  // A type taken in whole days drops a part of the day and hours already
+  // filled in, so nothing hidden is sent.
+  const onType = (v) => setReqForm(prev => (incrementOf(v) === "day" ? { ...prev, leaveType: v, partDay: false, startTime: "", endTime: "", hours: "" } : { ...prev, leaveType: v }));
+  // The field a refusal is about (its keys, API part 395), when the form
+  // draws that field; else null, and the refusal is said where it was.
+  const KEY_FIELD = { leaveType: "type", startTime: "times", endTime: "times", hours: "hours", reason: "reason" };
+  const fieldOf = (keys, f) => {
+    if (!f || !Array.isArray(keys)) return null;
+    const inc = incrementOf(f.leaveType);
+    const drawn = { type: true, times: inc !== "day" && f.partDay && f.startsOn === f.endsOn, hours: inc !== "day", reason: true };
+    for (const k of keys) { const at = KEY_FIELD[k]; if (at && drawn[at]) return at; }
+    return null;
+  };
+  // A refusal of the reason inside a type's notice (vacation 2 weeks,
+  // personal 48 hours): the form then asks for the reason.
+  const insideRefusal = (code) => typeof code === "string" && code.indexOf("timeOff.reasonInsideNotice.") === 0;
   // The last day never sits before the first, and a part day only
   // makes sense on one day, so widening the range clears it.
   const onFirstDay = (v) => setReqForm(prev => {
@@ -5757,39 +5851,75 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
   // part of a day). A refusal is what Send would say, in the API's words.
   // An API with no preview route, or a read that fails, shows nothing new,
   // and what the request would leave shows once it is sent, as before.
+  //
+  // Part 399 (API part 395): whether a reason is given rides in what is
+  // asked, and the reason itself goes with the read, since vacation or a
+  // personal day inside its notice is taken only with one; typing more of
+  // it reads nothing again. A refusal keeps its code and keys, so it is
+  // said under the field it names, and the answer's notice says whether
+  // the request is inside it.
   const [preview, setPreview] = useState(null);
+  const reqFormNow = useRef(null);
+  reqFormNow.current = reqForm;
   const previewAsk = reqOpen && reqForm && reqForm.leaveType && reqForm.startsOn && reqForm.endsOn && (!reqForm.partDay || (reqForm.startTime && reqForm.endTime))
-    ? JSON.stringify(Object.assign(requestBody(reqForm), { reason: undefined })) : null;
+    ? JSON.stringify(Object.assign(requestBody(reqForm), { reason: reqForm.reason.trim() !== "" ? true : undefined })) : null;
   useEffect(() => {
     if (!previewAsk || !token) { setPreview(null); return undefined; }
     let live = true;
     const wait = setTimeout(() => {
-      api("/api/time-off/preview", { method: "POST", body: JSON.parse(previewAsk), token }).then((d) => {
-        if (live) setPreview({ ask: previewAsk, state: "ok", leave: d && d.leave && typeof d.leave === "object" ? d.leave : null });
+      const f = reqFormNow.current;
+      const body = JSON.parse(previewAsk);
+      if (body.reason === true) { if (f && f.reason.trim() !== "") body.reason = f.reason.trim(); else delete body.reason; }
+      api("/api/time-off/preview", { method: "POST", body: body, token }).then((d) => {
+        if (live) setPreview({ ask: previewAsk, state: "ok", leave: d && d.leave && typeof d.leave === "object" ? d.leave : null, notice: d && d.notice && typeof d.notice === "object" ? d.notice : null });
       }).catch((err) => {
         if (!live) return;
-        if (err && (err.status === 400 || err.status === 409) && err.message) setPreview({ ask: previewAsk, state: "refused", said: tr(err.message) });
+        if (err && (err.status === 400 || err.status === 409) && err.message) setPreview({ ask: previewAsk, state: "refused", said: tr(err.message), code: err.code || null, keys: err.body && Array.isArray(err.body.keys) ? err.body.keys : [] });
         else setPreview({ ask: previewAsk, state: err && err.status === 404 ? "none" : "failed" });
       });
     }, 400);
     return () => { live = false; clearTimeout(wait); };
   }, [previewAsk, token]);
   const previewNow = preview && preview.ask === previewAsk ? preview : null;
+  // A send the API refused for one field (part 399), said under it while
+  // the form still holds what was sent.
+  const [reqRefused, setReqRefused] = useState(null);
+  const sendAsk = reqOpen && reqForm ? JSON.stringify(requestBody(reqForm)) : null;
+  const sentNow = reqRefused && reqRefused.ask === sendAsk ? reqRefused : null;
+  const previewRefused = previewNow && previewNow.state === "refused" ? previewNow : null;
+  // What the API said about one field, from the send or the read before it.
+  const fieldSaid = (at) => (sentNow && fieldOf(sentNow.keys, reqForm) === at ? sentNow.said : previewRefused && fieldOf(previewRefused.keys, reqForm) === at ? previewRefused.said : null);
+  // Reason is asked for once the API says this type and first day are
+  // inside the notice, and stays asked for while they stay.
+  const [reasonAsk, setReasonAsk] = useState(null);
+  const reqDayKey = reqForm ? reqForm.leaveType + "|" + reqForm.startsOn : "";
+  const insideNow = !!((previewRefused && insideRefusal(previewRefused.code)) || (sentNow && insideRefusal(sentNow.code)) || (previewNow && previewNow.state === "ok" && previewNow.notice && previewNow.notice.insideNotice === true));
+  useEffect(() => { if (insideNow && reqDayKey) setReasonAsk(reqDayKey); }, [insideNow, reqDayKey]);
+  const reasonNeeded = !!reqForm && (insideNow || reasonAsk === reqDayKey);
 
   const sendRequest = async () => {
     if (reqBusy) return;
-    setReqBusy(true); setReqErr(null);
+    setReqBusy(true); setReqErr(null); setReqRefused(null);
     const body = requestBody(reqForm);
+    const form = reqForm;
     try {
       const d = await api("/api/time-off", { method: "POST", body, token });
       setReqOpen(false);
       showToast(tr("Time off requested. You get a notice when it is decided."));
       loadSchedule(); loadMyOff(); setLeaveAsked(n => n + 1);
       // What the request would leave, and the API's warnings, said on the
-      // request's own sheet as soon as it is sent (part 369).
+      // request's own sheet as soon as it is sent (part 369); and a request
+      // asked inside its notice, which the office decides case by case
+      // (part 399).
       const lv = d && d.leave && typeof d.leave === "object" ? d.leave : null;
-      if (d && d.request && typeof d.request === "object" && lv && (lv.tracked === true || (Array.isArray(lv.warnings) && lv.warnings.length > 0))) { setOffErr(null); setConfirmCancel(false); setOffDetail(Object.assign({}, d.request, { leave: lv })); }
-    } catch (err) { setReqErr(tr(err.message)); }
+      const inside = !!(d && d.request && d.request.insideNotice === true);
+      if (d && d.request && typeof d.request === "object" && (inside || (lv && (lv.tracked === true || (Array.isArray(lv.warnings) && lv.warnings.length > 0))))) { setOffErr(null); setConfirmCancel(false); setOffDetail(Object.assign({}, d.request, lv ? { leave: lv } : {})); }
+    } catch (err) {
+      // A refusal naming a field the form draws is said under it (part 399).
+      const keys = err && err.body && Array.isArray(err.body.keys) ? err.body.keys : [];
+      if (err && err.status === 400 && fieldOf(keys, form)) setReqRefused({ ask: JSON.stringify(body), said: tr(err.message), code: err.code || null, keys: keys });
+      else setReqErr(tr(err.message));
+    }
     setReqBusy(false);
   };
 
@@ -6001,16 +6131,24 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
             <div data-leave-balances={balances.length} style={{ marginBottom: 12 }}>
               <div style={mkLabel(t)}>{tr("Leave balances")}</div>
               {balances.map(b => (
-                <div key={b.kind} data-leave-balance={b.kind} data-leave-hours={String(b.hours)} style={{ padding: "10px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}>
+                <div key={b.kind} data-leave-balance={b.kind} data-leave-hours={String(b.hours)} data-leave-unit={b.unit} style={{ padding: "10px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}>
                   <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{b.name}</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: b.hours < 0 ? ink(t, RED) : t.goldText, fontFamily: FONT_HEAD }}><span>{timeOffHours(b.hours)}</span>{b.days !== null && <span style={{ fontSize: 12, fontWeight: 500, color: t.textSec }}>{" \u00b7 "}</span>}{b.days !== null && <span style={{ fontSize: 12, fontWeight: 500, color: t.textSec }}>{leaveDays(b.days)}</span>}</div>
+                    {/* A kind kept in days (vacation, personal day) says its
+                        days alone; one kept in hours says its hours and the
+                        same in days, as before (part 399). */}
+                    {b.unit === "days" && b.days !== null
+                      ? <div style={{ fontSize: 14, fontWeight: 600, color: b.days < 0 ? ink(t, RED) : t.goldText, fontFamily: FONT_HEAD }}><span>{leaveDays(b.days)}</span></div>
+                      : <div style={{ fontSize: 14, fontWeight: 600, color: b.hours < 0 ? ink(t, RED) : t.goldText, fontFamily: FONT_HEAD }}><span>{timeOffHours(b.hours)}</span>{b.days !== null && <span style={{ fontSize: 12, fontWeight: 500, color: t.textSec }}>{" \u00b7 "}</span>}{b.days !== null && <span style={{ fontSize: 12, fontWeight: 500, color: t.textSec }}>{leaveDays(b.days)}</span>}</div>}
                   </div>
                   {b.line && <div data-leave-line="1" style={{ fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" }}>{b.line}</div>}
                   {leaveUsableLater(b) && <div style={{ fontSize: 12, color: t.textMut, marginTop: 4, lineHeight: 1.45 }}>{tr("You can use it from {date}.", { date: dueDayText(b.usableFrom, { month: "short", day: "numeric", year: "numeric" }) })}</div>}
                   {b.notes.map((n, i) => <div key={i} style={{ fontSize: 12, color: t.textMut, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" }}>{n}</div>)}
                 </div>
               ))}
+              {/* The ADP line (API part 395), once under the balances:
+                  every balance here is the app's figure. */}
+              {leaveMe && leaveMe.adp && <div data-leave-adp="1" style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{leaveMe.adp}</div>}
             </div>
           )}
           {leaveMe && leaveMe.state === "failed" && <div data-leave-fault="1" style={{ marginBottom: 12 }}><ListFault icon={CalIco} text={tr("Your leave balances did not load.")} onRetry={() => setLeaveAsked(n => n + 1)} t={t} /></div>}
@@ -6022,10 +6160,11 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
               <button key={r.id} onClick={() => openOffDetail(r)} style={{ width: "100%", textAlign: "left", minHeight: 44, marginBottom: 8, padding: "10px 12px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: t.card, cursor: "pointer", fontFamily: FONT_BODY, display: "block" }}>
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
                   <div style={{ flex: "1 1 140px", minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{leaveWord(r.leaveType, r.leaveTypeLabel)}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{requestTypeName(r)}</div>
                     <div style={{ fontSize: 11, color: t.textSec, marginTop: 3, overflowWrap: "anywhere" }}>{timeOffDates(r.startsOn, r.endsOn)}</div>
                     {r.partDay && r.startTime && r.endTime && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{fmtTm(r.startTime)} - {fmtTm(r.endTime)}</div>}
                     {hrs && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{hrs}</div>}
+                    {r.insideNotice === true && <div data-timeoff-inside="row" style={{ fontSize: 11, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" }}>{tr("Asked with less notice than the policy asks. The office decides it case by case.")}</div>}
                   </div>
                   <span style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px", color: timeOffStatusColor(r.status, t), flexShrink: 0, fontFamily: FONT_HEAD }}>{timeOffStatusWord(r.status)}</span>
                 </div>
@@ -6107,79 +6246,126 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
 
             {reqErr && <div style={{ padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, color: t.text, fontSize: 12, lineHeight: 1.5, overflowWrap: "anywhere" }}>{reqErr}</div>}
 
-            <div style={{ marginBottom: 10 }}>
-              <label style={mkLabel(t)}>{tr("Type")}</label>
-              <select value={reqForm.leaveType} onChange={e => setReqForm({ ...reqForm, leaveType: e.target.value })} style={{ ...mkInput(t), minHeight: 44 }}>
-                <option value="">{tr("Choose a type")}</option>
-                {offTypes.map(ty => <option key={ty.value} value={ty.value}>{leaveWord(ty.value, ty.label)}</option>)}
-              </select>
-              {(() => {
-                // The balance of the kind picked, before the request goes
-                // (part 369). What it would leave is read before Send
-                // (part 373, below), and shows once it is sent when the
-                // API has no preview.
-                const b = balances.find(x => x.kind === reqForm.leaveType);
-                if (!b) return null;
-                const later = previewNow && (previewNow.state === "none" || previewNow.state === "failed");
-                return (
-                  <div data-leave-picked={b.kind} style={{ fontSize: 12, color: t.textSec, marginTop: 6, lineHeight: 1.45 }}>
-                    <div>{tr("{kind} balance now: {hours}.", { kind: b.name, hours: timeOffHours(b.hours) })}</div>
-                    {leaveUsableLater(b) && <div>{tr("You can use it from {date}.", { date: dueDayText(b.usableFrom, { month: "short", day: "numeric", year: "numeric" }) })}</div>}
-                    {later && <div style={{ color: t.textMut }}>{tr("Once you send it, the request shows what it would leave.")}</div>}
+            {(() => {
+              // Part 399 (API part 395): the type chosen decides the
+              // inputs. Whole days (vacation, personal day) draw no part of
+              // the day and no hours; whole hours (sick) take hours in
+              // whole numbers; any other type is as it always was. The
+              // type's unit is said beside its amount, its notice under
+              // it, and a refusal under the field it names.
+              const ty = Array.isArray(offTypes) ? offTypes.find(x => x && x.value === reqForm.leaveType) || null : null;
+              const inc = incrementOf(reqForm.leaveType);
+              const unitText = ty ? fkText(ty, ["unitText"]) : "";
+              const notice = ty && ty.notice && typeof ty.notice === "object" ? ty.notice : null;
+              const noticeText = notice ? fkText(notice, ["text"]) : "";
+              const saidSt = { display: "flex", alignItems: "flex-start", gap: 6, marginTop: 6, fontSize: 12, color: ink(t, RED), lineHeight: 1.45, overflowWrap: "anywhere" };
+              const said = (at) => { const s = fieldSaid(at); return s ? <div data-timeoff-error={at} role="alert" style={saidSt}><AlertIco sz={14} c={ink(t, RED)} style={{ flexShrink: 0, marginTop: 2 }} /><span style={{ minWidth: 0 }}>{s}</span></div> : null; };
+              const unitSt = { fontSize: 11, color: t.textSec, fontWeight: 600, fontFamily: FONT_HEAD };
+              const quietSt = { fontSize: 12, color: t.textMut, marginTop: 6, lineHeight: 1.45, overflowWrap: "anywhere" };
+              // Each type not offered, named with the API's reason, one
+              // line a reason; and the office's part when the class is
+              // missing and no reason already says so.
+              const groups = [];
+              offOffer.notOffered.forEach((x) => { const g = groups.find(y => y.reason === x.reasonText); if (g) g.names.push(x.name); else groups.push({ reason: x.reasonText, code: x.reason, names: [x.name] }); });
+              const classLine = offOffer.classMissing && !offOffer.notOffered.some(x => x.reason === "classMissing");
+              return (
+                <>
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={mkLabel(t)}>{tr("Type")}</label>
+                    <select value={reqForm.leaveType} onChange={e => onType(e.target.value)} style={{ ...mkInput(t), minHeight: 44 }}>
+                      <option value="">{tr("Choose a type")}</option>
+                      {offTypes.map(o => <option key={o.value} value={o.value}>{leaveName(o.value, o.label, o.words, o.name)}</option>)}
+                    </select>
+                    {said("type")}
+                    {groups.map(g => (
+                      <div key={g.code + g.names.join()} data-timeoff-notoffered={g.code} style={quietSt}>
+                        <span>{tr("Not offered to you: {types}.", { types: g.names.join(", ") })}</span>{g.reason && <span>{" " + g.reason}</span>}
+                      </div>
+                    ))}
+                    {classLine && <div data-timeoff-notoffered="classMissing" style={quietSt}>{tr("Your employment class is not on file. The office has to set it.")}</div>}
+                    {noticeText && <div data-timeoff-notice={fkText(notice, ["rule"]) || "1"} style={{ fontSize: 12, color: t.textSec, marginTop: 8, padding: "8px 10px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.borderSolid, lineHeight: 1.45, overflowWrap: "anywhere" }}>{noticeText}</div>}
+                    {(() => {
+                      // The balance of the kind picked, before the request goes
+                      // (part 369). What it would leave is read before Send
+                      // (part 373, below), and shows once it is sent when the
+                      // API has no preview.
+                      const b = balances.find(x => x.kind === reqForm.leaveType);
+                      if (!b) return null;
+                      const later = previewNow && (previewNow.state === "none" || previewNow.state === "failed");
+                      return (
+                        <div data-leave-picked={b.kind} style={{ fontSize: 12, color: t.textSec, marginTop: 6, lineHeight: 1.45 }}>
+                          <div>{tr("{kind} balance now: {hours}.", { kind: b.name, hours: leaveAmount(b.unit, b.days, b.hours) })}</div>
+                          {leaveUsableLater(b) && <div>{tr("You can use it from {date}.", { date: dueDayText(b.usableFrom, { month: "short", day: "numeric", year: "numeric" }) })}</div>}
+                          {later && <div style={{ color: t.textMut }}>{tr("Once you send it, the request shows what it would leave.")}</div>}
+                        </div>
+                      );
+                    })()}
                   </div>
-                );
-              })()}
-            </div>
 
-            <div style={{ marginBottom: 10 }}>
-              <label style={mkLabel(t)}>{tr("First day")}</label>
-              <input type="date" value={reqForm.startsOn} min={reqMin} max={reqMax} onChange={e => onFirstDay(e.target.value)} style={{ ...mkInput(t), minHeight: 44 }} />
-            </div>
-
-            <div style={{ marginBottom: 10 }}>
-              <label style={mkLabel(t)}>{tr("Last day")}</label>
-              <input type="date" value={reqForm.endsOn} min={reqForm.startsOn} onChange={e => onLastDay(e.target.value)} style={{ ...mkInput(t), minHeight: 44 }} />
-            </div>
-
-            {reqForm.startsOn === reqForm.endsOn && (
-              <div style={{ marginBottom: 10 }}>
-                {/* The box a phone draws for a checkbox cannot be given
-                    a bigger tap area without being drawn bigger, so the
-                    whole row is the control and the box is the one the
-                    checklist already draws. */}
-                <button type="button" role="checkbox" aria-checked={reqForm.partDay} onClick={() => setReqForm({ ...reqForm, partDay: !reqForm.partDay, startTime: "", endTime: "" })} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: TAP, padding: 0, background: "none", border: "none", cursor: "pointer", fontSize: 14, color: t.text, fontFamily: FONT_BODY, textAlign: "left" }}>
-                  <span style={{ width: 20, height: 20, flexShrink: 0, borderRadius: R.sm, border: "2px solid " + (reqForm.partDay ? GOLD : t.borderSolid), background: reqForm.partDay ? GOLD : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{reqForm.partDay && <CheckIco sz={12} c={NAVY} />}</span>
-                  {tr("Part of the day")}
-                </button>
-                {reqForm.partDay && (
-                  <div style={{ display: "flex", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
-                    <div style={{ flex: "1 1 120px", minWidth: 0 }}>
-                      <label style={mkLabel(t)}>{tr("From")}</label>
-                      <input type="time" value={reqForm.startTime} onChange={e => setReqForm({ ...reqForm, startTime: e.target.value })} style={{ ...mkInput(t), minHeight: 44 }} />
-                    </div>
-                    <div style={{ flex: "1 1 120px", minWidth: 0 }}>
-                      <label style={mkLabel(t)}>{tr("To")}</label>
-                      <input type="time" value={reqForm.endTime} onChange={e => setReqForm({ ...reqForm, endTime: e.target.value })} style={{ ...mkInput(t), minHeight: 44 }} />
-                    </div>
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={mkLabel(t)}>{tr("First day")}</label>
+                    <input type="date" value={reqForm.startsOn} min={reqMin} max={reqMax} onChange={e => onFirstDay(e.target.value)} style={{ ...mkInput(t), minHeight: 44 }} />
                   </div>
-                )}
-              </div>
-            )}
 
-            <div style={{ marginBottom: 10 }}>
-              <label style={mkLabel(t)}>{tr("Hours (optional)")}</label>
-              <input type="number" min="0" step="0.25" value={reqForm.hours} onChange={e => setReqForm({ ...reqForm, hours: e.target.value })} placeholder={tr("For example, 8")} style={{ ...mkInput(t), minHeight: 44 }} />
-            </div>
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={mkLabel(t)}>{tr("Last day")}</label>
+                    <input type="date" value={reqForm.endsOn} min={reqForm.startsOn} onChange={e => onLastDay(e.target.value)} style={{ ...mkInput(t), minHeight: 44 }} />
+                    {inc === "day" && unitText && <div data-timeoff-unit="day" style={{ ...unitSt, marginTop: 6 }}>{unitText}</div>}
+                  </div>
 
-            <div style={{ marginBottom: 10 }}>
-              <label style={mkLabel(t)}>{tr("Reason (optional)")}</label>
-              <textarea rows={3} maxLength={1000} value={reqForm.reason} onChange={e => setReqForm({ ...reqForm, reason: e.target.value })} style={{ ...mkInput(t), minHeight: 72, resize: "vertical", lineHeight: 1.5 }} />
-              <div style={{ fontSize: 11, color: t.textMut, marginTop: 6, lineHeight: 1.4 }}>{tr("Only you and the person who approves time off can read this.")}</div>
-            </div>
+                  {inc !== "day" && reqForm.startsOn === reqForm.endsOn && (
+                    <div style={{ marginBottom: 10 }}>
+                      {/* The box a phone draws for a checkbox cannot be given
+                          a bigger tap area without being drawn bigger, so the
+                          whole row is the control and the box is the one the
+                          checklist already draws. */}
+                      <button type="button" role="checkbox" aria-checked={reqForm.partDay} onClick={() => setReqForm({ ...reqForm, partDay: !reqForm.partDay, startTime: "", endTime: "" })} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: TAP, padding: 0, background: "none", border: "none", cursor: "pointer", fontSize: 14, color: t.text, fontFamily: FONT_BODY, textAlign: "left" }}>
+                        <span style={{ width: 20, height: 20, flexShrink: 0, borderRadius: R.sm, border: "2px solid " + (reqForm.partDay ? GOLD : t.borderSolid), background: reqForm.partDay ? GOLD : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{reqForm.partDay && <CheckIco sz={12} c={NAVY} />}</span>
+                        {tr("Part of the day")}
+                      </button>
+                      {reqForm.partDay && (
+                        <div style={{ display: "flex", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
+                          <div style={{ flex: "1 1 120px", minWidth: 0 }}>
+                            <label style={mkLabel(t)}>{tr("From")}</label>
+                            <input type="time" value={reqForm.startTime} onChange={e => setReqForm({ ...reqForm, startTime: e.target.value })} style={{ ...mkInput(t), minHeight: 44 }} />
+                          </div>
+                          <div style={{ flex: "1 1 120px", minWidth: 0 }}>
+                            <label style={mkLabel(t)}>{tr("To")}</label>
+                            <input type="time" value={reqForm.endTime} onChange={e => setReqForm({ ...reqForm, endTime: e.target.value })} style={{ ...mkInput(t), minHeight: 44 }} />
+                          </div>
+                        </div>
+                      )}
+                      {reqForm.partDay && said("times")}
+                    </div>
+                  )}
 
-            {/* What it would leave, read before Send (part 373). */}
-            {previewNow && previewNow.state === "ok" && previewNow.leave && <div data-leave-preview="1"><TimeOffLeave leave={previewNow.leave} status="requested" before t={t} /></div>}
-            {previewNow && previewNow.state === "refused" && <div data-leave-preview="refused" role="status" style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 14, padding: "8px 10px", borderRadius: R.md, background: ORANGE + "18", border: "1px solid " + ORANGE + "60" }}><AlertIco sz={16} c={ink(t, ORANGE)} style={{ flexShrink: 0, marginTop: 1 }} /><span style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0, overflowWrap: "anywhere" }}>{previewNow.said}</span></div>}
+                  {inc !== "day" && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                        <label style={mkLabel(t)}>{tr("Hours (optional)")}</label>
+                        {inc === "hour" && unitText && <span data-timeoff-unit="hour" style={unitSt}>{unitText}</span>}
+                      </div>
+                      <input type="number" min="0" step={inc === "hour" ? "1" : "0.25"} inputMode={inc === "hour" ? "numeric" : "decimal"} value={reqForm.hours} onChange={e => setReqForm({ ...reqForm, hours: e.target.value })} placeholder={tr("For example, 8")} style={{ ...mkInput(t), minHeight: 44 }} />
+                      {said("hours")}
+                    </div>
+                  )}
+
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                      <label style={mkLabel(t)}>{reasonNeeded ? tr("Reason") : tr("Reason (optional)")}</label>
+                      {reasonNeeded && <span data-timeoff-reason-required="1" style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px", color: ink(t, RED), fontFamily: FONT_HEAD }}>{tr("Required")}</span>}
+                    </div>
+                    <textarea rows={3} maxLength={1000} value={reqForm.reason} aria-required={reasonNeeded ? "true" : undefined} onChange={e => setReqForm({ ...reqForm, reason: e.target.value })} style={{ ...mkInput(t), minHeight: 72, resize: "vertical", lineHeight: 1.5 }} />
+                    {reqForm.reason.trim() === "" && said("reason")}
+                    <div style={{ fontSize: 11, color: t.textMut, marginTop: 6, lineHeight: 1.4 }}>{tr("Only you and the person who approves time off can read this.")}</div>
+                  </div>
+
+                  {/* What it would leave, read before Send (part 373). */}
+                  {previewNow && previewNow.state === "ok" && previewNow.leave && <div data-leave-preview="1"><TimeOffLeave leave={previewNow.leave} status="requested" before t={t} /></div>}
+                  {previewRefused && !fieldOf(previewRefused.keys, reqForm) && <div data-leave-preview="refused" role="status" style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 14, padding: "8px 10px", borderRadius: R.md, background: ORANGE + "18", border: "1px solid " + ORANGE + "60" }}><AlertIco sz={16} c={ink(t, ORANGE)} style={{ flexShrink: 0, marginTop: 1 }} /><span style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0, overflowWrap: "anywhere" }}>{previewRefused.said}</span></div>}
+                </>
+              );
+            })()}
 
             <div style={{ fontSize: 11, color: t.textMut, marginBottom: 14, lineHeight: 1.4 }}>{tr("You get a notice in the app when your request is decided.")}</div>
 
@@ -6201,15 +6387,18 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
             {offErr && <div style={{ padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, color: t.text, fontSize: 12, lineHeight: 1.5, overflowWrap: "anywhere" }}>{offErr}</div>}
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-              <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Type")}</div><div style={offValue}>{leaveWord(offDetail.leaveType, offDetail.leaveTypeLabel)}</div></div>
+              <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Type")}</div><div style={offValue}>{requestTypeName(offDetail)}</div></div>
               <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Status")}</div><div style={{ ...offValue, color: timeOffStatusColor(offDetail.status, t) }}>{timeOffStatusWord(offDetail.status)}</div></div>
               <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Dates")}</div><div style={offValue}>{timeOffDates(offDetail.startsOn, offDetail.endsOn)}</div></div>
               {offDetail.partDay && offDetail.startTime && offDetail.endTime && <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Time")}</div><div style={offValue}>{fmtTm(offDetail.startTime)} - {fmtTm(offDetail.endTime)}</div></div>}
-              <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Hours")}</div><div style={offValue}>{timeOffHours(offDetail.hours) || tr("Not given")}</div></div>
+              {!(offDetail.unit === "days" && !timeOffHours(offDetail.hours)) && <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Hours")}</div><div style={offValue}>{timeOffHours(offDetail.hours) || tr("Not given")}</div></div>}
               <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Asked")}</div><div style={offValue}>{offDetail.createdAt ? new Date(offDetail.createdAt).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" }) : ""}</div></div>
               {offDetail.decidedAt && <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Decided")}</div><div style={offValue}>{new Date(offDetail.decidedAt).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" })}</div></div>}
               {offDetail.cancelledAt && <div style={{ minWidth: 0 }}><div style={offLabel}>{tr("Cancelled")}</div><div style={offValue}>{new Date(offDetail.cancelledAt).toLocaleDateString(dateLocale(), { month: "short", day: "numeric", year: "numeric" })}</div></div>}
             </div>
+            {/* Part 399 (API part 395): vacation or a personal day asked
+                inside its notice, which the office decides case by case. */}
+            {offDetail.insideNotice === true && <div data-timeoff-inside="sheet" role="status" style={{ marginBottom: 14, padding: "10px 12px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.borderSolid, fontSize: 13, color: t.text, lineHeight: 1.5, overflowWrap: "anywhere" }}>{tr("Asked with less notice than the policy asks. The office decides it case by case.")}</div>}
             <TimeOffLeave leave={offDetail.leave} status={offDetail.status} t={t} />
 
             <div style={{ marginBottom: 14 }}>
