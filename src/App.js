@@ -12918,7 +12918,12 @@ function FirstTrainingsCard({ training, onDocument, onLesson, t }) {
       <div data-first-trainings={docs.length + first.length} style={{ ...fkRowSt(t), marginBottom: 0, border: "1px solid " + t.goldBorder }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
           <BookIco sz={20} c={t.goldText} style={{ flexShrink: 0 }} />
-          <div role="heading" aria-level={2} style={{ ...nameSt, flex: 1, minWidth: 0 }}>{tr("Your first trainings")}</div>
+          {/* Part 404 (section 3): a card holding documents and no
+              first-day training is for someone past their first days,
+              such as a document to sign again, so it reads To read and
+              sign; with any first-day training it keeps Your first
+              trainings. */}
+          <div role="heading" aria-level={2} data-first-heading={first.length === 0 ? "sign" : "first"} style={{ ...nameSt, flex: 1, minWidth: 0 }}>{first.length === 0 ? tr("To read and sign") : tr("Your first trainings")}</div>
         </div>
         {docs.map(x => (
           <div key={x.docCode} data-first-doc={x.docCode} style={rowSt}>

@@ -11480,4 +11480,35 @@ const PART404_S2_JOURNEYS = [
 ];
 JOURNEYS.push(...PART404_S2_JOURNEYS);
 
+// --- Round 15 of the staff app (part 404), section 3 ----------------------
+//
+// The sign card's heading: Home's card of documents to sign read "Your
+// first trainings" even for someone months in with only a document to
+// sign again. With documents and no first-day training it reads "To read
+// and sign"; with both it keeps "Your first trainings". Fails on the main
+// of part 399, which read Your first trainings for both.
+const firstHeading = (page) => page.evaluate(() => { const c = document.querySelector("[data-first-trainings]"); const h = c && c.querySelector('[role="heading"]'); return h ? h.innerText.trim() : ""; });
+const PART404_S3_JOURNEYS = [
+  {
+    id: "signheading",
+    label: "The sign card's heading (part 404, 3): a person with only a document to sign reads To read and sign over it on Home, and one with a first-day training as well keeps Your first trainings",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { training: true, documents: true, firstDayNone: true } });
+      try {
+        const up = await shows(app.page, '[data-first-trainings="1"] [data-first-doc]', 8000);
+        const heading = up ? await firstHeading(app.page) : "";
+        expect("only a document to sign reads To read and sign", up && heading === say("To read and sign", language), heading || (await bodyText(app.page)).slice(0, 200));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const both = await open({ stubOptions: { training: true, documents: true } });
+      try {
+        const up = await shows(both.page, "[data-first-trainings] [data-first-item]", 8000);
+        const heading = up ? await firstHeading(both.page) : "";
+        expect("a document and a first-day training keep Your first trainings", up && heading === say("Your first trainings", language), heading || (await bodyText(both.page)).slice(0, 200));
+      } finally { await both.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART404_S3_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };

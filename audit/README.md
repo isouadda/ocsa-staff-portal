@@ -2145,6 +2145,20 @@ One journey, in English and Spanish, failing on the main of part 399:
   the kept copy drawn and nothing more; a list the API answered 500
   leaves a server note with its status and no kept copy.
 
+## The sign card's heading (part 404, section 3)
+
+Home's card of documents to sign and first-day trainings
+(`[data-first-trainings]`) reads **To read and sign** when it holds
+documents and no first-day training, as for someone months in with only
+a document to sign again, and keeps **Your first trainings** with any
+first-day training. The stub's `firstDayNone` answers My training with
+no first-day item beside the document (`documents`).
+
+One journey, in English and Spanish, failing on the main of part 399:
+
+- `signheading`: only a document reads To read and sign; a document and a
+  first-day training keep Your first trainings.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names
