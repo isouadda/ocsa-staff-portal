@@ -2085,6 +2085,47 @@ Two journeys, in English and Spanish, each failing on the main of part
   their names and read as before beside a Vacation request named in the
   screen's language and read in days across Thanksgiving.
 
+## The kept list on a phone that wakes with no signal (part 404, section 1)
+
+On live (Nov 17) a cleaner's phone in a building with weak signal showed
+"Your tasks did not load." for hours while the list kept for no signal
+sat on the phone. The paths, as the suite finds them:
+
+- **The app starts again on wake** (its own update on wake, or the phone
+  reloading a page it set aside) and the sign-in reads answer while the
+  list read fails: the fault screen. Now the kept copy is drawn.
+- **The status read fails too:** Start your shift, with a shift open. Now
+  the kept status stands in (only when its list is this person's, this
+  session's and today's) and the kept copy is drawn.
+- **No signal at all:** the copy opened at start was drawn unmarked; it
+  was read again once the session's own read answered. Now it is marked,
+  and read again on its own as below.
+- **A new run on a status read** clears the list; its read failing draws
+  the kept copy when this run's list was kept, else the fault screen.
+- **A new checklistKey, the day check and a wake with the app in memory**
+  keep the list already on the screen when their read fails; none of them
+  reaches the fault screen.
+
+The kept copy is drawn only for the same person, session, site and run,
+read within the day and for today's checklist day (`keptListFor`). It is
+marked (`[data-tasks-kept]`) with the time it was read, taps on it queue
+as on the copy opened at start, and the list is read again with no tap
+when the phone says it is online, when the page is shown again and every
+30 seconds while the page is in front, the mark going once it loads. With
+no kept copy the fault screen (`[data-tasks-fault="offline"]`) says the
+phone has no signal, keeps Try again, and reads again the same way.
+
+Two journeys, in English and Spanish, each failing on the main of part
+399:
+
+- `keptwake`: a shift open and its list read, the phone hidden, the
+  network cut and the app started again on wake: the kept list drawn and
+  marked with its time, a check-off queued, and when signal returns the
+  list read again with no tap and the check-off sent; and the same when
+  only the list read fails on wake, and when the status read fails too.
+- `keptnone`: with no kept copy, the no-signal words with Try again, and
+  the list read again by itself when signal returns.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names
