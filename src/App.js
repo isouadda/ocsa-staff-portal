@@ -47,7 +47,14 @@ async function reach(url, init) {
     const res = await fetch(inScreenLanguage(url), ctl ? { ...(init || {}), signal: ctl.signal } : init);
     if (ctl) answerStops.set(res, ctl);
     return res;
-  } catch (e) { throw new Error(ERR_OFFLINE); } finally { if (timer) clearTimeout(timer); }
+  } catch (e) {
+    // Part 404: a request this phone's own time limit stopped says so, for
+    // the note kept when the task list does not load; every screen still
+    // reads it as no signal.
+    const err = new Error(ERR_OFFLINE);
+    try { if (ctl && ctl.signal && ctl.signal.aborted) err.timedOut = true; } catch (x) {}
+    throw err;
+  } finally { if (timer) clearTimeout(timer); }
 }
 // Every request asks in the language on the screen. Since Step 137 the API
 // answers a signed-in call in ?locale= first and in the account's language
@@ -2121,6 +2128,27 @@ function keptListFor(userId, clock) {
   if (day && day !== checklistDayNow(Date.now())) return null;
   return { kept: kept, list: list };
 }
+// Part 404 (section 2): a short note on this phone each time the shift's
+// task list does not load: when, the kind of failure (offline, timeout,
+// server or refused, with the status the API answered), whether the kept
+// copy was drawn in its place, and whether the phone said it was online.
+// No name, site or id. The API takes no app report this could go with yet
+// (its App support tickets go to the office and mail it on a bug, and its
+// health runs take the robot's key alone), so the notes stay here, the
+// newest twenty, until it does.
+const LIST_FAULTS_KEY = "ocsa-list-faults";
+const LIST_FAULTS_MAX = 20;
+function noteListFault(err, keptShown) {
+  try {
+    const kind = !err ? "other" : err.timedOut ? "timeout" : wentNowhere(err) ? "offline" : err.status >= 500 ? "server" : "refused";
+    let was = [];
+    try { was = JSON.parse(window.localStorage.getItem(LIST_FAULTS_KEY) || "[]"); } catch (e) { was = []; }
+    let online = null;
+    try { online = navigator.onLine !== false; } catch (e) {}
+    const list = (Array.isArray(was) ? was : []).concat([{ at: new Date().toISOString(), what: "taskList", kind: kind, status: err && Number.isFinite(err.status) ? err.status : null, keptShown: !!keptShown, online: online }]).slice(-LIST_FAULTS_MAX);
+    window.localStorage.setItem(LIST_FAULTS_KEY, JSON.stringify(list));
+  } catch (e) {}
+}
 const checkoffPath = (taskId) => "/api/clock/tasks/" + encodeURIComponent(taskId) + "/complete";
 // How long Send a new code waits after each send, the API's own spacing.
 const CODE_RESEND_MS = 30000;
@@ -3568,6 +3596,9 @@ export default function OCSAStaffPortal() {
         const kept = !listIn && tasksAsked.current !== key && who ? keptListFor(who.id, cs0) : null;
         if (kept) drawKept(kept, cs0);
         else { setTasksFailed(true); if (!listIn) setTasksFaultKind(wentNowhere(err) ? "offline" : "other"); }
+        // Part 404 (section 2): the list read that failed, noted on the
+        // phone with whether the kept copy took its place.
+        if (!listIn) noteListFault(err, !!kept);
       }
     } finally { if (mine === tasksSeq.current) tasksReqAsked.current = null; }
   };

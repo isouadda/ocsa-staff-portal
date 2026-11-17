@@ -11437,4 +11437,47 @@ const PART404_S1_JOURNEYS = [
 ];
 JOURNEYS.push(...PART404_S1_JOURNEYS);
 
+// --- Round 15 of the staff app (part 404), section 2 ----------------------
+//
+// A record of what failed: each time the shift's task list does not load,
+// a short note kept on the phone (when, the kind of failure, whether the
+// kept copy took its place), with no name, site or id. ocsa-api takes no
+// app report it could go with (its App support tickets go to the office
+// and mail it on a bug; its health runs take the robot's key alone), so
+// the notes stay on the phone. Fails on the main of part 399, which kept
+// no note.
+const listFaultNotes = (page) => page.evaluate(() => { try { return JSON.parse(window.localStorage.getItem("ocsa-list-faults") || "[]"); } catch (e) { return null; } });
+const PART404_S2_JOURNEYS = [
+  {
+    id: "listfaultnote",
+    label: "A record of what failed (part 404, 2): a task list that does not load leaves a note on the phone, when, the kind (offline, or server with its status) and whether the kept copy was drawn, and nothing more",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await keptOpenList(app, language);
+        await app.context.route(KEPT_LIST_PATH, (r) => r.abort());
+        await app.page.reload().catch(() => {});
+        await pause(app.page, 3000);
+        await openTab(app.page, "tasks", language).catch(() => {});
+        await shows(app.page, "[data-tasks-kept]", 8000);
+        const one = (await listFaultNotes(app.page)) || [];
+        const last = one[one.length - 1] || {};
+        expect("a list read with no signal leaves a note: offline, the kept copy drawn", last.what === "taskList" && last.kind === "offline" && last.keptShown === true && last.status === null && !isNaN(Date.parse(last.at)), JSON.stringify(one));
+        expect("the note holds when, the kind and the kept copy, and nothing more", JSON.stringify(Object.keys(last).sort()) === JSON.stringify(["at", "keptShown", "kind", "online", "status", "what"]), JSON.stringify(last));
+        await app.context.unroute(KEPT_LIST_PATH);
+        await app.page.evaluate(() => window.localStorage.removeItem("ocsa-checklist-kept"));
+        app.stub.state.refuse["GET /api/sites/site-north/tasks"] = { status: 500, body: { error: "Something went wrong on our end. Try again in a minute." } };
+        await app.page.reload().catch(() => {});
+        await pause(app.page, 3000);
+        await openTab(app.page, "tasks", language).catch(() => {});
+        await shows(app.page, "[data-tasks-fault]", 8000);
+        const two = (await listFaultNotes(app.page)) || [];
+        const fresh = two.slice(one.length);
+        expect("a list the API answered 500 leaves a note: server, its status, no kept copy", fresh.length >= 1 && fresh.some(n => n.kind === "server" && n.status === 500 && n.keptShown === false), JSON.stringify(fresh));
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART404_S2_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };

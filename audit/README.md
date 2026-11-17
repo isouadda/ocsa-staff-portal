@@ -2126,6 +2126,25 @@ Two journeys, in English and Spanish, each failing on the main of part
 - `keptnone`: with no kept copy, the no-signal words with Try again, and
   the list read again by itself when signal returns.
 
+## A record of what failed (part 404, section 2)
+
+Each time the shift's task list does not load, the portal keeps a short
+note on the phone under `ocsa-list-faults`, the newest twenty: `at`,
+`what` (`taskList`), `kind` (`offline`, `timeout` when the phone's own
+time limit stopped the read, `server` for a 5xx, `refused` for any other
+answer), `status` (the API's, else null), `keptShown` (whether the kept
+copy was drawn in its place) and `online` (what the phone said). No name,
+site or id. ocsa-api takes no app report it could go with: App support's
+tickets go to the office and mail it at once on a bug, and the health
+run route takes the robot's key alone. So the notes stay on the phone
+until the API takes them; the pull request names the shape.
+
+One journey, in English and Spanish, failing on the main of part 399:
+
+- `listfaultnote`: a list read with no signal leaves an offline note with
+  the kept copy drawn and nothing more; a list the API answered 500
+  leaves a server note with its status and no kept copy.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names
