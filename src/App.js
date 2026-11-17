@@ -5462,17 +5462,37 @@ const requestTypeName = (r) => leaveName(r && r.leaveType, r && r.leaveTypeLabel
 // hours, its days (the API's for a balance kept in days, else the hours
 // over the policy's hours a day), the policy's own line for it, the day
 // it can first be used, and the API's notes. A kind the policy keeps no
-// balance for is left out. Part 399: and whether it is kept in days.
+// balance for is left out.
+//
+// Part 399 (API part 395): a kind kept in days says its days; the line is
+// the one whose classes hold the person's (a person with no class reads
+// the line for none), else the kind's first; and the ADP line, first in
+// every balance's notes, is kept apart so the screen says it once under
+// the balances.
+const ADP_NOTE = "leave.note.adpOfficial";
 const leaveNum = (n) => { if (n === null || n === undefined || n === "") return null; const v = Number(n); return isFinite(v) ? Math.round(v * 100) / 100 : null; };
 function leaveBalancesOf(d) {
   const lines = d && d.summary && Array.isArray(d.summary.lines) ? d.summary.lines : [];
+  const person = d && d.person && typeof d.person === "object" ? d.person : null;
+  const hasClass = !!person && Object.prototype.hasOwnProperty.call(person, "employmentClass");
+  const cls = hasClass ? (fkText(person, ["employmentClass"]) || "none") : null;
   return (d && Array.isArray(d.balances) ? d.balances : []).filter(b => b && typeof b === "object" && b.tracked === true && typeof b.kind === "string").map(b => {
     const hours = leaveNum(b.balanceHours);
     const perDay = leaveNum(b.hoursPerDay);
     const days = leaveNum(b.balanceDays) !== null ? leaveNum(b.balanceDays) : hours !== null && perDay ? leaveNum(hours / perDay) : null;
-    const line = lines.find(l => l && l.kind === b.kind);
-    return { kind: b.kind, name: fkText(b, ["kindName"]) || b.kind, unit: b.unit === "days" ? "days" : "hours", hours: hours, days: days, usableFrom: fkText(b, ["usableFrom"]) || null, line: line ? fkText(line, ["text"]) : "", notes: (Array.isArray(b.notes) ? b.notes : []).map(n => (n && typeof n === "object" ? fkText(n, ["message"]) : "")).filter(Boolean) };
+    const mine = lines.filter(l => l && l.kind === b.kind);
+    const line = (cls && mine.find(l => Array.isArray(l.classes) && l.classes.indexOf(cls) !== -1)) || mine.find(l => !Array.isArray(l.classes)) || mine[0];
+    const notes = (Array.isArray(b.notes) ? b.notes : []).filter(n => n && typeof n === "object" && n.code !== ADP_NOTE).map(n => fkText(n, ["message"])).filter(Boolean);
+    return { kind: b.kind, name: fkText(b, ["kindName"]) || b.kind, unit: b.unit === "days" ? "days" : "hours", hours: hours, days: days, usableFrom: fkText(b, ["usableFrom"]) || null, line: line ? fkText(line, ["text"]) : "", notes: notes };
   }).filter(b => b.hours !== null);
+}
+// The ADP line, as the first balance that carries it says it.
+function leaveAdpOf(d) {
+  for (const b of (d && Array.isArray(d.balances) ? d.balances : [])) {
+    const n = b && Array.isArray(b.notes) ? b.notes.find(x => x && typeof x === "object" && x.code === ADP_NOTE) : null;
+    if (n && fkText(n, ["message"])) return fkText(n, ["message"]);
+  }
+  return "";
 }
 const leaveDays = (n) => (n === 1 ? tr("{n} day", { n: String(n) }) : tr("{n} days", { n: String(n) }));
 const leaveUsableLater = (b) => !!b && !!b.usableFrom && b.usableFrom > ymdLocal(todayLocal());
@@ -5599,7 +5619,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
   useEffect(() => {
     if (compact || !token) return undefined;
     let gone = false;
-    api("/api/leave/me", { token }).then((d) => { if (!gone) setLeaveMe({ state: "ok", list: leaveBalancesOf(d) }); }).catch((err) => { if (!gone) setLeaveMe(prev => (err && err.status === 404 ? { state: "none", list: [] } : prev && prev.state === "ok" ? prev : { state: "failed", list: [] })); });
+    api("/api/leave/me", { token }).then((d) => { if (!gone) setLeaveMe({ state: "ok", list: leaveBalancesOf(d), adp: leaveAdpOf(d) }); }).catch((err) => { if (!gone) setLeaveMe(prev => (err && err.status === 404 ? { state: "none", list: [] } : prev && prev.state === "ok" ? prev : { state: "failed", list: [] })); });
     return () => { gone = true; };
   }, [compact, token, leaveAsked]);
   const balances = leaveMe && leaveMe.state === "ok" ? leaveMe.list : [];
@@ -6111,16 +6131,24 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
             <div data-leave-balances={balances.length} style={{ marginBottom: 12 }}>
               <div style={mkLabel(t)}>{tr("Leave balances")}</div>
               {balances.map(b => (
-                <div key={b.kind} data-leave-balance={b.kind} data-leave-hours={String(b.hours)} style={{ padding: "10px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}>
+                <div key={b.kind} data-leave-balance={b.kind} data-leave-hours={String(b.hours)} data-leave-unit={b.unit} style={{ padding: "10px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}>
                   <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{b.name}</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: b.hours < 0 ? ink(t, RED) : t.goldText, fontFamily: FONT_HEAD }}><span>{timeOffHours(b.hours)}</span>{b.days !== null && <span style={{ fontSize: 12, fontWeight: 500, color: t.textSec }}>{" \u00b7 "}</span>}{b.days !== null && <span style={{ fontSize: 12, fontWeight: 500, color: t.textSec }}>{leaveDays(b.days)}</span>}</div>
+                    {/* A kind kept in days (vacation, personal day) says its
+                        days alone; one kept in hours says its hours and the
+                        same in days, as before (part 399). */}
+                    {b.unit === "days" && b.days !== null
+                      ? <div style={{ fontSize: 14, fontWeight: 600, color: b.days < 0 ? ink(t, RED) : t.goldText, fontFamily: FONT_HEAD }}><span>{leaveDays(b.days)}</span></div>
+                      : <div style={{ fontSize: 14, fontWeight: 600, color: b.hours < 0 ? ink(t, RED) : t.goldText, fontFamily: FONT_HEAD }}><span>{timeOffHours(b.hours)}</span>{b.days !== null && <span style={{ fontSize: 12, fontWeight: 500, color: t.textSec }}>{" \u00b7 "}</span>}{b.days !== null && <span style={{ fontSize: 12, fontWeight: 500, color: t.textSec }}>{leaveDays(b.days)}</span>}</div>}
                   </div>
                   {b.line && <div data-leave-line="1" style={{ fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" }}>{b.line}</div>}
                   {leaveUsableLater(b) && <div style={{ fontSize: 12, color: t.textMut, marginTop: 4, lineHeight: 1.45 }}>{tr("You can use it from {date}.", { date: dueDayText(b.usableFrom, { month: "short", day: "numeric", year: "numeric" }) })}</div>}
                   {b.notes.map((n, i) => <div key={i} style={{ fontSize: 12, color: t.textMut, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" }}>{n}</div>)}
                 </div>
               ))}
+              {/* The ADP line (API part 395), once under the balances:
+                  every balance here is the app's figure. */}
+              {leaveMe && leaveMe.adp && <div data-leave-adp="1" style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{leaveMe.adp}</div>}
             </div>
           )}
           {leaveMe && leaveMe.state === "failed" && <div data-leave-fault="1" style={{ marginBottom: 12 }}><ListFault icon={CalIco} text={tr("Your leave balances did not load.")} onRetry={() => setLeaveAsked(n => n + 1)} t={t} /></div>}

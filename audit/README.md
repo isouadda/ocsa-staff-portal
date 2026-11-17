@@ -2054,6 +2054,37 @@ its part of a day in place of Jury duty, `leaveshown` reads part 395's
 line for full-time sick leave, and the smoke check's App support run asks
 an Unpaid request after reading Vacation first and no PTO.
 
+## Balances and past requests (part 399, section 2)
+
+The stub answers `GET /api/leave/me` as `balancesFor` and `summaryOf` do
+since part 395: the kinds the rules of the person's class hold (a
+full-time person Vacation, Paid sick leave and Personal day; part-time,
+no class and a union site Paid sick leave; supplemental none), each the
+app's figure with the ADP line (`leave.note.adpOfficial`) first in its
+notes; a kind kept in days with `balanceDays`; sick earned by hours
+worked with the note saying how far the hours files have posted; a
+person with no class told that vacation and personal days are not
+offered (`leave.note.classMissing`); the policy's four lines, each naming
+its `classes`; and the person's `employmentClass`.
+
+The portal says the ADP line once under the balances, a kind kept in
+days in days alone, and the line whose classes hold the person's class
+(none for a person with no class), else the kind's first. A request of a
+type the portal's own table names (PTO, Bereavement and personal, Jury
+duty, Military leave, Paid sick leave, Unpaid time off) keeps its name,
+so every request filed before part 395 reads as it did; a type the table
+does not name reads the API's `leaveTypeWords` in the screen's language.
+
+Two journeys, in English and Spanish, each failing on the main of part
+396:
+
+- `leaveadp`: a full-time person's three balances, vacation and personal
+  in days, the ADP line once; a part-time person reads the part-time
+  sick line.
+- `timeoffold`: a PTO request and a Bereavement and personal one keep
+  their names and read as before beside a Vacation request named in the
+  screen's language and read in days across Thanksgiving.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

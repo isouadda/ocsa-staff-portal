@@ -11235,4 +11235,97 @@ const PART399_S1_JOURNEYS = [
 ];
 JOURNEYS.push(...PART399_S1_JOURNEYS);
 
+// --- Round 14 of the staff app (part 399), section 2 ----------------------
+//
+// Balances and past requests (ocsa-api Round 15, part 395, section 5):
+// the ADP line, first in every balance's notes, said once under the
+// balances; a balance kept in days in days; the policy's line for the
+// person's class; and requests filed before part 395 reading as they did
+// beside a new one named and counted the new way. Each fails on the main
+// of part 396, which said the ADP line under every balance, said a
+// vacation balance in hours, read the first sick line whatever the class,
+// and named a new type by its English label in hours.
+const balanceText = (page, kind) => page.evaluate((k) => { const d = document.querySelector('[data-leave-balance="' + k + '"]'); return d ? d.innerText.replace(/\s+/g, " ").trim() : ""; }, kind);
+const offRowNames = (page, language) => page.evaluate((heading) => {
+  const h = Array.from(document.querySelectorAll(".sp-content div")).find(d => d.textContent.trim() === heading);
+  const nameOf = (b) => { const n = b.firstElementChild && b.firstElementChild.firstElementChild && b.firstElementChild.firstElementChild.firstElementChild; return n ? n.innerText.trim() : ""; };
+  return h ? Array.from(h.parentElement.querySelectorAll(":scope > button")).map(nameOf) : [];
+}, say("My time off", language));
+const openOffRow = (page, language, i) => page.evaluate(([heading, n]) => { const h = Array.from(document.querySelectorAll(".sp-content div")).find(d => d.textContent.trim() === heading); const list = h ? Array.from(h.parentElement.querySelectorAll(":scope > button")) : []; if (list[n]) list[n].click(); }, [say("My time off", language), i]);
+const PART399_S2_JOURNEYS = [
+  {
+    id: "leaveadp",
+    label: "Balances under the handbook (API part 395, 2.1): a full-time person's Vacation, Paid sick leave and Personal day, the two kept in days said in days alone, with the ADP line once under them; a part-time person reads the policy's line for part-time sick leave",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "schedule", language);
+        const up = await shows(app.page, '[data-leave-balance="vacation"]', 8000);
+        const adp = r15In("leave.note.adpOfficial", language);
+        const all = up ? await app.page.evaluate(() => document.querySelector("[data-leave-balances]").innerText.replace(/\s+/g, " ")) : "";
+        const line = await app.page.evaluate(() => { const d = document.querySelector("[data-leave-adp]"); return d ? d.innerText.replace(/\s+/g, " ").trim() : ""; });
+        expect("the ADP line shows once, under the balances", up && line === adp && all.split(adp).length === 2, all.slice(-300));
+        const kinds = await app.page.evaluate(() => Array.from(document.querySelectorAll("[data-leave-balance]")).map(d => d.getAttribute("data-leave-balance")));
+        expect("Vacation, Paid sick leave and Personal day, in the API's order", JSON.stringify(kinds) === JSON.stringify(["vacation", "paid_sick", "personal"]), JSON.stringify(kinds));
+        const vac = await balanceText(app.page, "vacation");
+        const per = await balanceText(app.page, "personal");
+        const sick = await balanceText(app.page, "paid_sick");
+        const days = (n) => fill(say("{n} days", language), { n: n });
+        expect("Vacation says 10 days and no hours", has(vac, servedIn("Vacation", language) + " " + days(10)) && !has(vac, hoursIn(language, 80)), vac);
+        expect("Personal day says 3 days and no hours", has(per, servedIn("Personal day", language) + " " + days(3)) && !has(per, hoursIn(language, 24)), per);
+        expect("Paid sick leave says its hours and the same in days, as before", has(sick, hoursIn(language, 40)) && has(sick, days(5)), sick);
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const part = await open({ stubOptions: { employmentClass: "part_time" } });
+      try {
+        await openTab(part.page, "schedule", language);
+        await shows(part.page, '[data-leave-balance="paid_sick"]', 8000);
+        const kinds = await part.page.evaluate(() => Array.from(document.querySelectorAll("[data-leave-balance]")).map(d => d.getAttribute("data-leave-balance")));
+        const sick = await balanceText(part.page, "paid_sick");
+        const own = R15S.R15_LINES.find(l => l.kind === "paid_sick" && l.classes.indexOf("part_time") !== -1);
+        const full = R15S.R15_LINES.find(l => l.kind === "paid_sick" && l.classes.indexOf("full_time") !== -1);
+        expect("a part-time person holds sick leave alone, with the part-time line and not the full-time one", JSON.stringify(kinds) === JSON.stringify(["paid_sick"]) && has(sick, servedIn(own.en, language)) && !has(sick, servedIn(full.en, language)), sick);
+      } finally { await part.context.close(); }
+    },
+  },
+  {
+    id: "timeoffold",
+    label: "Requests filed before part 395 (2.2): a PTO request and a Bereavement and personal one keep their names and read as they did, the PTO sheet with its hours; beside them a Vacation request is named in the screen's language and reads in days, Thanksgiving and the day after taking nothing",
+    run: async (open, language, expect) => {
+      const rows = [
+        timeOffRow({ id: "to-vac", leaveType: "vacation", leaveTypeLabel: "Vacation", status: "requested", startsOn: "2026-11-23", endsOn: "2026-11-27", insideNotice: false }),
+        timeOffRow({ id: "to-pto", leaveType: "pto", leaveTypeLabel: "PTO (paid time off)", status: "approved", startsOn: "2026-09-14", endsOn: "2026-09-15", hours: 16, decidedAt: "2026-09-10T15:00:00.000Z", decidedByName: "Jordan Office" }),
+        timeOffRow({ id: "to-bp", leaveType: "bereavement_personal", leaveTypeLabel: "Bereavement and personal", status: "denied", startsOn: "2026-09-08", endsOn: "2026-09-08", decidedAt: "2026-09-04T15:00:00.000Z", decidedByName: "Jordan Office", decisionNote: "Invented note" }),
+      ];
+      const app = await open({ stubOptions: { myTimeOff: rows } });
+      try {
+        await openTab(app.page, "schedule", language);
+        await app.page.waitForFunction((w) => Array.from(document.querySelectorAll(".sp-content div")).some(d => d.textContent.trim() === w), say("My time off", language), { timeout: 8000 }).catch(() => {});
+        await pause(app.page, 600);
+        const names = await offRowNames(app.page, language);
+        const want = [R15S.R15_TYPE_WORDS.vacation[language === "es" ? "es" : "en"], say("PTO (paid time off)", language), say("Bereavement and personal", language)];
+        expect("the old requests keep their names, and Vacation is named in the screen's language", JSON.stringify(names) === JSON.stringify(want), JSON.stringify(names));
+        await openOffRow(app.page, language, 1);
+        await shows(app.page, OFF_SHEET, 6000);
+        await pause(app.page, 800);
+        const pto = await offSheet(app.page);
+        expect("the PTO request's sheet reads as before, with its name and its hours", has(pto, say("PTO (paid time off)", language)) && has(pto, hoursIn(language, 16)) && !has(pto, say("Asked with less notice than the policy asks. The office decides it case by case.", language)), pto.slice(0, 300));
+        await clickText(app.page, say("Close", language));
+        await pause(app.page, 500);
+        await openOffRow(app.page, language, 0);
+        const pending = await shows(app.page, '[data-leave-state="pending"] [data-leave-day]', 6000);
+        const vac = pending ? await app.page.evaluate(() => document.querySelector('[data-leave-state="pending"]').innerText.replace(/\s+/g, " ")) : "";
+        const d = (n) => fill(say(n === 1 ? "{n} day" : "{n} days", language), { n: n });
+        expect("the Vacation request reads in days, 3 of the 10, leaving 7", pending && has(vac, fill(say("{kind}: this request is {hours}, and would leave {left}.", language), { kind: servedIn("Vacation", language), hours: d(3), left: d(7) })), vac || (await offSheet(app.page)).slice(0, 300));
+        const marks = await app.page.evaluate(() => Array.from(document.querySelectorAll('[data-leave-state="pending"] [data-leave-from="holiday"]')).map(x => x.getAttribute("data-leave-day")));
+        expect("with Thanksgiving and the day after marked as paid holidays", JSON.stringify(marks) === JSON.stringify(["2026-11-26", "2026-11-27"]) && has(vac, say("Paid holiday, not taken", language)), JSON.stringify(marks));
+        const sheet = await offSheet(app.page);
+        expect("and no Hours line saying Not given", !has(sheet, say("Not given", language)), sheet.slice(0, 300));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART399_S2_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };
