@@ -1705,6 +1705,12 @@ export const WORDS = {
   "Conversation recorded.": "Conversaci\u00f3n registrada.",
   "From an inspection finding. Due {date}": "De un hallazgo de inspecci\u00f3n. Vence el {date}",
   "From an inspection finding.": "De un hallazgo de inspecci\u00f3n.",
+  // Part 399: the time off form under the handbook's policy.
+  "Not offered to you: {types}.": "No se le ofrece: {types}.",
+  "Your employment class is not on file. The office has to set it.": "Su clase de empleo no est\u00e1 registrada. La oficina tiene que agregarla.",
+  "Paid holiday, not taken": "Feriado pagado, no se descuenta",
+  "Day off, not taken": "D\u00eda libre, no se descuenta",
+  "Asked with less notice than the policy asks. The office decides it case by case.": "Se pidi\u00f3 con menos aviso del que pide la pol\u00edtica. La oficina la decide caso por caso.",
   },
 };
 
@@ -3288,6 +3294,12 @@ WORDS.fr = {
   "Conversation recorded.": "Conversation enregistr\u00e9e.",
   "From an inspection finding. Due {date}": "Issue d'un constat d'inspection. \u00c9ch\u00e9ance\u00a0: {date}",
   "From an inspection finding.": "Issue d'un constat d'inspection.",
+  // Part 399: the time off form under the handbook's policy.
+  "Not offered to you: {types}.": "Ne vous est pas propos\u00e9\u00a0: {types}.",
+  "Your employment class is not on file. The office has to set it.": "Votre cat\u00e9gorie d'emploi n'est pas enregistr\u00e9e. Le bureau doit l'ajouter.",
+  "Paid holiday, not taken": "Jour f\u00e9ri\u00e9 pay\u00e9, non d\u00e9compt\u00e9",
+  "Day off, not taken": "Jour de repos, non d\u00e9compt\u00e9",
+  "Asked with less notice than the policy asks. The office decides it case by case.": "Demand\u00e9e avec moins de pr\u00e9avis que la politique ne le demande. Le bureau la d\u00e9cide au cas par cas.",
 };
 
 // {name} is replaced after the language is chosen, so the

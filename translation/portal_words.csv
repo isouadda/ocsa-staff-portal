@@ -1529,3 +1529,8 @@ Conversation recorded.,Conversación registrada.,Conversation enregistrée.,"Fin
 From an inspection finding. Due {date},De un hallazgo de inspección. Vence el {date},Issue d'un constat d'inspection. Échéance : {date},"My training, on a training chosen as a finding's follow-up"
 From an inspection finding.,De un hallazgo de inspección.,Issue d'un constat d'inspection.,"My training, on a training chosen as a finding's follow-up, with no day"
 Nothing is waiting for you.,No hay nada pendiente para usted.,Rien ne vous attend.,"Approve supplies, when no request is on its list"
+Not offered to you: {types}.,No se le ofrece: {types}.,Ne vous est pas proposé : {types}.,"Request time off, under Type, naming the types the person is not offered"
+Your employment class is not on file. The office has to set it.,Su clase de empleo no está registrada. La oficina tiene que agregarla.,Votre catégorie d'emploi n'est pas enregistrée. Le bureau doit l'ajouter.,"Request time off, under Type, when the office has not set the person's employment class"
+"Paid holiday, not taken","Feriado pagado, no se descuenta","Jour férié payé, non décompté","Request time off, on a day of the request that is a paid holiday"
+"Day off, not taken","Día libre, no se descuenta","Jour de repos, non décompté","Request time off, on a day of the request with no shift on a weekend"
+Asked with less notice than the policy asks. The office decides it case by case.,Se pidió con menos aviso del que pide la política. La oficina la decide caso por caso.,Demandée avec moins de préavis que la politique ne le demande. Le bureau la décide au cas par cas.,"A time off request asked inside its notice, on its row and its sheet"

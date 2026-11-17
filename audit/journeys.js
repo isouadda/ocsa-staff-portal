@@ -1955,7 +1955,7 @@ const JOURNEYS = [
         expect("whole days send the dates and nothing else", whole && whole.body && whole.body.startsOn === "2026-10-05" && whole.body.endsOn === "2026-10-07" && !whole.body.startTime, whole ? JSON.stringify(whole.body) : "nothing sent");
 
         await clickText(app.page, say("Request time off", language));
-        await type(app.page, 'div[style*="z-index: 200"] select', "jury_duty");
+        await type(app.page, 'div[style*="z-index: 200"] select', "unpaid");
         await app.page.evaluate(() => { const c = document.querySelector('div[style*="z-index: 200"] [role="checkbox"]'); if (c) c.click(); });
         await pause(app.page, 400);
         await typeNth(app.page, 'div[style*="z-index: 200"] input[type="time"]', 0, "11:00");
@@ -8146,7 +8146,9 @@ JOURNEYS.push(...PART369_S2_JOURNEYS);
 // GET /api/leave/me and the leave every time off answer carries).
 const twinOf = (language, en) => (language === "es" && TWIN_ES.has(en) ? TWIN_ES.get(en) : en);
 const SICK = "Paid sick leave";
-const SICK_LINE = "40 hours on January 1 each year; a new hire gets 40 hours on the hire date; usable 90 days after the hire date; nothing carries over to the next year.";
+// Since part 399 the stub answers API part 395's line for full-time sick
+// leave (helpers/leaveBalances.js summaryOf over HANDBOOK_RULES).
+const SICK_LINE = require("./stub").R15_LINES.find(l => l.kind === "paid_sick" && l.classes.indexOf("full_time") !== -1).en;
 const hoursIn = (language, n) => say(n === 1 ? "{n} hour" : "{n} hours", language).replace("{n}", String(n));
 const offSheet = (page) => page.evaluate(() => { const d = Array.from(document.querySelectorAll('div[style*="z-index: 200"]')).pop(); return d ? d.innerText.replace(/\s+/g, " ") : ""; });
 const askOff = async (app, language, kind, from, to) => {
@@ -10992,5 +10994,245 @@ const PART396_S3_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...PART396_S3_JOURNEYS);
+
+// --- Round 14 of the staff app (part 399), section 1 ----------------------
+//
+// The request form under the handbook's policy (ocsa-api Round 15, part
+// 395, routes/timeOff.js and helpers/timeOff.js): the types from GET
+// /api/time-off/types in the API's order, named in the screen's language;
+// each type's increment deciding the inputs, its unit beside the amount
+// and its notice under it; the types not offered named with the API's
+// reason; the reason asked for inside the notice; sick in whole hours
+// with no reason; a refusal under the field its keys name; and the
+// preview's days, a paid holiday and a day off marked as taking nothing.
+// Each fails on the main of part 396, which named every type by its
+// English label, drew every input for every type, said nothing of the
+// notice or of a type not offered, kept Reason optional and said every
+// refusal in one place, and showed the preview in hours.
+const R15S = require("./stub");
+const OFF_SHEET = 'div[style*="z-index: 200"]';
+const r15In = (key, language) => R15S.R15_WORDS[key][language === "es" ? "es" : "en"];
+// A type's name as the form draws it: the portal's own word for a type its
+// table names (Paid sick leave, Unpaid time off), else the API's own.
+const typeNameIn = (value, language) => {
+  const en = R15S.R15_TYPE_WORDS[value].en;
+  return Object.prototype.hasOwnProperty.call(ES, en) ? say(en, language) : R15S.R15_TYPE_WORDS[value][language === "es" ? "es" : "en"];
+};
+const openOffForm = async (app, language) => {
+  await openTab(app.page, "schedule", language);
+  await app.page.waitForFunction((w) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.trim() === w), say("Request time off", language), { timeout: 8000 }).catch(() => {});
+  await clickText(app.page, say("Request time off", language));
+  return shows(app.page, OFF_SHEET + " select", 6000);
+};
+const offOptions = (page) => page.evaluate((sel) => { const s = document.querySelector(sel + " select"); return s ? Array.from(s.options).filter(o => o.value).map(o => o.value + "=" + o.textContent.trim()) : []; }, OFF_SHEET);
+const offPick = async (app, value) => { await type(app.page, OFF_SHEET + " select", value); await pause(app.page, 300); };
+const offDays = async (app, from, to) => { await typeNth(app.page, OFF_SHEET + ' input[type="date"]', 0, from); await typeNth(app.page, OFF_SHEET + ' input[type="date"]', 1, to); await pause(app.page, 300); };
+const offInputs = (page) => page.evaluate((sel) => {
+  const s = Array.from(document.querySelectorAll(sel)).pop();
+  const n = s && s.querySelector('input[type="number"]');
+  return {
+    partDay: !!(s && s.querySelector('[role="checkbox"]')), hours: !!n, step: n ? n.getAttribute("step") : null,
+    unit: Array.from(s ? s.querySelectorAll("[data-timeoff-unit]") : []).map(x => x.getAttribute("data-timeoff-unit") + "=" + x.innerText.trim()),
+    notice: Array.from(s ? s.querySelectorAll("[data-timeoff-notice]") : []).map(x => x.getAttribute("data-timeoff-notice") + "=" + x.innerText.replace(/\s+/g, " ").trim()),
+  };
+}, OFF_SHEET);
+const offError = (page, at) => page.evaluate(([sel, a]) => { const d = document.querySelector(sel + ' [data-timeoff-error="' + a + '"]'); return d ? d.innerText.replace(/\s+/g, " ").trim() : ""; }, [OFF_SHEET, at]);
+const offErrorShows = (page, at, ms) => shows(page, OFF_SHEET + ' [data-timeoff-error="' + at + '"]', ms || 6000);
+const notOfferedLine = (language, values, reasonKey) => fill(say("Not offered to you: {types}.", language), { types: values.map(v => typeNameIn(v, language)).join(", ") }) + " " + r15In("timeOff.notOffered." + reasonKey, language);
+const requiredShows = (page) => page.evaluate((sel) => !!document.querySelector(sel + " [data-timeoff-reason-required]"), OFF_SHEET);
+
+const PART399_S1_JOURNEYS = [
+  {
+    id: "timeofftypes",
+    label: "The five types (API part 395, 1.1 and 1.2): a full-time person is offered Vacation, Sick, Personal, Bereavement and Unpaid in the API's order, each named in the screen's language; Vacation and Personal day draw no Part of the day and no Hours and say Whole days only beside the days, Sick takes hours in whole numbers and says In whole hours beside them, Unpaid draws both as before; each type's notice shows under it; and a whole-day type sends no hours or times typed before it was chosen",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        const up = await openOffForm(app, language);
+        const opts = await offOptions(app.page);
+        const want = ["vacation", "paid_sick", "personal", "bereavement", "unpaid"].map(v => v + "=" + typeNameIn(v, language));
+        expect("the five types in the API's order, each in the screen's language", up && JSON.stringify(opts) === JSON.stringify(want), JSON.stringify(opts));
+        await offPick(app, "vacation");
+        const vac = await offInputs(app.page);
+        expect("Vacation draws no Part of the day and no Hours, and says Whole days only", !vac.partDay && !vac.hours && JSON.stringify(vac.unit) === JSON.stringify(["day=" + r15In("timeOff.unit.day", language)]), JSON.stringify(vac));
+        expect("Vacation's notice shows under it", JSON.stringify(vac.notice) === JSON.stringify(["twoWeeks=" + r15In("timeOff.notice.twoWeeks", language)]), JSON.stringify(vac.notice));
+        await offPick(app, "paid_sick");
+        const sick = await offInputs(app.page);
+        expect("Sick draws Part of the day and Hours in whole numbers, and says In whole hours", sick.partDay && sick.hours && sick.step === "1" && JSON.stringify(sick.unit) === JSON.stringify(["hour=" + r15In("timeOff.unit.hour", language)]), JSON.stringify(sick));
+        expect("Sick's notice shows under it, and it asks nobody to find cover", JSON.stringify(sick.notice) === JSON.stringify(["sickAsap=" + r15In("timeOff.notice.sickAsap", language)]), JSON.stringify(sick.notice));
+        await offPick(app, "personal");
+        const per = await offInputs(app.page);
+        expect("Personal day draws no Part of the day and no Hours, with its 48 hours notice", !per.partDay && !per.hours && JSON.stringify(per.notice) === JSON.stringify(["fortyEightHours=" + r15In("timeOff.notice.fortyEightHours", language)]), JSON.stringify(per));
+        await offPick(app, "unpaid");
+        const unp = await offInputs(app.page);
+        expect("Unpaid draws both as before, with no unit and no notice", unp.partDay && unp.hours && unp.step === "0.25" && unp.unit.length === 0 && unp.notice.length === 0, JSON.stringify(unp));
+        await spokenHere(app, language, expect);
+        // Hours and a part of the day typed for Unpaid are dropped when
+        // Vacation is chosen, so nothing hidden is sent.
+        await offDays(app, "2026-11-23", "2026-11-23");
+        await app.page.evaluate((sel) => { const c = document.querySelector(sel + ' [role="checkbox"]'); if (c) c.click(); }, OFF_SHEET);
+        await pause(app.page, 300);
+        await typeNth(app.page, OFF_SHEET + ' input[type="time"]', 0, "09:00");
+        await typeNth(app.page, OFF_SHEET + ' input[type="time"]', 1, "12:00");
+        await type(app.page, OFF_SHEET + ' input[type="number"]', "3");
+        await offPick(app, "vacation");
+        await offDays(app, "2026-11-23", "2026-11-24");
+        await clickText(app.page, say("Send request", language));
+        await pause(app.page, 1100);
+        const body = (lastSent(app.stub, "POST", "/api/time-off") || {}).body;
+        expect("Vacation is sent as whole days, with no hours and no times", !!body && body.leaveType === "vacation" && body.startsOn === "2026-11-23" && body.endsOn === "2026-11-24" && body.hours === undefined && body.startTime === undefined && body.endTime === undefined, JSON.stringify(body));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "timeoffnotoffered",
+    label: "Not offered (API part 395, 1.4): a supplemental person is offered Sick, Bereavement and Unpaid, and reads under the list, in a quiet line, that Vacation and Personal day are not offered to them with the API's reason; a full-time person at a union site reads the union line",
+    run: async (open, language, expect) => {
+      for (const [who, opts, reason] of [["a supplemental person", { employmentClass: "supplemental" }, "notForClass"], ["a full-time person at a union site", { unionSite: true }, "unionSite"]]) {
+        const app = await open({ stubOptions: opts });
+        try {
+          const up = await openOffForm(app, language);
+          const values = (await offOptions(app.page)).map(x => x.split("=")[0]);
+          expect(who + " is offered Sick, Bereavement and Unpaid", up && JSON.stringify(values) === JSON.stringify(["paid_sick", "bereavement", "unpaid"]), JSON.stringify(values));
+          const line = await app.page.evaluate(([sel, r]) => { const d = document.querySelector(sel + ' [data-timeoff-notoffered="' + r + '"]'); return d ? d.innerText.replace(/\s+/g, " ").trim() : ""; }, [OFF_SHEET, reason]);
+          expect(who + " reads that Vacation and Personal day are not offered, with the API's reason", line === notOfferedLine(language, ["vacation", "personal"], reason), JSON.stringify(line));
+          await spokenHere(app, language, expect);
+        } finally { await app.context.close(); }
+      }
+    },
+  },
+  {
+    id: "timeoffclassmissing",
+    label: "No class on file (API part 395, 1.4): a person whose employment class the office has not set is offered Sick, Bereavement and Unpaid, and reads that vacation and personal days wait on the office adding their class",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { employmentClass: null } });
+      try {
+        const up = await openOffForm(app, language);
+        const values = (await offOptions(app.page)).map(x => x.split("=")[0]);
+        expect("offered Sick, Bereavement and Unpaid", up && JSON.stringify(values) === JSON.stringify(["paid_sick", "bereavement", "unpaid"]), JSON.stringify(values));
+        const line = await app.page.evaluate((sel) => { const d = document.querySelector(sel + ' [data-timeoff-notoffered="classMissing"]'); return d ? d.innerText.replace(/\s+/g, " ").trim() : ""; }, OFF_SHEET);
+        expect("reads that the office has to add the employment class", line === notOfferedLine(language, ["vacation", "personal"], "classMissing"), JSON.stringify(line));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "timeoffnotice",
+    label: "The reason inside the notice (API part 395, 1.5): Vacation inside 2 weeks makes Reason required and says the API's words under it, taken with a reason and sent with it, the filed request reading that the office decides it; a Personal day inside 48 hours does the same; Vacation 2 weeks out leaves Reason optional",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openOffForm(app, language);
+        await offPick(app, "vacation");
+        await offDays(app, "2026-10-05", "2026-10-06");
+        const said = await offErrorShows(app.page, "reason", 6000);
+        expect("Reason is required, the API's words under it", said && (await offError(app.page, "reason")) === r15In("timeOff.reasonInsideNotice.vacation", language) && (await requiredShows(app.page)), (await offSheet(app.page)).slice(0, 400));
+        await type(app.page, OFF_SHEET + " textarea", "A family visit");
+        const read = await shows(app.page, OFF_SHEET + ' [data-leave-preview="1"]', 6000);
+        const text = read ? await previewText(app.page) : "";
+        expect("with a reason the preview reads it as 2 days, Reason still required and nothing said under it", read && has(text, fill(say("{kind}: this request is {hours}, and would leave {left}.", language), { kind: servedIn("Vacation", language), hours: fill(say("{n} days", language), { n: 2 }), left: fill(say("{n} days", language), { n: 8 }) })) && (await requiredShows(app.page)) && !(await offError(app.page, "reason")), text);
+        await clickText(app.page, say("Send request", language));
+        const sheet = await shows(app.page, '[data-timeoff-inside="sheet"]', 6000);
+        const body = (lastSent(app.stub, "POST", "/api/time-off") || {}).body;
+        expect("sent with the reason", !!body && body.leaveType === "vacation" && body.reason === "A family visit", JSON.stringify(body));
+        expect("the filed request reads that the office decides it", sheet && has(await offSheet(app.page), say("Asked with less notice than the policy asks. The office decides it case by case.", language)), (await offSheet(app.page)).slice(0, 300));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const per = await open({});
+      try {
+        await openOffForm(per, language);
+        await offPick(per, "personal");
+        await offDays(per, "2026-10-02", "2026-10-02");
+        const said = await offErrorShows(per.page, "reason", 6000);
+        expect("a Personal day inside 48 hours asks for a reason in the API's words", said && (await offError(per.page, "reason")) === r15In("timeOff.reasonInsideNotice.personal", language) && (await requiredShows(per.page)), (await offSheet(per.page)).slice(0, 300));
+        await offPick(per, "vacation");
+        await offDays(per, "2026-10-19", "2026-10-20");
+        const ok = await shows(per.page, OFF_SHEET + ' [data-leave-preview="1"]', 6000);
+        expect("Vacation 2 weeks out leaves Reason optional, with nothing under it", ok && !(await requiredShows(per.page)) && !(await offError(per.page, "reason")), (await offSheet(per.page)).slice(0, 300));
+      } finally { await per.context.close(); }
+    },
+  },
+  {
+    id: "timeoffsick",
+    label: "Sick in whole hours (API part 395, 1.2, 1.6 and 1.8): a part-time person's sick request for tomorrow asks no reason; 2.5 hours says the API's whole-hours words under Hours; 4 hours reads the warning that it passes the year's 40 hours used, and is sent all the same with no reason",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { employmentClass: "part_time", sickUsed: 38 } });
+      try {
+        await openOffForm(app, language);
+        await offPick(app, "paid_sick");
+        await offDays(app, "2026-10-02", "2026-10-02");
+        await type(app.page, OFF_SHEET + ' input[type="number"]', "2.5");
+        const said = await offErrorShows(app.page, "hours", 6000);
+        expect("2.5 hours says the API's whole-hours words under Hours", said && (await offError(app.page, "hours")) === r15In("timeOff.wholeHoursOnly", language), (await offSheet(app.page)).slice(0, 400));
+        await type(app.page, OFF_SHEET + ' input[type="number"]', "4");
+        const read = await shows(app.page, OFF_SHEET + ' [data-leave-preview="1"] [data-leave-warning]', 6000);
+        const text = read ? await previewText(app.page) : "";
+        const cap = language === "es" ? "Esta solicitud llevar\u00eda el uso de " + servedIn(SICK, language) + " de este a\u00f1o por encima de 40 horas." : "This request would take the " + SICK + " used this year past 40 hours.";
+        expect("4 hours warns that it passes the year's 40 hours used, and can still be sent", read && has(text, cap) && has(text, say("You can still send it. The person who approves time off decides.", language)), text);
+        expect("no reason is asked for, and nothing is said under Hours", !(await requiredShows(app.page)) && !(await offError(app.page, "hours")) && !(await offError(app.page, "reason")), (await offSheet(app.page)).slice(0, 300));
+        await spokenHere(app, language, expect);
+        await clickText(app.page, say("Send request", language));
+        await pause(app.page, 1200);
+        const posts = filings(app.stub).map(c => c.body);
+        expect("sent once, 4 whole hours and no reason", posts.length === 1 && posts[0].leaveType === "paid_sick" && posts[0].hours === 4 && posts[0].reason === undefined, JSON.stringify(posts));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "timeoffkeys",
+    label: "Refusals under their fields (API part 395, 1.7): timeOff.typeNotOffered and timeOff.notOfferedToYou under Type, timeOff.wholeDaysOnly under Hours and timeOff.wholeHoursOnly under From and To, each in the API's words and none in the line at the top",
+    run: async (open, language, expect) => {
+      const cases = [
+        ["timeOff.typeNotOffered", ["leaveType"], "type"],
+        ["timeOff.notOfferedToYou", ["leaveType"], "type"],
+        ["timeOff.wholeDaysOnly", ["hours"], "hours"],
+        ["timeOff.wholeHoursOnly", ["startTime", "endTime"], "times"],
+      ];
+      for (const [code, keys, at] of cases) {
+        const words = code === "timeOff.notOfferedToYou" ? R15S.R15_WORDS["timeOff.notOffered.notForClass"] : R15S.R15_WORDS[code];
+        const app = await open({ stubOptions: { previewRoute: false, refuse: { "POST /api/time-off": { status: 400, body: Object.assign({ error: words.en, code: code, keys: keys }, code === "timeOff.notOfferedToYou" ? { reason: "notForClass" } : {}) } } } });
+        try {
+          await openOffForm(app, language);
+          await offPick(app, "unpaid");
+          await offDays(app, "2026-10-12", "2026-10-12");
+          await app.page.evaluate((sel) => { const c = document.querySelector(sel + ' [role="checkbox"]'); if (c) c.click(); }, OFF_SHEET);
+          await pause(app.page, 300);
+          await typeNth(app.page, OFF_SHEET + ' input[type="time"]', 0, "09:00");
+          await typeNth(app.page, OFF_SHEET + ' input[type="time"]', 1, "11:30");
+          await type(app.page, OFF_SHEET + ' input[type="number"]', "2.5");
+          await clickText(app.page, say("Send request", language));
+          const said = await offErrorShows(app.page, at, 6000);
+          const want = language === "es" ? words.es : words.en;
+          const sheet = await offSheet(app.page);
+          expect(code + " shows under " + at + " in the API's words, and only there", said && (await offError(app.page, at)) === want && sheet.split(want).length === 2, sheet.slice(0, 400));
+        } finally { await app.context.close(); }
+      }
+    },
+  },
+  {
+    id: "timeoffholiday",
+    label: "The preview's days (API part 395, 1.8): Vacation from the Monday of Thanksgiving week to the Sunday marks Thanksgiving and the day after as paid holidays and the weekend as days off, each taking nothing, and reads 3 days of the 10 held, leaving 7",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openOffForm(app, language);
+        await offPick(app, "vacation");
+        await offDays(app, "2026-11-23", "2026-11-29");
+        const read = await shows(app.page, OFF_SHEET + ' [data-leave-preview="1"] [data-leave-day]', 6000);
+        const days = read ? await app.page.evaluate((sel) => Array.from(document.querySelectorAll(sel + " [data-leave-day]")).map(d => d.getAttribute("data-leave-day") + "|" + d.getAttribute("data-leave-from") + "|" + d.lastElementChild.innerText.trim()), OFF_SHEET) : [];
+        const day1 = say("{n} day", language).replace("{n}", "1");
+        const want = [["2026-11-23", "noShift", day1], ["2026-11-24", "noShift", day1], ["2026-11-25", "noShift", day1],
+          ["2026-11-26", "holiday", say("Paid holiday, not taken", language)], ["2026-11-27", "holiday", say("Paid holiday, not taken", language)],
+          ["2026-11-28", "dayOff", say("Day off, not taken", language)], ["2026-11-29", "dayOff", say("Day off, not taken", language)]].map(x => x.join("|"));
+        expect("each day as the API answers it, Thanksgiving and the day after marked as paid holidays and the weekend as days off", JSON.stringify(days) === JSON.stringify(want), JSON.stringify(days));
+        const text = await previewText(app.page);
+        const d = (n) => fill(say(n === 1 ? "{n} day" : "{n} days", language), { n: n });
+        expect("3 days of the 10 held, leaving 7", has(text, fill(say("{kind}: this request is {hours}, and would leave {left}.", language), { kind: servedIn("Vacation", language), hours: d(3), left: d(7) })) && has(text, fill(say("{kind} balance now: {hours}.", language), { kind: servedIn("Vacation", language), hours: d(10) })), text);
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART399_S1_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };

@@ -1927,10 +1927,13 @@ async function pickers(browser, language, width) {
     !all ? "Issue PPE's picker did not list three" : !narrowed ? "typing did not narrow Issue PPE's list" : !said ? "no match line missing" : !cleared ? "the chip did not open the search again empty" : !observe ? "Watch and sign off's picker did not narrow and pick" : !refill ? "the Refill supply did not narrow" : !sentRefill ? "the refill did not post the supply picked" : wide > 1 ? "the page scrolls sideways by " + wide : app.errors[0]);
 }
 
-// App support, Help's ticket, the sign-in line and PTO, on one phone: the
-// sign-in screen reads the contact from the API with no token; a bug is
+// App support, Help's ticket, the sign-in line and time off, on one phone:
+// the sign-in screen reads the contact from the API with no token; a bug is
 // filed with its details and shown in My tickets; Help's draft becomes a
-// ticket only once it is sent from its card; and a PTO request goes.
+// ticket only once it is sent from its card; and a time off request goes.
+// Since part 399 the API offers the handbook's five types (API part 395)
+// and never PTO, which pto: true no longer adds, so the request is Unpaid,
+// as the API's own round tells its robot to ask.
 async function appSupport(browser, language, width) {
   const tag = " (" + language + ", " + width + " wide)";
   const app = await open({ support: true, pto: true, accountPreferences: { language: language, textSize: "standard" } }, { browser, language, width: width });
@@ -1970,25 +1973,26 @@ async function appSupport(browser, language, width) {
   }
   const fromHelp = posts()[1] || {};
   const helpTicket = helpSent && posts().length === 2 && fromHelp.kind === "bug" && fromHelp.source === "help" && fromHelp.description === SUPPORT_DRAFT[language].description && fromHelp.screen === "Help" && fromHelp.locale === language;
-  // PTO on the time-off request.
+  // Vacation first among the types, no PTO, and an Unpaid request sent.
   let pto = false, ptoSent = false;
+  const vacation = require("./stub").R15_TYPE_WORDS.vacation[language === "es" ? "es" : "en"];
   if (helpTicket) {
     await openPlace(page, say(language, "Schedule"));
     await waitFor(page, (w) => Array.from(document.querySelectorAll("button")).some(b => b.innerText.trim() === w), say(language, "Request time off"));
     await clickWord(page, say(language, "Request time off"));
-    pto = await waitFor(page, (w) => { const o = document.querySelector('select option[value="pto"]'); return !!o && o.innerText.trim() === w; }, say(language, "PTO (paid time off)"));
+    pto = await waitFor(page, (w) => { const o = Array.from(document.querySelectorAll("select option")).filter(x => x.value); return o.length === 5 && o[0].value === "vacation" && o[0].innerText.trim() === w && !document.querySelector('select option[value="pto"]'); }, vacation);
     if (pto) {
-      await page.selectOption('select:has(option[value="pto"])', "pto");
+      await page.selectOption('select:has(option[value="unpaid"])', "unpaid");
       await clickWord(page, say(language, "Send request"));
       ptoSent = await waitFor(page, (w) => document.body.innerText.indexOf(w) !== -1, say(language, "Time off requested. You get a notice when it is decided."));
     }
   }
   const offs = app.stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/time-off").map(c => c.body);
-  const ptoOnce = offs.length === 1 && offs[0].leaveType === "pto";
+  const ptoOnce = offs.length === 1 && offs[0].leaveType === "unpaid";
   await app.context.close();
-  check("App support: the sign-in screen reads Can't sign in? Email with the contact from GET /api/support/contact, asked with no token; App support under More holds a ticket with no kind and no words on the phone, files a bug once with its details (the screen, the app version, the phone, the language) and lists it first in My tickets as New, beside the office's note on the one before; Help's drafted ticket shows on its card, files nothing until Send to App support, then posts it with source help; and Request time off offers PTO (paid time off) and posts leaveType pto once; with no sideways scroll" + tag,
+  check("App support: the sign-in screen reads Can't sign in? Email with the contact from GET /api/support/contact, asked with no token; App support under More holds a ticket with no kind and no words on the phone, files a bug once with its details (the screen, the app version, the phone, the language) and lists it first in My tickets as New, beside the office's note on the one before; Help's drafted ticket shows on its card, files nothing until Send to App support, then posts it with source help; and Request time off offers the API's five types, Vacation first and no PTO, and posts leaveType unpaid once; with no sideways scroll" + tag,
     line && noToken && inNow && offered && held && filed && mine && details && card && helpSent && helpTicket && pto && ptoSent && ptoOnce && wide <= 1 && app.errors.length === 0,
-    !line ? "the sign-in line did not read the contact" : !noToken ? "the contact was not asked for, or went with a token" : !inNow ? "no portal after Sign In" : !offered ? "no App support under More" : !held ? "an empty ticket was not held on the phone" : !filed || !mine ? "My tickets did not read as expected" : !details ? JSON.stringify(Object.assign({}, bug, { device: bug.device ? "set" : bug.device })) : !card ? "Help's card did not show, or Help filed it" : !helpSent || !helpTicket ? JSON.stringify(fromHelp) : !pto ? "no PTO among the types" : !ptoSent || !ptoOnce ? JSON.stringify(offs) : wide > 1 ? "the page scrolls sideways by " + wide : app.errors[0]);
+    !line ? "the sign-in line did not read the contact" : !noToken ? "the contact was not asked for, or went with a token" : !inNow ? "no portal after Sign In" : !offered ? "no App support under More" : !held ? "an empty ticket was not held on the phone" : !filed || !mine ? "My tickets did not read as expected" : !details ? JSON.stringify(Object.assign({}, bug, { device: bug.device ? "set" : bug.device })) : !card ? "Help's card did not show, or Help filed it" : !helpSent || !helpTicket ? JSON.stringify(fromHelp) : !pto ? "the types were not the API's five, Vacation first" : !ptoSent || !ptoOnce ? JSON.stringify(offs) : wide > 1 ? "the page scrolls sideways by " + wide : app.errors[0]);
 }
 
 async function supplyPage(browser, language) {
