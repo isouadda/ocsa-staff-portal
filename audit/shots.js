@@ -291,6 +291,18 @@ async function formCard(s, en, es) {
   return s.mark("[data-shots-target]");
 }
 // One of the guide's forms, by its title in each language.
+// Part 399: the first and last day of a time off request, set the way
+// React hears them.
+const offDates = async (s, from, to) => {
+  await s.page.evaluate(([a, b]) => { const boxes = Array.from(document.querySelectorAll('div[style*="z-index: 200"] input[type="date"]')); const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set; [[a, 0], [b, 1]].forEach(([v, i]) => { if (!boxes[i]) return; set.call(boxes[i], v); boxes[i].dispatchEvent(new Event("input", { bubbles: true })); boxes[i].dispatchEvent(new Event("change", { bubbles: true })); }); }, [from, to]);
+  await s.pause(900);
+};
+// Part 399: a vacation asked inside its notice, waiting, and a PTO request
+// filed before part 395, approved. Invented.
+const OFF_SHOT_ROWS = () => [
+  timeOffRow({ id: "to-vac", leaveType: "vacation", leaveTypeLabel: "Vacation", status: "requested", startsOn: "2026-10-08", endsOn: "2026-10-09", insideNotice: true, reason: "A family visit" }),
+  timeOffRow({ id: "to-pto", leaveType: "pto", leaveTypeLabel: "PTO (paid time off)", status: "approved", startsOn: "2026-09-14", endsOn: "2026-09-15", hours: 16, decidedAt: "2026-09-10T15:00:00.000Z" }),
+];
 const guideForm = (name, entry, en, es) => ({ name, entry, o: { signedIn: true, stub: { guideForms: true } }, go: (s) => formCard(s, en, es) });
 
 // A field kit tile, on a supervisor's phone.
@@ -634,42 +646,69 @@ const SHOTS = [
       }
       return s.waitText(s.say("Submit Request"));
     } },
-  { name: "time-off-request", entry: E("Request time off"), o: { signedIn: true, stub: { pto: true } },
+  // Part 399 (API part 395): Vacation chosen for days inside its 2 weeks,
+  // so the form shows the notice, Whole days only, and Reason required
+  // with the API's words under it.
+  { name: "time-off-request", entry: E("Request time off"), o: { signedIn: true },
     go: async (s) => {
       if (!(await s.go("Schedule"))) return false;
       await s.pause(600);
       await s.tap(s.say("Request time off"));
-      if (!(await s.waitFor(() => !!document.querySelector('select option[value="pto"]')))) return false;
-      // Part 369: paid sick leave, so the balance shows under Type.
-      await s.page.selectOption('select:has(option[value="pto"])', "paid_sick");
-      return s.waitFor(() => !!document.querySelector("[data-leave-picked]"));
+      if (!(await s.waitFor(() => !!document.querySelector('select option[value="vacation"]')))) return false;
+      await s.page.selectOption('select:has(option[value="vacation"])', "vacation");
+      await offDates(s, "2026-10-05", "2026-10-06");
+      if (!(await s.waitFor(() => !!document.querySelector('[data-timeoff-error="reason"]')))) return false;
+      await s.page.evaluate(() => document.querySelector('[data-timeoff-unit="day"]').scrollIntoView({ block: "center" }));
+      await s.pause(300);
+      return true;
     } },
-  // Part 369: what the request would leave and the API's warning that it
-  // goes below zero; since part 373 on the form, before Send, from POST
-  // /api/time-off/preview.
-  { name: "time-off-leave", entry: E("Request time off"), o: { signedIn: true, stub: { leaveBalance: 32 } },
+  // Part 369: what the request would leave; since part 373 on the form,
+  // before Send, from POST /api/time-off/preview; since part 399 a
+  // vacation across Thanksgiving week, counted in days, the two paid
+  // holidays and the weekend marked as not taken.
+  { name: "time-off-leave", entry: E("Request time off"), o: { signedIn: true },
     go: async (s) => {
       if (!(await s.go("Schedule"))) return false;
       if (!(await s.waitFor(() => !!document.querySelector("[data-leave-balance]")))) return false;
       await s.tap(s.say("Request time off"));
-      if (!(await s.waitFor(() => !!document.querySelector('select option[value="paid_sick"]')))) return false;
-      await s.page.selectOption('select:has(option[value="paid_sick"])', "paid_sick");
-      await s.page.evaluate(() => { const boxes = Array.from(document.querySelectorAll('div[style*="z-index: 200"] input[type="date"]')); const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set; [["2026-10-05", 0], ["2026-10-09", 1]].forEach(([v, i]) => { if (!boxes[i]) return; set.call(boxes[i], v); boxes[i].dispatchEvent(new Event("input", { bubbles: true })); boxes[i].dispatchEvent(new Event("change", { bubbles: true })); }); });
-      if (!(await s.waitFor(() => !!document.querySelector('[data-leave-preview="1"] [data-leave-warning]')))) return false;
-      await s.page.evaluate(() => document.querySelector('[data-leave-preview="1"]').scrollIntoView({ block: "center" }));
+      if (!(await s.waitFor(() => !!document.querySelector('select option[value="vacation"]')))) return false;
+      await s.page.selectOption('select:has(option[value="vacation"])', "vacation");
+      await offDates(s, "2026-11-23", "2026-11-29");
+      if (!(await s.waitFor(() => !!document.querySelector('[data-leave-preview="1"] [data-leave-from="holiday"]')))) return false;
+      await s.page.evaluate(() => document.querySelector('[data-leave-preview="1"]').scrollIntoView({ block: "end" }));
       await s.pause(300);
       return true;
     } },
+  // Since part 399 a full-time person's three balances, two in days, and
+  // the ADP line under them.
   { name: "leave-balances", entry: E("See your leave balances"), o: { signedIn: true },
-    go: async (s) => { if (!(await s.go("Schedule"))) return false; if (!(await s.waitFor(() => !!document.querySelector('[data-leave-balance="paid_sick"]')))) return false; await s.show(s.say("My time off")); return true; } },
-  { name: "time-off-mine", entry: E("See or cancel your time off"), o: { signedIn: true, stub: { myTimeOff: [timeOffRow({ id: "to-one", status: "requested" })] } },
-    go: async (s) => { if (!(await s.go("Schedule"))) return false; if (!(await s.waitText(s.say("My time off")))) return false; await s.show(s.say("My time off")); return true; } },
-  { name: "time-off-cancel", entry: E("See or cancel your time off"), o: { signedIn: true, stub: { myTimeOff: [timeOffRow({ id: "to-one", status: "requested" })] } },
+    go: async (s) => {
+      if (!(await s.go("Schedule"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector("[data-leave-adp]")))) return false;
+      // The ADP line at the foot of the screen, clear of the bottom bar.
+      await s.page.evaluate(() => { document.querySelector("[data-leave-adp]").scrollIntoView({ block: "end" }); window.scrollBy(0, 130); });
+      await s.pause(400);
+      return true;
+    } },
+  // Since part 399 a vacation asked inside its notice beside a PTO
+  // request filed before part 395.
+  { name: "time-off-mine", entry: E("See or cancel your time off"), o: { signedIn: true, stub: { myTimeOff: OFF_SHOT_ROWS() } },
+    go: async (s) => {
+      if (!(await s.go("Schedule"))) return false;
+      if (!(await s.waitText(s.say("My time off")))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector('[data-timeoff-inside="row"]') && !!document.querySelector("[data-leave-adp]")))) return false;
+      // The foot of the list, so the ADP line and both requests show.
+      await s.page.evaluate(() => window.scrollTo(0, document.scrollingElement.scrollHeight));
+      await s.pause(400);
+      return true;
+    } },
+  { name: "time-off-cancel", entry: E("See or cancel your time off"), o: { signedIn: true, stub: { myTimeOff: OFF_SHOT_ROWS() } },
     go: async (s) => {
       if (!(await s.go("Schedule"))) return false;
       if (!(await s.waitText(s.say("My time off")))) return false;
       await s.page.evaluate(([heading]) => { const h = Array.from(document.querySelectorAll(".sp-content div")).find(d => d.textContent.trim() === heading); const b = h && h.parentElement.querySelector("button"); if (b) b.click(); }, [s.say("My time off")]);
       await s.pause(900);
+      if (!(await s.waitFor(() => !!document.querySelector('[data-timeoff-inside="sheet"]')))) return false;
       return s.waitText(s.say("Cancel request"));
     } },
   { name: "pickup-available", entry: E("Pick up an open shift"), o: { signedIn: true },

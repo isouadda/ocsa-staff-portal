@@ -229,3 +229,18 @@
 **School site lines** (**L\u00edneas para sitios escolares**) (**Lignes pour les sites scolaires**)
 **The employee confirms** (**El empleado confirma**) (**L'employ\u00e9 confirme**)
 **Orientation delivered** (**Orientaci\u00f3n impartida**) (**Formation d'accueil donn\u00e9e**)
+
+# Served by the API: the time off types the portal has no word of its own
+# for, their units, the reason one is not offered, the reason inside the
+# notice and the ADP line under the balances (API part 395, OCSA-HR-002
+# Part 8), from ocsa-api translation/api_words.csv (timeOff.leaveType.*,
+# timeOff.unit.*, timeOff.notOffered.notForClass,
+# timeOff.reasonInsideNotice.vacation, leave.note.adpOfficial).
+**Vacation** (**Vacaciones**) (**Vacances**)
+**Personal day** (**D\u00eda personal**) (**Journ\u00e9e personnelle**)
+**Bereavement** (**Duelo**) (**Deuil**)
+**Whole days only** (**Solo d\u00edas completos**) (**Journ\u00e9es enti\u00e8res seulement**)
+**In whole hours** (**En horas completas**) (**En heures enti\u00e8res**)
+**Vacation and personal days are for full-time staff.** (**Las vacaciones y los d\u00edas personales son para el personal de tiempo completo.**) (**Les vacances et les journ\u00e9es personnelles sont r\u00e9serv\u00e9es au personnel \u00e0 temps plein.**)
+**Vacation is asked for at least 2 weeks ahead. Add a reason, and the office will decide this request case by case.** (**Las vacaciones se piden con al menos 2 semanas de anticipaci\u00f3n. Agregue un motivo y la oficina decidir\u00e1 esta solicitud caso por caso.**) (**Les vacances se demandent au moins 2 semaines \u00e0 l'avance. Ajoutez un motif et le bureau d\u00e9cidera de cette demande au cas par cas.**)
+**This is the app's figure. ADP self-service holds the official balance.** (**Esta es la cifra de la aplicaci\u00f3n. El autoservicio de ADP tiene el saldo oficial.**) (**Ceci est le chiffre de l'application. Le libre-service ADP d\u00e9tient le solde officiel.**)
