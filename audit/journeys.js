@@ -11721,4 +11721,155 @@ const PART408_S1_JOURNEYS = [
 ];
 JOURNEYS.push(...PART408_S1_JOURNEYS);
 
+// --- Round 16 of the staff app (part 408), section 2 ----------------------
+//
+// Every data- hook and mark the robot named under "Waiting on the staff
+// app" (ocsa-journeys part 406), found where it said, on the screen a
+// person reaches it from. A hook changes nothing a person sees; the one
+// thing it asked for that does is a Cancel inspection under a scheduled
+// inspection on Inspect, for a holder of manage_inspections.
+const r408Has = (page, sel) => page.evaluate((q) => { const e = document.querySelector(q); return !!e; }, sel);
+const r408Attr = (page, sel, name) => page.evaluate(([q, n]) => { const e = document.querySelector(q); return e ? e.getAttribute(n) : null; }, [sel, name]);
+const PART408_S2_JOURNEYS = [
+  {
+    id: "robothooks",
+    label: "The hooks the robot asked for (part 408, 2): every data- hook and mark it named, on the chat list, the message box and Send; My Schedule's days, time off rows, pickup cards and the drop form; the checklist box, the saved mark and a row's note; each form question; Supplies; Help's unfinished reports; Settings' picks, the bell and its rows and the profile's values; My Inspections' rows and Cancel inspection; the Field kit's tiles, Cancel the session and a sign-in's Remove; and the Library's count",
+    run: async (open, language, expect) => {
+      const found = (what, ok, detail) => expect(what, !!ok, detail === undefined ? String(ok) : detail);
+      const app = await open({ stubOptions: { completions: [{ taskId: "task-1", userId: PERSON.id }, { taskId: "task-3", userId: PERSON.id, at: R408_NOW - 4 * 60 * 60 * 1000 }], sessionStartedAt: new Date(R408_NOW - 3 * 60 * 60 * 1000).toISOString(), library: true, myTimeOff: [timeOffRow({ id: "to-hooks", status: "requested" })], myPickups: [{ id: "pk-hooks", site_name: "South Building", scheduled_date: "2026-10-08", start_time: "17:00", end_time: "23:00", status: "claimed" }], drafts: [{ id: "draft-hooks", formName: "Incident report", answered: 1, remaining: 4, conversationId: "cv-hooks" }] } });
+      try {
+        // Chat: each chat in the list, then the box and Send of one open.
+        await openTab(app.page, "chat", language);
+        await shows(app.page, "[data-chat-id]", 6000);
+        const chatType = await r408Attr(app.page, "[data-chat-id]", "data-chat-type");
+        found("each chat in the list carries data-chat-id and data-chat-type", chatType !== null && !!(await r408Attr(app.page, "[data-chat-id]", "data-chat-id")), String(chatType));
+        await app.page.evaluate(() => { const b = document.querySelector("[data-chat-id]"); if (b) b.click(); });
+        await pause(app.page, 900);
+        found("the message box and Send carry data-chat-input and data-chat-send", (await r408Has(app.page, "[data-chat-input]")) && (await r408Has(app.page, "[data-chat-send]")));
+        // My Schedule: the week's days, a time off row, the drop form.
+        await openTab(app.page, "schedule", language);
+        await shows(app.page, "[data-week-day]", 6000);
+        const day = await r408Attr(app.page, "[data-week-day]", "data-week-day");
+        found("each day of My Schedule's week carries data-week-day as YYYY-MM-DD", /^\d{4}-\d{2}-\d{2}$/.test(day || ""), String(day));
+        await shows(app.page, "[data-time-off-row]", 6000);
+        found("a row of My time off carries data-time-off-row and data-time-off-status", (await r408Attr(app.page, "[data-time-off-row]", "data-time-off-row")) === "to-hooks" && (await r408Attr(app.page, "[data-time-off-row]", "data-time-off-status")) === "requested", String(await r408Attr(app.page, "[data-time-off-row]", "data-time-off-status")));
+        await openShiftDetail(app.page, language, true);
+        found("the shift's drop form carries data-drop-form", await shows(app.page, "[data-drop-form]", 4000));
+        await app.page.keyboard.press("Escape").catch(() => {});
+        await app.page.mouse.click(8, 8);
+        await pause(app.page, 400);
+        // Shift Pickup: an open shift's card and one of My Pickups.
+        await openTab(app.page, "pickup", language);
+        found("an open shift's card carries data-pickup-id", await shows(app.page, '[data-pickup-id][data-pickup-list="available"]', 6000));
+        await clickText(app.page, say("My Pickups", language));
+        found("a card of My Pickups carries data-pickup-id", await shows(app.page, '[data-pickup-id="pk-hooks"]', 6000));
+        // Supplies: a supply's row, the log after one is used, and the
+        // request form's type and urgency.
+        await openTab(app.page, "supplies", language);
+        found("a supply's row carries data-supply-row", await shows(app.page, "[data-supply-row]", 6000));
+        await app.page.evaluate(() => { const b = document.querySelector("[data-supply-row] button"); if (b) b.click(); });
+        await pause(app.page, 500);
+        await clickText(app.page, say("Log Usage", language));
+        found("a line of this shift's log carries data-supply-log", await shows(app.page, "[data-supply-log]", 6000));
+        await clickText(app.page, say("+ Request", language));
+        found("the request's types and urgencies carry data-supply-type and data-supply-urgency", (await shows(app.page, '[data-supply-type="refill"]', 4000)) && (await r408Has(app.page, '[data-supply-urgency="normal"]')));
+        // Help: a row of Unfinished reports.
+        await openTab(app.page, "agent", language);
+        found("a row of Help's Unfinished reports carries data-help-draft", await shows(app.page, '[data-help-draft="draft-hooks"]', 6000));
+        // Settings: the language and text size picks, and the bell.
+        await openTab(app.page, "settings", language);
+        await shows(app.page, "[data-language-pick]", 6000);
+        found("Settings' language picks carry data-language-pick and data-picked", (await r408Attr(app.page, '[data-language-pick][data-picked="1"]', "data-language-pick")) === language, String(await r408Attr(app.page, '[data-language-pick][data-picked="1"]', "data-language-pick")));
+        found("Settings' text size picks carry data-text-size and data-picked", (await r408Attr(app.page, '[data-text-size][data-picked="1"]', "data-text-size")) !== null);
+        found("the bell carries data-bell and data-unread", (await r408Attr(app.page, "[data-bell]", "data-unread")) !== null);
+        // The profile's values.
+        await openTab(app.page, "profile", language);
+        found("the profile's values carry data-profile-field", (await shows(app.page, '[data-profile-field="name"]', 6000)) && (await r408Has(app.page, '[data-profile-field="emergencyContactName"]')));
+        // The Library's count.
+        await openTab(app.page, "library", language);
+        await shows(app.page, "[data-library-folder]", 6000);
+        found("the Library carries data-library-count", Number(await r408Attr(app.page, "[data-library]", "data-library-count")) > 0, String(await r408Attr(app.page, "[data-library]", "data-library-count")));
+        // The checklist: a person's own box, a row's note, and the mark of
+        // a check kept on the phone.
+        await openTab(app.page, "tasks", language);
+        await shows(app.page, "[data-task-box]", 6000);
+        found("a person's own checklist box carries data-task-box and data-task-done", (await r408Attr(app.page, '[data-task-box="task-1"]', "data-task-done")) === "1", String(await r408Attr(app.page, '[data-task-box="task-1"]', "data-task-done")));
+        await tapRow(app.page, language, itemName("task-3", language));
+        found("a row's note carries data-task-note", await shows(app.page, '[data-task-note="task-3"]', 4000));
+        await spokenHere(app, language, expect);
+        await goOffline(app);
+        await tapRow(app.page, language, itemName("task-4", language));
+        found("the mark of a check kept on this phone carries data-task-saved", await shows(app.page, "[data-task-saved]", 6000));
+      } finally { await app.context.close(); }
+      // A form, on its own: each question's block.
+      const form = await open({});
+      try {
+        await openTab(form.page, "forms", language);
+        await pause(form.page, 900);
+        await startForm(form.page, formP(language).title);
+        found("each question of a form carries data-form-field", await shows(form.page, "[data-form-field]", 6000));
+      } finally { await form.context.close(); }
+      // A supervisor: My Inspections, the bell's rows and the Field kit.
+      const sup = await open({ stubOptions: { person: Object.assign({}, PERSON, { id: "u-408-hooks", role: "supervisor" }), scheduleInspections: true, training: true, fieldKit: true } });
+      try {
+        await openTab(sup.page, "inspect", language);
+        found("a row of My Inspections carries data-inspect-row", await shows(sup.page, '[data-inspect-row="in-s1"]', 6000));
+        found("a scheduled inspection offers Cancel inspection to a holder of manage_inspections", await shows(sup.page, '[data-inspect-cancel="in-s1"]', 4000));
+        await openTab(sup.page, "fieldkit", language);
+        found("each Field kit tile carries data-fk-tile", await shows(sup.page, '[data-fk-tile="session"]', 8000));
+        await sup.page.evaluate(() => { const b = document.querySelector('[data-fk-tile="session"]'); if (b) b.click(); });
+        const form = await shows(sup.page, '[data-fk-session-topic="tp-2"]', 8000);
+        if (form) {
+          await sup.page.fill("#ocsa-session-title", "Invented hooks refresher", { timeout: 4000 }).catch(() => {});
+          await sup.page.evaluate(() => { const b = document.querySelector('[data-fk-session-topic="tp-2"]'); if (b) b.click(); });
+          await pause(sup.page, 300);
+          await sup.page.evaluate(() => { const b = document.querySelector('[data-fk-session-start="1"]'); if (b) b.click(); });
+        }
+        const started = form && await shows(sup.page, '[data-fk-session="open"]', 8000);
+        for (let i = 0; started && i < 4 && !(await sup.page.$('[data-fk-signin="si-arrived"]')); i += 1) { await sup.page.clock.runFor(5000); await pause(sup.page, 300); }
+        found("an open session's Cancel the session carries data-fk-session-cancel", started && (await r408Has(sup.page, "[data-fk-session-cancel]")));
+        found("a sign-in's Remove carries data-fk-signin-remove", await shows(sup.page, '[data-fk-signin-remove="si-arrived"]', 6000));
+        await sup.page.evaluate(() => { const b = document.querySelector("[data-bell]"); if (b) b.click(); });
+        found("each row of the bell carries data-notice-id", await shows(sup.page, '[data-notice-id="n-insp"]', 6000));
+      } finally { await sup.context.close(); }
+    },
+  },
+  {
+    id: "inspectcancel",
+    label: "Cancel inspection (part 408, 2): a holder of manage_inspections cancels a scheduled inspection from its row on Inspect, asked first, Keep it changing nothing, sent as PATCH { status: cancelled } and said once done; someone without the capability is offered none",
+    run: async (open, language, expect) => {
+      const sup = await open({ stubOptions: { person: Object.assign({}, PERSON, { id: "u-408-insp", role: "supervisor" }), scheduleInspections: true } });
+      try {
+        await openTab(sup.page, "inspect", language);
+        await shows(sup.page, '[data-inspect-cancel="in-s1"]', 6000);
+        await sup.page.evaluate(() => { const b = document.querySelector('[data-inspect-cancel="in-s1"]'); if (b) b.click(); });
+        const asked = await shows(sup.page, '[data-inspect-cancel-ask="in-s1"]', 3000);
+        const askText = asked ? await sup.page.evaluate(() => document.querySelector('[data-inspect-cancel-ask="in-s1"]').innerText.replace(/\s+/g, " ")) : "";
+        expect("a tap on Cancel inspection asks first, sending nothing", asked && has(askText, say("Cancel this inspection?", language)) && has(askText, say("Keep it", language)) && sent(sup.stub, "PATCH", "/api/inspections/scheduled/").length === 0, askText);
+        await clickText(sup.page, say("Keep it", language));
+        expect("Keep it leaves it as it was", !(await r408Has(sup.page, '[data-inspect-cancel-ask="in-s1"]')) && sent(sup.stub, "PATCH", "/api/inspections/scheduled/").length === 0, "sent " + sent(sup.stub, "PATCH", "/api/inspections/scheduled/").length);
+        await sup.page.evaluate(() => { const b = document.querySelector('[data-inspect-cancel="in-s1"]'); if (b) b.click(); });
+        await shows(sup.page, '[data-inspect-cancel-yes="in-s1"]', 3000);
+        await watchToasts(sup.page);
+        await sup.page.evaluate(() => { const b = document.querySelector('[data-inspect-cancel-yes="in-s1"]'); if (b) b.click(); });
+        await pause(sup.page, 1500);
+        const seen = await toastsSeen(sup.page);
+        const b = r408Body(sup.stub, "PATCH", "/api/inspections/scheduled/in-s1");
+        expect("Cancel inspection sends PATCH { status: cancelled }", !!b && b.status === "cancelled" && Object.keys(b).length === 1, JSON.stringify(b));
+        const left = await r408Attr(sup.page, '[data-inspect-row="in-s1"]', "data-inspect-status");
+        expect("and says Inspection cancelled, the list read again with it gone or cancelled and Cancel inspection no longer offered", seen.seen.some(x => x.text === say("Inspection cancelled", language)) && !(await r408Has(sup.page, '[data-inspect-cancel="in-s1"]')) && (left === null || left === "cancelled") && sent(sup.stub, "GET", "/api/inspections/scheduled").length >= 2, JSON.stringify(seen.seen.map(x => x.text)) + " " + left);
+        await spokenHere(sup, language, expect);
+      } finally { await sup.context.close(); }
+      const lead = await open({ stubOptions: { person: Object.assign({}, PERSON, { id: "u-408-lead", role: "custodial_lead" }), scheduleInspections: true } });
+      try {
+        await openTab(lead.page, "inspect", language);
+        await shows(lead.page, '[data-inspect-row="in-s1"]', 6000);
+        await pause(lead.page, 800);
+        expect("someone without manage_inspections is offered no Cancel inspection", !(await r408Has(lead.page, "[data-inspect-cancel]")), "offered");
+      } finally { await lead.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART408_S2_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };

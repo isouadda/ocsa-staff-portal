@@ -3164,6 +3164,13 @@ const SHIFT_REFUSALS = [
   { key: "serverError", status: 500, en: SERVER_ERROR, es: ES[SERVER_ERROR] },
 ];
 const NOT_YOUR_CHECK = { status: 403, code: "NOT_YOUR_CHECK", en: "Only the person who checked this can uncheck it.", es: "Solo la persona que marc\u00f3 esta tarea puede desmarcarla." };
+// Part 408: the refusals of PATCH /api/inspections/scheduled/:id, in the
+// API's words (helpers/words.js).
+const PATCH_SCHEDULED = {
+  badDetails: { en: "Some details are missing or not valid", es: "Faltan algunos datos o no son v\u00e1lidos" },
+  notFound: { en: "Scheduled inspection not found", es: "No se encontr\u00f3 la inspecci\u00f3n programada" },
+  completedLocked: { en: "This inspection is completed. Its status and its safety walk cannot be changed.", es: "Esta inspecci\u00f3n est\u00e1 completada. Su estado y su recorrido de seguridad no se pueden cambiar." },
+};
 // Part 408: ocsa-api Round 17's refusal of an uncheck of a check made in an
 // earlier session. The API has not written its words yet; these stand in.
 const NOT_THIS_SESSION = { status: 409, code: "tasks.notThisSession", en: "This was checked in an earlier session, so it stays checked.", es: "Esto se marc\u00f3 en una sesi\u00f3n anterior, as\u00ed que sigue marcado." };
@@ -7137,7 +7144,23 @@ function createStub(opts) {
     }
     if (pathname === "/api/inspections/scheduled") return json(200, []);
     if (key === "GET /api/inspections/templates") return json(200, state.startInspection ? START_TEMPLATES.map(x => Object.assign({}, x)) : []);
-    if (method === "PATCH" && /^\/api\/inspections\/scheduled\//.test(pathname)) return json(200, { ok: true });
+    // Part 408: PATCH /api/inspections/scheduled/:id as routes/inspections.js
+    // answers it: manage_inspections (403 access.insufficientPermissions),
+    // status scheduled or cancelled (400 inspections.badDetails keys
+    // ["status"]), 404 inspections.scheduledNotFound, a completed one locked
+    // (409 inspections.completedLocked { status }), else the row as written.
+    const patching = method === "PATCH" ? /^\/api\/inspections\/scheduled\/([^/]+)$/.exec(pathname) : null;
+    if (patching) {
+      const l = languageOf(search, state);
+      if (!holds("manage_inspections")) return json(403, { error: refusalIn(FK_NOT_MANAGEMENT, l), code: "access.insufficientPermissions", capability: "manage_inspections" });
+      const b = body && typeof body === "object" ? body : {};
+      if (b.status !== undefined && ["scheduled", "cancelled"].indexOf(b.status) === -1) return json(400, { error: refusalIn(PATCH_SCHEDULED.badDetails, l), code: "inspections.badDetails", keys: ["status"] });
+      const one = state.inspections.find(i => i.id === decodeURIComponent(patching[1]) && !i.gone);
+      if (!one) return json(404, { error: refusalIn(PATCH_SCHEDULED.notFound, l), code: "inspections.scheduledNotFound" });
+      if (one.status === "completed" && b.status !== undefined) return json(409, { error: refusalIn(PATCH_SCHEDULED.completedLocked, l), code: "inspections.completedLocked", status: "completed" });
+      if (b.status !== undefined) one.status = b.status;
+      return json(200, Object.assign({}, one, { items: undefined, gone: undefined, result: undefined }));
+    }
     if (key === "POST /api/inspections/scheduled") return json(200, { ok: true });
 
     // --- Speak Up

@@ -2216,6 +2216,58 @@ in English and Spanish, failing on the main of part 404:
   with none (helpers/documents.js partsIn), and an empty list reads in the
   plain look, a section at a time. The stub now answers `parts` always.
 
+## The hooks the robot asked for (part 408, section 2)
+
+Every hook and mark under the robot's "Waiting on the staff app"
+(ocsa-journeys part 406), as it named them where it named them:
+
+- Chat: `data-chat-id` and `data-chat-type` on each chat in the list (the
+  group, site and private rows), `data-chat-input` on the message box and
+  `data-chat-send` on Send.
+- My Schedule: `data-week-day` (YYYY-MM-DD) on each day of the week strip,
+  `data-time-off-row` and `data-time-off-status` on each row of My time
+  off, `data-pickup-id` on Shift Pickup's open shifts and My Pickups (with
+  `data-pickup-list` available or mine), `data-drop-form` on the shift's
+  drop form.
+- The checklist: `data-task-box` and `data-task-done` on a person's own
+  box, `data-task-saved` on "Saved on this phone. It sends when you have
+  signal.", `data-task-note` on a row's note.
+- `data-form-field` on each question of a form (the walk's blocks keep
+  `data-walk-field` beside it).
+- Supplies: `data-supply-type` and `data-supply-urgency` on the request's
+  choices, `data-supply-row` on each supply, `data-supply-log` on each line
+  of this shift's log.
+- `data-help-draft` on each row of Help's Unfinished reports.
+- Settings: `data-language-pick` and `data-text-size` with `data-picked`
+  on the picks; `data-bell` and `data-unread` on the bell and
+  `data-notice-id` (with `data-notice-unread`) on each of its rows;
+  `data-profile-field` on the profile's values.
+- Inspect: `data-inspect-row` (with `data-inspect-status`) on each row of
+  My Inspections; the Field kit's `data-fk-tile` on each tile,
+  `data-fk-session-cancel` on Cancel the session and
+  `data-fk-signin-remove` on a sign-in's Remove; `data-library-count` on
+  the Library.
+
+A hook changes nothing a person sees. The one thing the robot asked for
+that does is a cancel for a scheduled inspection on Inspect: under each
+open row of My Inspections, for a holder of manage_inspections (the
+capability Inspect already reads for + Schedule), **Cancel inspection**
+asks **Cancel this inspection?** with Keep it, sends PATCH
+/api/inspections/scheduled/:id { status: cancelled } (the route voids its
+walk draft), says **Inspection cancelled** and reads the list again; a
+refusal is said in the API's words under the row. The stub answers that
+PATCH as routes/inspections.js does (403 without the capability, the
+status list, 404, a completed one locked).
+
+Two journeys, in English and Spanish, each failing on the main of part
+404:
+
+- `robothooks` finds every hook above on the screen a person reaches it
+  from, as a custodian and as a supervisor (26 checks).
+- `inspectcancel`: Cancel inspection asked first, Keep it changing nothing,
+  the PATCH sent and said once done, and none offered without the
+  capability.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

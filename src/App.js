@@ -2556,7 +2556,7 @@ function TextSizeChoices({ value, onChange, t }) {
       {TEXT_SIZES.map(s => {
         const picked = value === s.id;
         return (
-          <button key={s.id} type="button" onClick={() => onChange(s.id)} style={{
+          <button key={s.id} type="button" data-text-size={s.id} data-picked={picked ? "1" : "0"} onClick={() => onChange(s.id)} style={{
             display: "flex", alignItems: "center", gap: 12, width: "100%", minHeight: 44, padding: "10px 14px",
             borderRadius: R.md, cursor: "pointer", textAlign: "left",
             background: picked ? t.goldBg : t.card, border: picked ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, color: t.text,
@@ -4872,7 +4872,7 @@ export default function OCSAStaffPortal() {
               <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, minWidth: 0 }}>
                 {clockStatus?.clockedIn && (<div style={{ display: "flex", alignItems: "center", gap: 5, background: themeMode === "light" ? GREEN : "rgba(46,204,113,0.15)", padding: "3px 8px", borderRadius: 20, fontSize: 10, color: themeMode === "light" ? NAVY : GREEN, fontWeight: 600, whiteSpace: "nowrap" }}><div style={{ width: 5, height: 5, borderRadius: "50%", background: themeMode === "light" ? NAVY : GREEN, animation: "pulse 2s infinite" }} />{tr("ON SITE")}</div>)}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                  <button onClick={() => setNotifOpen(true)} aria-label={unread > 0 ? tr("{count} unread notifications", { count: unread }) : tr("Notifications")} aria-expanded={notifOpen} style={{ position: "relative", background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, minWidth: 44, minHeight: 44, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                  <button data-bell="1" data-unread={unread} onClick={() => setNotifOpen(true)} aria-label={unread > 0 ? tr("{count} unread notifications", { count: unread }) : tr("Notifications")} aria-expanded={notifOpen} style={{ position: "relative", background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, minWidth: 44, minHeight: 44, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
                     <BellIco sz={18} c={themeMode === "light" ? "rgba(255,255,255,0.82)" : "#A8B8C8"} />
                     {unread > 0 && <span style={{ position: "absolute", top: 4, right: 4, minWidth: 16, height: 16, borderRadius: 8, background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px", fontFamily: FONT_HEAD }}>{unread > 9 ? "9+" : unread}</span>}
                   </button>
@@ -6167,7 +6167,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
             const inspects = getInspectionsForDay(ds);
             const hasAny = sched.length > 0 || actual.length > 0 || pickups.length > 0 || dayOff.length > 0 || inspects.length > 0;
             return (
-              <button type="button" key={ds} onClick={() => setDayOpen(ds)} style={mkTapFrame({ display: "flex", alignItems: "stretch", width: "100%", padding: "0 2px", textAlign: "left", fontFamily: FONT_BODY })}>
+              <button type="button" key={ds} data-week-day={ds} onClick={() => setDayOpen(ds)} style={mkTapFrame({ display: "flex", alignItems: "stretch", width: "100%", padding: "0 2px", textAlign: "left", fontFamily: FONT_BODY })}>
                 <div style={{ flex: 1, minWidth: 0, background: today ? t.goldBg : t.card, border: "1px solid " + (today ? t.goldBorder : t.borderSolid), borderRadius: R.md, padding: 6, minHeight: compact ? 80 : 120, boxShadow: t.shadow }}>
                   <div style={{ textAlign: "center", marginBottom: 4 }}>
                     <div style={{ fontSize: 9, fontWeight: 600, color: today ? t.goldText : t.textMut, textTransform: "uppercase" }}>{dayNames[i]}</div>
@@ -6300,7 +6300,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
           {myOff.map(r => {
             const hrs = timeOffHours(r.hours);
             return (
-              <button key={r.id} onClick={() => openOffDetail(r)} style={{ width: "100%", textAlign: "left", minHeight: 44, marginBottom: 8, padding: "10px 12px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: t.card, cursor: "pointer", fontFamily: FONT_BODY, display: "block" }}>
+              <button key={r.id} data-time-off-row={r.id} data-time-off-status={r.status || ""} onClick={() => openOffDetail(r)} style={{ width: "100%", textAlign: "left", minHeight: 44, marginBottom: 8, padding: "10px 12px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: t.card, cursor: "pointer", fontFamily: FONT_BODY, display: "block" }}>
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
                   <div style={{ flex: "1 1 140px", minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{requestTypeName(r)}</div>
@@ -6663,7 +6663,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
               <button onClick={() => setDetail({ ...detail, dropForm: { reason: "sick", notes: "" } })} style={{ width: "100%", minHeight: TAP, padding: "11px", borderRadius: R.md, border: "1px solid " + RED, background: "transparent", color: ink(t, RED), fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>{tr("Request to Drop This Shift")}</button>
             )}
             {detail.dropForm && (
-              <div style={{ padding: 12, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, marginBottom: 10 }}>
+              <div data-drop-form={detail.id} style={{ padding: 12, borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, marginBottom: 10 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: ink(t, RED), marginBottom: 8 }}>{tr("Drop Request")}</div>
                 <div style={{ fontSize: 10, color: t.textSec, marginBottom: 10 }}>{tr("Your supervisor will review this request. If approved, the shift will be opened for pickup or reassigned.")}</div>
                 <div style={{ marginBottom: 8 }}>
@@ -7757,7 +7757,7 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, faultOffline, kept,
           was read, until the list is read again. */}
       {kept && <div data-tasks-kept={kept.at ? String(kept.at) : "1"} role="status" style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: ORANGE + "18", border: "1px solid " + ORANGE + "60" }}><AlertIco sz={16} c={ink(t, ORANGE)} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.5, minWidth: 0 }}>{kept.at ? tr("No signal. This is your list as it was read at {time}, kept on this phone. Check-offs you make are kept and send when signal returns.", { time: formatTime(kept.at) }) : tr("No signal. This is your list as it was last read, kept on this phone. Check-offs you make are kept and send when signal returns.")}</div></div>}
       {/* One quiet line while a tap waits for signal. */}
-      {!reference && pendingKept && waiting.size > 0 && <div role="status" style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}><ClockIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.5, minWidth: 0 }}>{tr("Saved on this phone. It sends when you have signal.")}</div></div>}
+      {!reference && pendingKept && waiting.size > 0 && <div data-task-saved={waiting.size} role="status" style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}><ClockIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.5, minWidth: 0 }}>{tr("Saved on this phone. It sends when you have signal.")}</div></div>}
       {/* A list to read (Step 339): its title, the site and the line
           saying nothing is checked off here, with no percentage and no
           bar. */}
@@ -7792,7 +7792,7 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, faultOffline, kept,
               <div key={task.id} data-task-row={task.id} style={{ ...rowBase, background: done ? t.greenSubtle : t.card, border: done ? "1px solid " + t.greenBorder : "1px solid " + t.borderSolid, marginLeft: inset }}>
                 {watch
                   ? <span data-task-watch={task.id} data-task-done={done ? "1" : "0"} role="img" aria-label={tr(done ? "Done" : "Not done yet")} style={mkTapFrame({ flexShrink: 0, marginTop: 1, cursor: "default" })}><span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</span></span>
-                  : <button onClick={() => tap(task, done, lock)} disabled={lock === "earlier"} aria-label={tr(done ? "Mark {name} not done" : "Mark {name} done", { name: w.label })} style={mkTapFrame({ flexShrink: 0, marginTop: 1, cursor: lock === "earlier" ? "default" : "pointer" })}><span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</span></button>}
+                  : <button data-task-box={task.id} data-task-done={done ? "1" : "0"} onClick={() => tap(task, done, lock)} disabled={lock === "earlier"} aria-label={tr(done ? "Mark {name} not done" : "Mark {name} done", { name: w.label })} style={mkTapFrame({ flexShrink: 0, marginTop: 1, cursor: lock === "earlier" ? "default" : "pointer" })}><span style={{ width: 22, height: 22, borderRadius: R.sm, border: "2px solid " + (done ? GREEN : t.textMut), background: done ? GREEN : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{done && <CheckIco sz={12} c="#F8F7F4" />}</span></button>}
                 <div style={{ flex: "1 1 120px", minWidth: 0 }}>
                   {/* The name and the line under it are one button the tap
                       height, which opens the item's detail, or on a row
@@ -7803,7 +7803,7 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, faultOffline, kept,
                     {when && <span style={{ ...rowLineSt, display: "block" }}>{when}</span>}
                     {earlier && <span data-done-earlier={task.id} style={{ ...rowLineSt, display: "block", color: t.textSec }}>{earlier}</span>}
                   </button>
-                  {note && <div role="alert" style={{ ...rowLineSt, color: t.text, fontWeight: 600 }}>{note}</div>}
+                  {note && <div data-task-note={task.id} role="alert" style={{ ...rowLineSt, color: t.text, fontWeight: 600 }}>{note}</div>}
                 </div>
                 {(often || task.priority === "high" || touch) && <div style={chipGroupSt}>{often && <span style={chipOften}>{often}</span>}{task.priority === "high" && <span style={chipPriority}>{tr("PRIORITY")}</span>}{touch}</div>}
               </div>
@@ -8331,7 +8331,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, message
     <div role="group" aria-labelledby={id} style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
       {rows.map((ch) => {
         const on = activeChannel === ch.id;
-        return (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} aria-pressed={on} style={{ flex: "1 1 140px", maxWidth: "100%", minWidth: 0, display: "flex", alignItems: "center", gap: 8, minHeight: TAP, padding: "8px 12px", borderRadius: R.md, background: on ? t.goldBg : t.hover, border: on ? "1.5px solid " + t.goldBorder : "1px solid " + t.borderSolid, boxShadow: on ? t.popShadow : t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}><Icon sz={12} c={on ? t.goldText : t.textMut} style={{ flexShrink: 0 }} /><div style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: on ? 600 : 500, color: on ? t.goldText : t.textSec, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{ch.name}</div>{ch.unreadCount > 0 && <div style={{ background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, minWidth: 18, height: 18, padding: "0 4px", borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{badgeText(ch.unreadCount)}</div>}</button>);
+        return (<button key={ch.id} data-chat-id={ch.id} data-chat-type={ch.type || ""} onClick={() => setActiveChannel(ch.id)} aria-pressed={on} style={{ flex: "1 1 140px", maxWidth: "100%", minWidth: 0, display: "flex", alignItems: "center", gap: 8, minHeight: TAP, padding: "8px 12px", borderRadius: R.md, background: on ? t.goldBg : t.hover, border: on ? "1.5px solid " + t.goldBorder : "1px solid " + t.borderSolid, boxShadow: on ? t.popShadow : t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}><Icon sz={12} c={on ? t.goldText : t.textMut} style={{ flexShrink: 0 }} /><div style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: on ? 600 : 500, color: on ? t.goldText : t.textSec, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{ch.name}</div>{ch.unreadCount > 0 && <div style={{ background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, minWidth: 18, height: 18, padding: "0 4px", borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{badgeText(ch.unreadCount)}</div>}</button>);
       })}
     </div>
   </div>);
@@ -8359,7 +8359,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, message
     <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", ...fillsTheWindow(), minHeight: 0, overflow: "hidden" }}>
       <div style={{ flex: "0 1 auto", maxHeight: "45%", overflowY: "auto", padding: "10px 12px 0", borderBottom: "1px solid " + t.borderSolid, paddingBottom: 10 }}>
         {canStart && (<div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}><button type="button" onClick={() => { setOpenFault(null); setNewQuery(""); setNewOpen(true); }} aria-haspopup="dialog" style={{ display: "inline-flex", alignItems: "center", gap: 6, maxWidth: "100%", minHeight: TAP, padding: "0 14px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, textAlign: "left" }}><PlusIco sz={14} c={t.goldText} style={{ flexShrink: 0 }} /><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{tr("New message")}</span></button></div>)}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>{siteChannels.map(ch => (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} aria-pressed={activeChannel === ch.id} style={mkTapFrame({ maxWidth: "100%" })}><span style={{ display: "inline-flex", alignItems: "center", padding: "6px 12px", borderRadius: R.pill, border: activeChannel === ch.id ? "1px solid " + t.goldBorder : "1px solid transparent", background: activeChannel === ch.id ? t.goldBg : "transparent", color: activeChannel === ch.id ? t.goldText : t.textMut, fontSize: 11, fontWeight: activeChannel === ch.id ? 600 : 500, fontFamily: FONT_HEAD, textAlign: "left", overflowWrap: "anywhere" }}>{ch.name || ch.siteName}{ch.unreadCount > 0 && <span style={{ marginLeft: 6, background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 8, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{badgeText(ch.unreadCount)}</span>}</span></button>))}</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>{siteChannels.map(ch => (<button key={ch.id} data-chat-id={ch.id} data-chat-type={ch.type || ""} onClick={() => setActiveChannel(ch.id)} aria-pressed={activeChannel === ch.id} style={mkTapFrame({ maxWidth: "100%" })}><span style={{ display: "inline-flex", alignItems: "center", padding: "6px 12px", borderRadius: R.pill, border: activeChannel === ch.id ? "1px solid " + t.goldBorder : "1px solid transparent", background: activeChannel === ch.id ? t.goldBg : "transparent", color: activeChannel === ch.id ? t.goldText : t.textMut, fontSize: 11, fontWeight: activeChannel === ch.id ? 600 : 500, fontFamily: FONT_HEAD, textAlign: "left", overflowWrap: "anywhere" }}>{ch.name || ch.siteName}{ch.unreadCount > 0 && <span style={{ marginLeft: 6, background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 8, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{badgeText(ch.unreadCount)}</span>}</span></button>))}</div>
         {directs.length > 0 && chatGroup(directs, "ocsa-direct-chats", tr("Direct messages"), PersonIco)}
         {projectChats.length > 0 && chatGroup(projectChats, "ocsa-project-chats", tr("Projects"), FolderIco)}
         {privates.length > 0 && (<div data-private-chats="1">
@@ -8371,7 +8371,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, message
               const on = activeChannel === ch.id;
               const own = isOwnPrivate(ch);
               const alone = privates.length === 1;
-              return (<button key={ch.id} onClick={() => setActiveChannel(ch.id)} aria-pressed={on} style={{ flex: alone ? "1 1 auto" : "0 0 auto", maxWidth: alone ? "none" : "80%", display: "flex", alignItems: "center", gap: 8, minHeight: TAP, padding: "8px 12px", borderRadius: R.md, background: on ? t.blueSubtle : t.hover, border: on ? "1.5px solid " + t.blueBorder : "1px solid " + t.borderSolid, boxShadow: on ? t.popShadow : t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}><LockIco c={ink(t, on ? BLUE : t.textMut)} /><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: on ? 600 : 500, color: ink(t, on ? BLUE : t.textSec), fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{own ? tr("Admin (Private)") : ch.name}</div>{own && <div style={{ fontSize: 9, color: t.textMut }}>{tr("Only you and management can see these messages")}</div>}</div>{ch.unreadCount > 0 && <div style={{ background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{ch.unreadCount}</div>}</button>);
+              return (<button key={ch.id} data-chat-id={ch.id} data-chat-type={ch.type || ""} onClick={() => setActiveChannel(ch.id)} aria-pressed={on} style={{ flex: alone ? "1 1 auto" : "0 0 auto", maxWidth: alone ? "none" : "80%", display: "flex", alignItems: "center", gap: 8, minHeight: TAP, padding: "8px 12px", borderRadius: R.md, background: on ? t.blueSubtle : t.hover, border: on ? "1.5px solid " + t.blueBorder : "1px solid " + t.borderSolid, boxShadow: on ? t.popShadow : t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}><LockIco c={ink(t, on ? BLUE : t.textMut)} /><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: on ? 600 : 500, color: ink(t, on ? BLUE : t.textSec), fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{own ? tr("Admin (Private)") : ch.name}</div>{own && <div style={{ fontSize: 9, color: t.textMut }}>{tr("Only you and management can see these messages")}</div>}</div>{ch.unreadCount > 0 && <div style={{ background: t.badgeBg, color: badgeInk(t), fontSize: 9, fontWeight: 600, width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{ch.unreadCount}</div>}</button>);
             })}
           </div>
         </div>)}
@@ -8402,9 +8402,9 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, message
       {pickFirst && !activeChannel && (<div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, margin: "0 12px 8px", padding: "10px 12px", borderRadius: R.md, background: t.goldBg, border: "1px solid " + t.goldBorder }}><AlertIco sz={16} c={t.goldText} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0 }}>{tr("Pick a chat at the top first.")}</div></div>)}
       <div style={{ padding: "10px 12px", borderTop: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), background: t.bg }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input value={text} onChange={e => onType(e.target.value)} maxLength={CHAT_TEXT_MAX} placeholder={isOwnDm ? tr("Private message to admin...") : tr("Type a message...")} style={{ flex: 1, minWidth: 0, minHeight: TAP, padding: "10px 14px", borderRadius: R.pill, border: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), background: t.card, color: t.text, fontSize: 13, outline: "none", fontFamily: FONT_BODY }} onKeyDown={e => e.key === "Enter" && handleSend()} />
+          <input data-chat-input="1" value={text} onChange={e => onType(e.target.value)} maxLength={CHAT_TEXT_MAX} placeholder={isOwnDm ? tr("Private message to admin...") : tr("Type a message...")} style={{ flex: 1, minWidth: 0, minHeight: TAP, padding: "10px 14px", borderRadius: R.pill, border: "1px solid " + (isDm ? t.blueBorder : t.borderSolid), background: t.card, color: t.text, fontSize: 13, outline: "none", fontFamily: FONT_BODY }} onKeyDown={e => e.key === "Enter" && handleSend()} />
           {tagOn && <button type="button" onClick={() => { setTagQuery(""); setTagOpen("button"); }} aria-label={tr("Tag someone")} aria-expanded={!!tagOpen} style={mkTapFrame({ flexShrink: 0 })}><span style={{ width: 38, height: 38, borderRadius: "50%", border: "1px solid " + t.borderSolid, background: t.card, color: t.goldText, fontSize: 18, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_HEAD }}>@</span></button>}
-          <button onClick={handleSend} aria-label={tr("Send")} aria-disabled={!ready} style={mkTapFrame({ flexShrink: 0, cursor: ready ? "pointer" : "default" })}><span style={{ width: 38, height: 38, borderRadius: "50%", background: ready ? (isDm ? BLUE_FILL : GOLD) : t.cardAlt, boxShadow: ready && !isDm ? "0 6px 18px rgba(231,176,23,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={ready ? (isDm ? "#F8F7F4" : NAVY) : t.textMut} /></span></button>
+          <button data-chat-send="1" onClick={handleSend} aria-label={tr("Send")} aria-disabled={!ready} style={mkTapFrame({ flexShrink: 0, cursor: ready ? "pointer" : "default" })}><span style={{ width: 38, height: 38, borderRadius: "50%", background: ready ? (isDm ? BLUE_FILL : GOLD) : t.cardAlt, boxShadow: ready && !isDm ? "0 6px 18px rgba(231,176,23,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={ready ? (isDm ? "#F8F7F4" : NAVY) : t.textMut} /></span></button>
         </div>
         {showFault && (<div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 8, padding: "8px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder }}><div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, flex: "1 1 160px", minWidth: 0 }}><AlertIco sz={16} c={ink(t, RED)} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.45, minWidth: 0 }}>{fault.kind === "said" ? fault.said : fault.kind === "offline" ? tr(ERR_OFFLINE) : fault.kind === "denied" ? tr("You cannot send messages in this chat.") : tr("Your message was not sent.")}</div></div><button type="button" onClick={retry} disabled={sending} style={{ minHeight: TAP, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 13, fontWeight: 600, cursor: sending ? "default" : "pointer", opacity: sending ? 0.6 : 1, flexShrink: 0, fontFamily: FONT_HEAD }}>{tr("Try again")}</button></div>)}
       </div>
@@ -9307,7 +9307,7 @@ function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpen
       </div>)}
       {openDrafts.length > 0 && (<div style={{ padding: "10px 12px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 1, minHeight: 0, maxHeight: 180, overflowY: "auto" }}>
         <div style={{ fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, marginBottom: 6, fontFamily: FONT_HEAD }}>{tr("Unfinished reports")}</div>
-        {openDrafts.map((d, i) => (<div key={agentDraftId(d) || i} style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "8px 12px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md }}><div style={{ flex: "1 1 140px", minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentName(d) || tr(FORMS_UNTITLED)}</div>{agentCount(d) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(d)}</div>}</div>{!discardOff && agentDraftId(d) && <button onClick={() => discard(agentDraftId(d))} disabled={discarding !== null} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, opacity: discarding !== null ? 0.6 : 1 }}>{tr("Discard")}</button>}<button onClick={() => onFillForm(agentDraftId(d))} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec }}>{tr("Fill in form")}</button><button onClick={() => resume(d)} style={smallBtn}>{tr("Resume")}</button></div>))}
+        {openDrafts.map((d, i) => (<div key={agentDraftId(d) || i} data-help-draft={agentDraftId(d) || ""} style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "8px 12px", marginBottom: 6, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.md }}><div style={{ flex: "1 1 140px", minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentName(d) || tr(FORMS_UNTITLED)}</div>{agentCount(d) && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{agentCount(d)}</div>}</div>{!discardOff && agentDraftId(d) && <button onClick={() => discard(agentDraftId(d))} disabled={discarding !== null} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, opacity: discarding !== null ? 0.6 : 1 }}>{tr("Discard")}</button>}<button onClick={() => onFillForm(agentDraftId(d))} style={{ ...smallBtn, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec }}>{tr("Fill in form")}</button><button onClick={() => resume(d)} style={smallBtn}>{tr("Resume")}</button></div>))}
       </div>)}
       {/* The thread keeps room for three lines of an answer at every size.
           On a screen too short for that and everything around it, the
@@ -10504,7 +10504,7 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
   const reqFormUI = reqForm && (
     <div style={{ padding: 14, marginBottom: 14, background: t.card, border: "1px solid " + t.borderSolid, borderRadius: R.lg, boxShadow: t.popShadow }}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: t.text, fontFamily: FONT_HEAD }}>{tr("Supply/Gear Request")}</div>
-      <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Request Type")}</label><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{typeOpts.map(tp => (<button key={tp.v} onClick={() => { setReqForm({ ...reqForm, type: tp.v }); setLineFaults({}); }} style={{ minHeight: TAP, padding: "7px 11px", borderRadius: R.sm, border: reqForm.type === tp.v ? "2px solid " + GOLD : "1px solid " + t.borderSolid, background: reqForm.type === tp.v ? t.goldBg : "transparent", color: reqForm.type === tp.v ? t.goldText : t.textSec, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tp.l}</button>))}</div></div>
+      <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Request Type")}</label><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{typeOpts.map(tp => (<button key={tp.v} data-supply-type={tp.v} aria-pressed={reqForm.type === tp.v} onClick={() => { setReqForm({ ...reqForm, type: tp.v }); setLineFaults({}); }} style={{ minHeight: TAP, padding: "7px 11px", borderRadius: R.sm, border: reqForm.type === tp.v ? "2px solid " + GOLD : "1px solid " + t.borderSolid, background: reqForm.type === tp.v ? t.goldBg : "transparent", color: reqForm.type === tp.v ? t.goldText : t.textSec, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tp.l}</button>))}</div></div>
       {!linesOn && (reqForm.type === "refill" || reqForm.type === "damage_report") && supplies.length > 0 && (<div data-supply-one="1" style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Supply Item")}</label><SearchPick name="supply-one" rows={supplyRows} value={reqForm.supplyId || ""} onPick={(v) => setReqForm(f => ({ ...f, supplyId: v || null, itemName: supplies.find(s => String(s.id) === v)?.name || "" }))} none={tr("Choose a supply")} empty={tr("Choose a supply")} noMatch={tr("No supply matches that name.")} t={t} /></div>)}
       {!linesOn && (reqForm.type === "new_gear" || reqForm.type === "new_supply") && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Item Name")}</label><input value={reqForm.itemName} onChange={e => setReqForm({ ...reqForm, itemName: e.target.value })} placeholder={tr("What do you need?")} style={inputSt} /></div>)}
       {linesOn && linesUI()}
@@ -10518,7 +10518,7 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
         </div>
       )}
       <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Details")}</label><textarea value={reqForm.description} onChange={e => setReqForm({ ...reqForm, description: e.target.value })} placeholder={tr("Describe the request...")} rows={2} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
-      <div style={{ marginBottom: 12 }}><label style={labelSt}>{tr("Urgency")}</label><div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{(() => { const urgOpts = getOpts("urgency_levels"); const urgColors = lkColorMap("urgency_levels"); const items = urgOpts.length > 0 ? urgOpts.map(o => ({ v: o.v, l: o.l, c: urgColors[o.v] || t.textSec })) : [{ v: "low", l: tr("Low"), c: GREEN }, { v: "normal", l: tr("Normal"), c: t.textSec }, { v: "high", l: tr("High"), c: ORANGE }, { v: "urgent", l: tr("Urgent"), c: RED }]; return items.map(u => (<button key={u.v} onClick={() => setReqForm({ ...reqForm, urgency: u.v })} style={{ flex: 1, minHeight: TAP, padding: "7px", borderRadius: R.sm, border: reqForm.urgency === u.v ? "2px solid " + u.c : "1px solid " + t.borderSolid, background: reqForm.urgency === u.v ? u.c + "1A" : "transparent", color: ink(t, u.c), fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{u.l}</button>)); })()}</div></div>
+      <div style={{ marginBottom: 12 }}><label style={labelSt}>{tr("Urgency")}</label><div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{(() => { const urgOpts = getOpts("urgency_levels"); const urgColors = lkColorMap("urgency_levels"); const items = urgOpts.length > 0 ? urgOpts.map(o => ({ v: o.v, l: o.l, c: urgColors[o.v] || t.textSec })) : [{ v: "low", l: tr("Low"), c: GREEN }, { v: "normal", l: tr("Normal"), c: t.textSec }, { v: "high", l: tr("High"), c: ORANGE }, { v: "urgent", l: tr("Urgent"), c: RED }]; return items.map(u => (<button key={u.v} data-supply-urgency={u.v} aria-pressed={reqForm.urgency === u.v} onClick={() => setReqForm({ ...reqForm, urgency: u.v })} style={{ flex: 1, minHeight: TAP, padding: "7px", borderRadius: R.sm, border: reqForm.urgency === u.v ? "2px solid " + u.c : "1px solid " + t.borderSolid, background: reqForm.urgency === u.v ? u.c + "1A" : "transparent", color: ink(t, u.c), fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{u.l}</button>)); })()}</div></div>
       {linesOn && lineFaults.form && <div role="alert" style={{ ...mkFieldErr(t), marginTop: 0, marginBottom: 10 }}>{lineFaults.form}</div>}
       <div style={{ display: "flex", gap: 8 }}><button onClick={() => setReqForm(null)} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.sm, border: "1px solid " + t.borderSolid, background: "transparent", color: t.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel")}</button><button data-supply-send onClick={linesOn ? sendLines : handleSubmitReq} disabled={linesOn && sending} style={{ flex: 1, minHeight: TAP, padding: "11px", borderRadius: R.sm, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", opacity: linesOn && sending ? 0.6 : 1 }}>{tr("Submit Request")}</button></div>
     </div>
@@ -10538,8 +10538,8 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
       {reqFormUI}
       {failed && supplies.length === 0 && <ListFault icon={BoxIco} text={tr("This list did not load.")} onRetry={onRetry} t={t} />}
       {loaded && !failed && supplies.length === 0 && <EmptyState icon={BoxIco} text={tr("No supplies are set up for this site.")} t={t} />}
-      {supplies.map(sup => { const isOpen = scanning === sup.id; const isLow = sup.is_low || (sup.site_stock !== undefined && sup.site_stock <= sup.site_threshold); return (<div key={sup.id} style={{ marginBottom: 6 }}><button onClick={() => { setScanning(isOpen ? null : sup.id); setQty(1); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: isOpen ? t.goldBg : t.hover, border: isOpen ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: isOpen ? (R.md + "px " + R.md + "px 0 0") : R.md, cursor: "pointer", color: t.text, textAlign: "left", boxShadow: t.shadow }}><div style={{ width: 34, height: 34, borderRadius: R.sm, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 600, color: t.textMut, fontFamily: "monospace" }}>{tr("QR")}</div><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{sup.name}</div>{isLow && <div style={{ marginTop: 2, fontSize: 10, color: ink(t, ORANGE), fontWeight: 600 }}>{tr("LOW")}</div>}</div><ChevIco sz={14} c={t.textMut} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "0.2s" }} /></button>{isOpen && (<div style={{ padding: "12px", background: t.card, border: "1.5px solid " + GOLD, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px" }}><div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 12 }}><button onClick={() => setQty(Math.max(1, qty - 1))} aria-label={tr("One less")} style={mkTapFrame()}><span style={qtyBtn}><MinusIco sz={14} /></span></button><div style={{ textAlign: "center" }}><div style={{ fontSize: 28, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div><div style={{ fontSize: 10, color: t.textMut }}>{sup.unit}</div></div><button onClick={() => setQty(qty + 1)} aria-label={tr("One more")} style={mkTapFrame()}><span style={qtyBtn}><PlusIco sz={14} /></span></button></div><button onClick={() => { logSupplyUsage(sup.id, qty); setScanning(null); setQty(1); }} style={{ width: "100%", minHeight: TAP, padding: "11px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Log Usage")}</button></div>)}</div>); })}
-      {supplyLogs.length > 0 && (<div style={{ marginTop: 18 }}><label style={{ ...labelSt, display: "block", marginBottom: 8 }}>{tr("This Shift's Log")}</label>{supplyLogs.map((log, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", marginBottom: 3, background: t.hover, borderRadius: R.sm, fontSize: 11 }}><span style={{ fontWeight: 600, color: t.text }}>{log.supply_name || tr("Item")} <span style={{ color: t.textMut, fontWeight: 400 }}>{log.quantity} {log.unit}</span></span><span style={{ color: t.textMut, fontSize: 9 }}>{formatTime(log.loggedAt || log.scanned_at)}</span></div>))}</div>)}
+      {supplies.map(sup => { const isOpen = scanning === sup.id; const isLow = sup.is_low || (sup.site_stock !== undefined && sup.site_stock <= sup.site_threshold); return (<div key={sup.id} data-supply-row={sup.id} style={{ marginBottom: 6 }}><button onClick={() => { setScanning(isOpen ? null : sup.id); setQty(1); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: isOpen ? t.goldBg : t.hover, border: isOpen ? "1.5px solid " + GOLD : "1px solid " + t.borderSolid, borderRadius: isOpen ? (R.md + "px " + R.md + "px 0 0") : R.md, cursor: "pointer", color: t.text, textAlign: "left", boxShadow: t.shadow }}><div style={{ width: 34, height: 34, borderRadius: R.sm, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 600, color: t.textMut, fontFamily: "monospace" }}>{tr("QR")}</div><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{sup.name}</div>{isLow && <div style={{ marginTop: 2, fontSize: 10, color: ink(t, ORANGE), fontWeight: 600 }}>{tr("LOW")}</div>}</div><ChevIco sz={14} c={t.textMut} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "0.2s" }} /></button>{isOpen && (<div style={{ padding: "12px", background: t.card, border: "1.5px solid " + GOLD, borderTop: "none", borderRadius: "0 0 " + R.md + "px " + R.md + "px" }}><div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 12 }}><button onClick={() => setQty(Math.max(1, qty - 1))} aria-label={tr("One less")} style={mkTapFrame()}><span style={qtyBtn}><MinusIco sz={14} /></span></button><div style={{ textAlign: "center" }}><div style={{ fontSize: 28, fontWeight: 600, color: t.goldText, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{qty}</div><div style={{ fontSize: 10, color: t.textMut }}>{sup.unit}</div></div><button onClick={() => setQty(qty + 1)} aria-label={tr("One more")} style={mkTapFrame()}><span style={qtyBtn}><PlusIco sz={14} /></span></button></div><button onClick={() => { logSupplyUsage(sup.id, qty); setScanning(null); setQty(1); }} style={{ width: "100%", minHeight: TAP, padding: "11px", borderRadius: R.md, border: "none", background: "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: NAVY, fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.5px", fontFamily: FONT_HEAD, boxShadow: "0 6px 18px rgba(231,176,23,0.30)" }}>{tr("Log Usage")}</button></div>)}</div>); })}
+      {supplyLogs.length > 0 && (<div style={{ marginTop: 18 }}><label style={{ ...labelSt, display: "block", marginBottom: 8 }}>{tr("This Shift's Log")}</label>{supplyLogs.map((log, i) => (<div key={i} data-supply-log={log.id || i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", marginBottom: 3, background: t.hover, borderRadius: R.sm, fontSize: 11 }}><span style={{ fontWeight: 600, color: t.text }}>{log.supply_name || tr("Item")} <span style={{ color: t.textMut, fontWeight: 400 }}>{log.quantity} {log.unit}</span></span><span style={{ color: t.textMut, fontSize: 9 }}>{formatTime(log.loggedAt || log.scanned_at)}</span></div>))}</div>)}
       <SupplyRequestsMine rows={mine} typeWord={typeWord} t={t} />
     </div>
   );
@@ -12931,7 +12931,7 @@ function LibraryView({ token, docs, onDocs, onOpen, at, onAt, toSign, onSign, t 
     return <DocumentReader key={at.doc.docCode + ":" + (at.at || "") + ":" + (at.key || "")} token={token} doc={at.doc} signed={null} onBack={() => onAt(null)} onSigned={() => {}} library={{ at: at.at, waiting: !!waiting, onSign: () => onSign(waiting) }} t={t} />;
   }
   return (
-    <div data-library={openFolder ? "folder" : searching ? "search" : "folders"} style={{ padding: "14px 16px 100px" }}>
+    <div data-library={openFolder ? "folder" : searching ? "search" : "folders"} data-library-count={Array.isArray(docs) ? docs.length : ""} style={{ padding: "14px 16px 100px" }}>
       <div role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, marginBottom: 10 }}>{tr("Library")}</div>
       <label htmlFor="ocsa-library-search" style={mkLabel(t)}>{tr("Search by number, title or words in the text")}</label>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -14437,7 +14437,7 @@ function NotificationsSheet({ token, t, locale, unread, caps, refused, onClose, 
             // dashboard (part 369).
             const showDashboard = !hasTab && notifDashLink(row.link);
             return (
-              <div key={row.id} style={{ marginBottom: 6, background: t.card, border: "1px solid " + (isUnread ? t.goldBorder : t.borderSolid), borderRadius: R.md }}>
+              <div key={row.id} data-notice-id={row.id} data-notice-unread={isUnread ? "1" : "0"} style={{ marginBottom: 6, background: t.card, border: "1px solid " + (isUnread ? t.goldBorder : t.borderSolid), borderRadius: R.md }}>
                 <button onClick={() => openRow(row)} style={{ width: "100%", minHeight: 56, display: "flex", alignItems: "flex-start", gap: 10, padding: "12px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}>
                   <span style={{ width: 8, height: 8, borderRadius: "50%", background: isUnread ? GOLD : "transparent", flexShrink: 0, marginTop: 5 }} />
                   <span style={{ flex: 1, minWidth: 0 }}>
@@ -14648,7 +14648,7 @@ function SettingsView({ token, user, showToast, onToken, t, themeMode, setTheme,
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
           {languages.map(id => {
             const picked = language === id;
-            return <button key={id} onClick={() => setLanguage(id)} aria-label={LANGUAGE_NAMES[id]} style={pickBtn(picked)}><span style={dot(picked)} />{LANGUAGE_NAMES[id]}</button>;
+            return <button key={id} data-language-pick={id} data-picked={picked ? "1" : "0"} onClick={() => setLanguage(id)} aria-label={LANGUAGE_NAMES[id]} style={pickBtn(picked)}><span style={dot(picked)} />{LANGUAGE_NAMES[id]}</button>;
           })}
         </div>
       </div>
@@ -17355,7 +17355,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, sh
           </div>
         )}
         {pageFields.map(f => (
-          <div key={f.key} data-walk-field={f.key} style={qSt}>
+          <div key={f.key} data-walk-field={f.key} data-form-field={f.key} style={qSt}>
             <div style={labelSt}>{f.label}{requiredHere(f) && <span style={reqSt}>{tr("Required")}</span>}</div>
             {f.help && <div style={mkHelp(t)}>{f.help}</div>}
             {renderInput(f)}
@@ -17475,7 +17475,7 @@ function FormFiller({ token, t, locale, form, draft, onLeave, customer, user, sh
           </>
         )}
         {!review && pageFields.map(f => (
-          <div key={f.key} style={qSt}>
+          <div key={f.key} data-form-field={f.key} style={qSt}>
             <div style={labelSt}>{f.label}{requiredHere(f) && <span style={reqSt}>{tr("Required")}</span>}</div>
             {f.help && <div style={mkHelp(t)}>{f.help}</div>}
             {renderInput(f)}
@@ -18931,7 +18931,7 @@ function FieldKitView({ token, user, at, onAt, shiftSiteId, assignedSites, onOpe
       {site && tiles.map(x => {
         const Icon = x.icon;
         return (
-          <button key={x.id} type="button" onClick={() => onAt({ siteId: site.id, tile: x.id })} style={{ width: "100%", display: "flex", alignItems: "flex-start", gap: 12, minHeight: TAP, padding: "14px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, boxShadow: t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}>
+          <button key={x.id} type="button" data-fk-tile={x.id} onClick={() => onAt({ siteId: site.id, tile: x.id })} style={{ width: "100%", display: "flex", alignItems: "flex-start", gap: 12, minHeight: TAP, padding: "14px 12px", marginBottom: 8, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid, boxShadow: t.shadow, cursor: "pointer", color: t.text, textAlign: "left" }}>
             <Icon sz={20} c={t.goldText} style={{ flexShrink: 0, marginTop: 1 }} />
             <span style={{ flex: 1, minWidth: 0 }}>
               <span style={{ display: "block", fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{tr(x.title)}</span>
@@ -20422,12 +20422,12 @@ function FkSession({ token, site, user, showToast, t }) {
             <div style={nameSt}>{x.name}</div>
             {x.at && <div style={lineSt}>{wsWhen(x.at)}</div>}
           </div>
-          <button type="button" onClick={() => setSheet({ kind: "remove", signin: x, strokes: [], png: null, fault: null, busy: false })} style={{ ...wsPlainBtn(t), flex: "none" }}>{tr("Remove")}</button>
+          <button type="button" data-fk-signin-remove={x.id} onClick={() => setSheet({ kind: "remove", signin: x, strokes: [], png: null, fault: null, busy: false })} style={{ ...wsPlainBtn(t), flex: "none" }}>{tr("Remove")}</button>
         </div>
       ))}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14 }}>
         <button type="button" data-fk-session-close="1" onClick={() => setSheet({ kind: "close", signin: null, strokes: [], png: null, fault: null, busy: false })} style={wsMainBtn(t, false)}>{tr("Close the session")}</button>
-        <button type="button" onClick={() => setSheet({ kind: "cancel", signin: null, strokes: [], png: null, fault: null, busy: false })} style={wsPlainBtn(t)}>{tr("Cancel the session")}</button>
+        <button type="button" data-fk-session-cancel="1" onClick={() => setSheet({ kind: "cancel", signin: null, strokes: [], png: null, fault: null, busy: false })} style={wsPlainBtn(t)}>{tr("Cancel the session")}</button>
       </div>
       {sheet && (
         <WsSheet id="ocsa-fk-session-sheet" title={sheet.kind === "close" ? tr("Close the session") : sheet.kind === "cancel" ? tr("Cancel the session") : tr("Remove")} onClose={() => { if (!sheet.busy) setSheet(null); }} t={t} footer={<>
@@ -20745,7 +20745,7 @@ function PickupView({ token, user, showToast, t }) {
             </div>
           )}
           {available.map(s => (
-            <div key={s.id} style={{ background: t.card, borderRadius: R.md, padding: 14, marginBottom: 10, border: "1px solid " + (s.urgency === "urgent" ? RED + "40" : t.border), boxShadow: t.shadow }}>
+            <div key={s.id} data-pickup-id={s.id} data-pickup-list="available" style={{ background: t.card, borderRadius: R.md, padding: 14, marginBottom: 10, border: "1px solid " + (s.urgency === "urgent" ? RED + "40" : t.border), boxShadow: t.shadow }}>
               <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "flex-start", gap: 6, marginBottom: 8 }}>
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
@@ -20803,7 +20803,7 @@ function PickupView({ token, user, showToast, t }) {
           {myPickups.map(s => {
             const sColor = s.status === "approved" ? GREEN : s.status === "filled" ? GREEN : BLUE;
             return (
-              <div key={s.id} style={{ background: t.card, borderRadius: R.md, padding: 14, marginBottom: 10, border: "1px solid " + sColor + "30", boxShadow: t.shadow }}>
+              <div key={s.id} data-pickup-id={s.id} data-pickup-list="mine" style={{ background: t.card, borderRadius: R.md, padding: 14, marginBottom: 10, border: "1px solid " + sColor + "30", boxShadow: t.shadow }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{s.site_name}</div>
@@ -20944,6 +20944,28 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
   // button waits.
   const isManager = user?.role === "admin" || user?.role === "supervisor" || user?.role === "custodial_lead";
   const [canSchedule, setCanSchedule] = useState(null);
+  // Part 408 (the robot's Waiting on the staff app): a scheduled inspection
+  // cancelled from its row, for a holder of manage_inspections, who the
+  // API's PATCH /api/inspections/scheduled/:id takes { status: cancelled }
+  // from (its walk draft voided with it). It asks first; a refusal, a
+  // completed one included (409 inspections.completedLocked), is said in
+  // the API's words under the row, and the list is read again.
+  const [cancelAsk, setCancelAsk] = useState(null);
+  const [cancelBusy, setCancelBusy] = useState(null);
+  const [cancelFault, setCancelFault] = useState(null);
+  const cancelScheduled = async (si) => {
+    if (cancelBusy) return;
+    setCancelBusy(si.id); setCancelFault(null);
+    try {
+      await api("/api/inspections/scheduled/" + encodeURIComponent(si.id), { method: "PATCH", body: { status: "cancelled" }, token });
+      setCancelAsk(null);
+      showToast(tr("Inspection cancelled"));
+      loadList();
+    } catch (e) {
+      setCancelFault({ id: si.id, said: e && e.message === ERR_OFFLINE ? tr("Not cancelled yet. Check your signal and try again.") : tr((e && e.message) || ERR_GENERIC) });
+      if (e && e.status === 409) loadList();
+    } finally { setCancelBusy(null); }
+  };
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -21878,7 +21900,8 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {list.map(si => (
-          <button key={si.id} onClick={() => openInspection(si.id)} style={{ width: "100%", display: "block", padding: "14px", borderRadius: R.md, border: "1.5px solid " + t.borderSolid, background: t.card, cursor: "pointer", textAlign: "left", boxShadow: t.shadow }}>
+          <div key={si.id} data-inspect-row={si.id} data-inspect-status={si.status || ""}>
+          <button onClick={() => openInspection(si.id)} style={{ width: "100%", display: "block", padding: "14px", borderRadius: R.md, border: "1.5px solid " + t.borderSolid, background: t.card, cursor: "pointer", textAlign: "left", boxShadow: t.shadow }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: t.text, flex: 1, marginRight: 8, fontFamily: FONT_HEAD }}>{si.template_name}</div>
               <span style={{ fontSize: 9, fontWeight: 600, padding: "3px 8px", borderRadius: R.sm, background: (STATUS_C[si.status] || BLUE) + "18", color: ink(t, STATUS_C[si.status] || BLUE), textTransform: "uppercase", flexShrink: 0, fontFamily: FONT_HEAD, letterSpacing: "0.5px" }}>{statusWord(si.status)}</span>
@@ -21890,6 +21913,17 @@ function InspectView({ token, user, showToast, t, openAt, onOpened }) {
               <span style={{ fontSize: 16, color: t.goldText }}>{">"}</span>
             </div>
           </button>
+          {canSchedule === true && si.status !== "completed" && si.status !== "cancelled" && (cancelAsk === si.id
+            ? <div data-inspect-cancel-ask={si.id} role="group" aria-label={tr("Cancel this inspection?")} style={{ marginTop: 6, padding: "10px 12px", borderRadius: R.md, border: "1px solid " + t.redBorder, background: t.redSubtle }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 8, fontFamily: FONT_HEAD }}>{tr("Cancel this inspection?")}</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button type="button" data-inspect-cancel-yes={si.id} disabled={!!cancelBusy} onClick={() => cancelScheduled(si)} style={{ flex: "1 1 120px", minHeight: TAP, padding: "0 12px", borderRadius: R.md, border: "1px solid " + t.redBorder, background: t.card, color: ink(t, RED), fontSize: 13, fontWeight: 600, cursor: cancelBusy ? "default" : "pointer", fontFamily: FONT_HEAD, opacity: cancelBusy ? 0.6 : 1 }}>{cancelBusy === si.id ? tr("Sending...") : tr("Cancel inspection")}</button>
+                  <button type="button" disabled={!!cancelBusy} onClick={() => { setCancelAsk(null); setCancelFault(null); }} style={{ flex: "1 1 120px", minHeight: TAP, padding: "0 12px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Keep it")}</button>
+                </div>
+              </div>
+            : <button type="button" data-inspect-cancel={si.id} onClick={() => { setCancelAsk(si.id); setCancelFault(null); }} style={{ display: "block", minHeight: TAP, marginTop: 2, padding: "0 4px", background: "none", border: "none", color: ink(t, RED), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Cancel inspection")}</button>)}
+          {cancelFault && cancelFault.id === si.id && <div data-inspect-cancel-fault={si.id} role="alert" style={mkFieldErr(t)}>{cancelFault.said}</div>}
+          </div>
         ))}
       </div>
 
@@ -22251,19 +22285,19 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
           {uploading && <div style={{ position: "absolute", top: 0, left: 0, width: 72, height: 72, borderRadius: "50%", background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#F8F7F4" }}>...</div>}
         </div>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 20, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{u.firstName} {u.lastName}</div>
+          <div data-profile-field="name" style={{ fontSize: 20, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{u.firstName} {u.lastName}</div>
           <div style={{ fontSize: 12, color: t.goldText, marginTop: 2 }}>{u.role ? roleWord(u.role) : ""}</div>
           <div style={{ fontSize: 10, color: t.textMut, marginTop: 4, overflowWrap: "anywhere" }}>{u.phone} | {u.email}</div>
           {u.employeeId
             ? <div style={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", maxWidth: "100%", boxSizing: "border-box", gap: 6, marginTop: 8, padding: "3px 10px", borderRadius: R.sm, background: t.goldSubtle, border: "1px solid " + GOLD }}>
                 <span style={{ fontSize: 8, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Employee ID")}</span>
-                <span style={{ fontSize: 12, color: t.text, fontWeight: 600, letterSpacing: "0.5px", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{u.employeeId}</span>
+                <span data-profile-field="employeeId" style={{ fontSize: 12, color: t.text, fontWeight: 600, letterSpacing: "0.5px", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{u.employeeId}</span>
               </div>
             : <div style={{ marginTop: 8, fontSize: 10, color: t.textMut, fontStyle: "italic" }}>{tr("Employee ID not assigned. Ask your supervisor.")}</div>
           }
           {u.badgeNumber && <div style={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", maxWidth: "100%", boxSizing: "border-box", gap: 6, marginTop: 6, padding: "3px 10px", borderRadius: R.sm, background: t.goldSubtle, border: "1px solid " + GOLD }}>
             <span style={{ fontSize: 8, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Badge Number")}</span>
-            <span style={{ fontSize: 12, color: t.text, fontWeight: 600, letterSpacing: "0.5px", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{u.badgeNumber}</span>
+            <span data-profile-field="badgeNumber" style={{ fontSize: 12, color: t.text, fontWeight: 600, letterSpacing: "0.5px", fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{u.badgeNumber}</span>
           </div>}
         </div>
       </div>
@@ -22275,11 +22309,11 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
           {!editing && <button onClick={startEditing} style={mkTapFrame()}><span style={{ display: "inline-flex", alignItems: "center", padding: "4px 10px", borderRadius: R.sm, border: "1px solid " + GOLD, color: t.goldText, fontSize: 10, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Edit")}</span></button>}
         </div>
         {!editing ? <div>
-          <div style={{ fontSize: 11, color: t.textMut }}>{tr("Birthday")}<div style={valSt}>{u.birthday ? fmtDate(u.birthday) : tr("Not set")}</div></div>
-          <div style={{ marginTop: 12, fontSize: 11, color: t.textMut }}>{tr("Address")}<div style={valSt}>{u.addressLine1 ? (u.addressLine1 + (u.addressLine2 ? ", " + u.addressLine2 : "") + (u.city ? ", " + u.city : "") + (u.state ? ", " + u.state : "") + (u.zipCode ? " " + u.zipCode : "")) : tr("Not set")}</div></div>
+          <div style={{ fontSize: 11, color: t.textMut }}>{tr("Birthday")}<div data-profile-field="birthday" style={valSt}>{u.birthday ? fmtDate(u.birthday) : tr("Not set")}</div></div>
+          <div style={{ marginTop: 12, fontSize: 11, color: t.textMut }}>{tr("Address")}<div data-profile-field="address" style={valSt}>{u.addressLine1 ? (u.addressLine1 + (u.addressLine2 ? ", " + u.addressLine2 : "") + (u.city ? ", " + u.city : "") + (u.state ? ", " + u.state : "") + (u.zipCode ? " " + u.zipCode : "")) : tr("Not set")}</div></div>
           <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div style={{ fontSize: 11, color: t.textMut }}>{tr("Emergency Contact")}<div style={valSt}>{u.emergencyContactName || tr("Not set")}</div></div>
-            <div style={{ fontSize: 11, color: t.textMut }}>{tr("Emergency Phone")}<div style={valSt}>{u.emergencyContactPhone || tr("Not set")}</div></div>
+            <div style={{ fontSize: 11, color: t.textMut }}>{tr("Emergency Contact")}<div data-profile-field="emergencyContactName" style={valSt}>{u.emergencyContactName || tr("Not set")}</div></div>
+            <div style={{ fontSize: 11, color: t.textMut }}>{tr("Emergency Phone")}<div data-profile-field="emergencyContactPhone" style={valSt}>{u.emergencyContactPhone || tr("Not set")}</div></div>
           </div>
         </div> : <div>
           <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Birthday")}</label><input type="date" value={form.birthday || ""} onChange={e => setForm({ ...form, birthday: e.target.value })} style={inputSt} /></div>
