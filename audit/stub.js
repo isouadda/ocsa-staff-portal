@@ -2018,7 +2018,7 @@ function makeState(opts) {
     profileValues: o.profileValues && typeof o.profileValues === "object" ? Object.assign({}, o.profileValues) : null,
     notThisSession: o.notThisSession === true,
     scheduleSlow: o.scheduleSlow && typeof o.scheduleSlow === "object" ? Object.assign({}, o.scheduleSlow) : null,
-    scheduleReads: 0,
+    myScheduleReads: 0,
     // Part 344: every first form's draft sent, by path, so a second send
     // is refused the way the API refuses it.
     submittedDrafts: [],
@@ -5429,7 +5429,7 @@ function createStub(opts) {
     if (pathname === "/api/pickups/my-schedule") {
       // Part 408: scheduleSlow holds the first read of the week starting
       // on its startDate back ms, so a later read answers first.
-      state.scheduleReads += 1;
+      state.myScheduleReads += 1;
       const slowWeek = state.scheduleSlow && new URLSearchParams(search || "").get("start_date") === state.scheduleSlow.startDate;
       const held = slowWeek ? new Promise((done) => setTimeout(done, Number(state.scheduleSlow.ms) || 1500)) : null;
       if (slowWeek) state.scheduleSlow = null;
