@@ -343,7 +343,9 @@ export const WORDS = {
   "On Site": "En sitio",
   "Only you and the person who approves time off can read this.": "Solo usted y la persona que aprueba el tiempo libre pueden leer esto.",
   "Other": "Otro",
-  "Paid sick leave": "Licencia por enfermedad pagada",
+  // Part 404: the API's own words for these two (its translation/api_words.csv
+  // timeOff.leaveType.paid_sick and .unpaid), the owner's choice of Nov 17.
+  "Paid sick leave": "Permiso por enfermedad pagado",
   "Part of the day": "Parte del d\u00eda",
   "Personal": "Asunto personal",
   "Pickup": "Turnos libres",
@@ -376,7 +378,7 @@ export const WORDS = {
   "To": "Hasta",
   "Today": "Hoy",
   "Type": "Tipo",
-  "Unpaid time off": "Tiempo libre sin pago",
+  "Unpaid time off": "Tiempo libre sin goce de sueldo",
   "Week": "Semana",
   "Worked": "Trabajado",
   "Worked Shift": "Turno trabajado",
@@ -1711,6 +1713,12 @@ export const WORDS = {
   "Paid holiday, not taken": "Feriado pagado, no se descuenta",
   "Day off, not taken": "D\u00eda libre, no se descuenta",
   "Asked with less notice than the policy asks. The office decides it case by case.": "Se pidi\u00f3 con menos aviso del que pide la pol\u00edtica. La oficina la decide caso por caso.",
+  // Part 404: the task list kept for no signal.
+  "No signal. This is your list as it was read at {time}, kept on this phone. Check-offs you make are kept and send when signal returns.": "Sin se\u00f1al. Esta es su lista tal como se ley\u00f3 a las {time}, guardada en este tel\u00e9fono. Las tareas que marque se guardan y se env\u00edan cuando vuelva la se\u00f1al.",
+  "No signal. This is your list as it was last read, kept on this phone. Check-offs you make are kept and send when signal returns.": "Sin se\u00f1al. Esta es su lista tal como se ley\u00f3 la \u00faltima vez, guardada en este tel\u00e9fono. Las tareas que marque se guardan y se env\u00edan cuando vuelva la se\u00f1al.",
+  "This phone has no signal. Your list loads by itself when signal returns.": "Este tel\u00e9fono no tiene se\u00f1al. Su lista se carga sola cuando vuelva la se\u00f1al.",
+  // Part 404: the sign card's heading.
+  "To read and sign": "Para leer y firmar",
   },
 };
 
@@ -3300,6 +3308,12 @@ WORDS.fr = {
   "Paid holiday, not taken": "Jour f\u00e9ri\u00e9 pay\u00e9, non d\u00e9compt\u00e9",
   "Day off, not taken": "Jour de repos, non d\u00e9compt\u00e9",
   "Asked with less notice than the policy asks. The office decides it case by case.": "Demand\u00e9e avec moins de pr\u00e9avis que la politique ne le demande. Le bureau la d\u00e9cide au cas par cas.",
+  // Part 404: the task list kept for no signal.
+  "No signal. This is your list as it was read at {time}, kept on this phone. Check-offs you make are kept and send when signal returns.": "Pas de r\u00e9seau. Voici votre liste telle qu'elle a \u00e9t\u00e9 lue \u00e0 {time}, gard\u00e9e sur ce t\u00e9l\u00e9phone. Les t\u00e2ches que vous cochez sont gard\u00e9es et partent d\u00e8s que le r\u00e9seau revient.",
+  "No signal. This is your list as it was last read, kept on this phone. Check-offs you make are kept and send when signal returns.": "Pas de r\u00e9seau. Voici votre liste telle qu'elle a \u00e9t\u00e9 lue la derni\u00e8re fois, gard\u00e9e sur ce t\u00e9l\u00e9phone. Les t\u00e2ches que vous cochez sont gard\u00e9es et partent d\u00e8s que le r\u00e9seau revient.",
+  "This phone has no signal. Your list loads by itself when signal returns.": "Ce t\u00e9l\u00e9phone n'a pas de r\u00e9seau. Votre liste se charge toute seule d\u00e8s que le r\u00e9seau revient.",
+  // Part 404: the sign card's heading.
+  "To read and sign": "\u00c0 lire et \u00e0 signer",
 };
 
 // {name} is replaced after the language is chosen, so the

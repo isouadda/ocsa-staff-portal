@@ -230,7 +230,7 @@ Nothing scheduled this day.,No hay nada programado este día.,Rien de prévu ce 
 On Site,En sitio,Sur place,Schedule
 Only you and the person who approves time off can read this.,Solo usted y la persona que aprueba el tiempo libre pueden leer esto.,Seuls vous et la personne qui approuve les congés pouvez lire ceci.,Schedule
 Other,Otro,Autre,Schedule
-Paid sick leave,Licencia por enfermedad pagada,Congé maladie payé,"Schedule, from the API"
+Paid sick leave,Permiso por enfermedad pagado,Congé maladie payé,"Schedule, from the API"
 Part of the day,Parte del día,Une partie de la journée,Schedule
 Personal,Asunto personal,Raison personnelle,Schedule
 Pickup,Turnos libres,Services libres,"Schedule, Bar and More"
@@ -263,7 +263,7 @@ Time off requested. You get a notice when it is decided.,Tiempo libre solicitado
 To,Hasta,À,Schedule
 Today,Hoy,Aujourd'hui,"Schedule, Tasks"
 Type,Tipo,Type,Schedule
-Unpaid time off,Tiempo libre sin pago,Congé sans solde,"Schedule, from the API"
+Unpaid time off,Tiempo libre sin goce de sueldo,Congé sans solde,"Schedule, from the API"
 Week,Semana,Semaine,Schedule
 Worked,Trabajado,Effectué,Schedule
 Worked Shift,Turno trabajado,Service effectué,Schedule
@@ -1534,3 +1534,7 @@ Your employment class is not on file. The office has to set it.,Su clase de empl
 "Paid holiday, not taken","Feriado pagado, no se descuenta","Jour férié payé, non décompté","Request time off, on a day of the request that is a paid holiday"
 "Day off, not taken","Día libre, no se descuenta","Jour de repos, non décompté","Request time off, on a day of the request with no shift on a weekend"
 Asked with less notice than the policy asks. The office decides it case by case.,Se pidió con menos aviso del que pide la política. La oficina la decide caso por caso.,Demandée avec moins de préavis que la politique ne le demande. Le bureau la décide au cas par cas.,"A time off request asked inside its notice, on its row and its sheet"
+"No signal. This is your list as it was read at {time}, kept on this phone. Check-offs you make are kept and send when signal returns.","Sin señal. Esta es su lista tal como se leyó a las {time}, guardada en este teléfono. Las tareas que marque se guardan y se envían cuando vuelva la señal.","Pas de réseau. Voici votre liste telle qu'elle a été lue à {time}, gardée sur ce téléphone. Les tâches que vous cochez sont gardées et partent dès que le réseau revient.","Tasks, over the list kept on the phone for no signal"
+"No signal. This is your list as it was last read, kept on this phone. Check-offs you make are kept and send when signal returns.","Sin señal. Esta es su lista tal como se leyó la última vez, guardada en este teléfono. Las tareas que marque se guardan y se envían cuando vuelva la señal.","Pas de réseau. Voici votre liste telle qu'elle a été lue la dernière fois, gardée sur ce téléphone. Les tâches que vous cochez sont gardées et partent dès que le réseau revient.","Tasks, over the list kept on the phone for no signal, when it holds no time"
+This phone has no signal. Your list loads by itself when signal returns.,Este teléfono no tiene señal. Su lista se carga sola cuando vuelva la señal.,Ce téléphone n'a pas de réseau. Votre liste se charge toute seule dès que le réseau revient.,"Tasks, when the list did not load because the phone could not reach OCSA"
+To read and sign,Para leer y firmar,À lire et à signer,"Home, the card of documents to sign when it holds no first-day training"

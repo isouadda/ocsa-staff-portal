@@ -2095,6 +2095,9 @@ function makeState(opts) {
     // version, in the language the case names, a day before the clock.
     documentAcks: o.handbookSigned ? [{ id: "da-seed", docCode: HANDBOOK.docCode, version: HANDBOOK.version, personId: (o.person || PERSON).id, locale: o.handbookSigned === "es" ? "es" : "en", signedAt: new Date(NOW.getTime() - DAY).toISOString() }] : [],
     documents: o.documents === true,
+    // Part 404: a person past their first days, with no first-day item
+    // and only a document to sign.
+    firstDayNone: o.firstDayNone === true,
     // Step 290: an API with Step 289 built, whose document to sign is the
     // handbook read with parts and signed with its signed page; every
     // PDF it gave and whether the token went with it.
@@ -3441,7 +3444,8 @@ const TWIN_PAIRS = [
   // the balances (their names, units, notices, reasons and refusals, the
   // ADP line and the notes), the policy's lines, and the posted-through
   // note as the stub fills it. Paid sick leave and Unpaid time off keep
-  // the twin the portal's own table gives them above.
+  // the twin the portal's own table gives them above, which since part 404
+  // is the API's own (the owner's choice of Nov 17).
   .concat(Object.keys(R15_WORDS).filter(k => R15_WORDS[k].en.indexOf("{") === -1).map(k => [R15_WORDS[k].en, R15_WORDS[k].es]))
   .concat(R15_LINES.map(l => [l.en, l.es]))
   .concat([[r15Say("leave.note.hoursPostedThrough", "en", { date: r15DateWords(R15_POSTED_THROUGH, "en") }), r15Say("leave.note.hoursPostedThrough", "es", { date: r15DateWords(R15_POSTED_THROUGH, "es") })]]);
@@ -6316,7 +6320,7 @@ function createStub(opts) {
       // Step 264, behind the documents switch: the first-day items, the
       // document to sign until it is signed, and a certificate on file.
       if (state.documents) {
-        me.firstDay = me.items.filter(i => TRAINING_FIRST_DAY.indexOf(i.topicId) !== -1 && i.status !== "current").map(i => Object.assign({}, i));
+        me.firstDay = state.firstDayNone ? [] : me.items.filter(i => TRAINING_FIRST_DAY.indexOf(i.topicId) !== -1 && i.status !== "current").map(i => Object.assign({}, i));
         const D = docToSign(state, lang);
         const signedDoc = state.documentAcks.some(a => a.docCode === D.docCode && a.version === D.version && a.personId === state.person.id);
         me.documentsToSign = signedDoc ? [] : [{ docCode: D.docCode, title: D.title, version: D.version, locales: D.locales.slice(), signedVersion: null }];

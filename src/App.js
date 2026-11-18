@@ -47,7 +47,14 @@ async function reach(url, init) {
     const res = await fetch(inScreenLanguage(url), ctl ? { ...(init || {}), signal: ctl.signal } : init);
     if (ctl) answerStops.set(res, ctl);
     return res;
-  } catch (e) { throw new Error(ERR_OFFLINE); } finally { if (timer) clearTimeout(timer); }
+  } catch (e) {
+    // Part 404: a request this phone's own time limit stopped says so, for
+    // the note kept when the task list does not load; every screen still
+    // reads it as no signal.
+    const err = new Error(ERR_OFFLINE);
+    try { if (ctl && ctl.signal && ctl.signal.aborted) err.timedOut = true; } catch (x) {}
+    throw err;
+  } finally { if (timer) clearTimeout(timer); }
 }
 // Every request asks in the language on the screen. Since Step 137 the API
 // answers a signed-in call in ?locale= first and in the account's language
@@ -2101,6 +2108,47 @@ function keptToOpen() {
   const list = siteId ? kept.lists[keptListKey(siteId, kept.clock)] : null;
   return list && Date.now() - Number(list.savedAt) < KEPT_MAX_MS ? { kept: kept, list: list } : null;
 }
+// Part 404 (section 1): the kept list for the session on the screen now,
+// so a running app whose list read fails draws it in place of the fault
+// screen. It is the same person's, kept under the session's site and run,
+// kept while the same session was open, read within the day, and for
+// today's checklist day (a list that names its day). Anything else is
+// null, and the fault screen shows as before.
+const KEPT_AGAIN_MS = 30000;
+const sessionOfStatus = (cs) => (cs && cs.clockedIn ? String((cs.session && cs.session.id) || (cs.shift && (cs.shift.sessionId || cs.shift.id)) || "") || null : null);
+function keptListFor(userId, clock) {
+  const kept = readKept();
+  if (!kept || !userId || String(kept.userId) !== String(userId)) return null;
+  if (!clock || !clock.clockedIn || !clock.shift) return null;
+  const list = kept.lists[keptListKey(clock.shift.siteId, clock)];
+  if (!list || !(Date.now() - Number(list.savedAt) < KEPT_MAX_MS)) return null;
+  const now = sessionOfStatus(clock), then = sessionOfStatus(kept.clock);
+  if (now && then && now !== then) return null;
+  const day = checklistAnswer(list.answer).day;
+  if (day && day !== checklistDayNow(Date.now())) return null;
+  return { kept: kept, list: list };
+}
+// Part 404 (section 2): a short note on this phone each time the shift's
+// task list does not load: when, the kind of failure (offline, timeout,
+// server or refused, with the status the API answered), whether the kept
+// copy was drawn in its place, and whether the phone said it was online.
+// No name, site or id. The API takes no app report this could go with yet
+// (its App support tickets go to the office and mail it on a bug, and its
+// health runs take the robot's key alone), so the notes stay here, the
+// newest twenty, until it does.
+const LIST_FAULTS_KEY = "ocsa-list-faults";
+const LIST_FAULTS_MAX = 20;
+function noteListFault(err, keptShown) {
+  try {
+    const kind = !err ? "other" : err.timedOut ? "timeout" : wentNowhere(err) ? "offline" : err.status >= 500 ? "server" : "refused";
+    let was = [];
+    try { was = JSON.parse(window.localStorage.getItem(LIST_FAULTS_KEY) || "[]"); } catch (e) { was = []; }
+    let online = null;
+    try { online = navigator.onLine !== false; } catch (e) {}
+    const list = (Array.isArray(was) ? was : []).concat([{ at: new Date().toISOString(), what: "taskList", kind: kind, status: err && Number.isFinite(err.status) ? err.status : null, keptShown: !!keptShown, online: online }]).slice(-LIST_FAULTS_MAX);
+    window.localStorage.setItem(LIST_FAULTS_KEY, JSON.stringify(list));
+  } catch (e) {}
+}
 const checkoffPath = (taskId) => "/api/clock/tasks/" + encodeURIComponent(taskId) + "/complete";
 // How long Send a new code waits after each send, the API's own spacing.
 const CODE_RESEND_MS = 30000;
@@ -2750,6 +2798,12 @@ export default function OCSAStaffPortal() {
   // The fetch came back empty-handed. Separate from tasks staying null,
   // which is a list still on its way.
   const [tasksFailed, setTasksFailed] = useState(false);
+  // Part 404: why the list did not load, "offline" when the phone could
+  // not reach OCSA, so the fault screen says the phone has no signal and
+  // tries again by itself; and the kept copy on the screen in its place,
+  // { at } (when it was read), or null.
+  const [tasksFaultKind, setTasksFaultKind] = useState(null);
+  const [keptShown, setKeptShown] = useState(null);
   const [completedTaskIds, setCompletedTaskIds] = useState(new Set());
   // The language the list in tasks came back in, so an item's own words
   // from the API are drawn only on a screen in that language.
@@ -3052,7 +3106,15 @@ export default function OCSAStaffPortal() {
     repostPhoneAlerts(tok);
     if (me.preferences && applyPrefsRef.current) applyPrefsRef.current(me.preferences, tok, me.user);
     api("/api/users/profile/me", { token: tok }).then(p => { if (p?.user?.profilePhotoUrl) setUser(prev => ({ ...prev, profilePhotoUrl: p.user.profilePhotoUrl })); }).catch(() => {});
-    try { const seq = nextStatusSeq(); const cs = await api(statusPath(), { token: tok }); if (takeStatus(cs, seq) && cs.clockedIn && cs.shift) setSelectedSite(cs.shift.siteId); } catch (e) { console.warn("Clock status:", e.message); setStatusFailed(true); }
+    try { const seq = nextStatusSeq(); const cs = await api(statusPath(), { token: tok }); if (takeStatus(cs, seq) && cs.clockedIn && cs.shift) setSelectedSite(cs.shift.siteId); } catch (e) {
+      console.warn("Clock status:", e.message); setStatusFailed(true);
+      // Part 404 (section 1): with no signal, or OCSA unable to check for a
+      // moment, the status kept with this person's list for today stands in
+      // until the list is read again, so a shift that is open never reads
+      // as Start your shift. The list's own read then draws the kept copy.
+      const was = (wentNowhere(e) || checkAgain(e)) && me.user ? readKept() : null;
+      if (was && keptListFor(me.user.id, was.clock)) { takeStatus(was.clock, nextStatusSeq()); setSelectedSite(was.clock.shift.siteId); setStatusFailed(true); }
+    }
     // Part 396: the assigned tasks are read when Assigned opens; at open
     // the summary counts them, and they are read here only where it
     // cannot (the effect after the summary below).
@@ -3142,6 +3204,10 @@ export default function OCSAStaffPortal() {
     const got = checklistAnswer(list.answer);
     setTasks(got.rows); setTasksDay(got.day); setTasksLang(list.lang || null);
     setTasksMode(kept.clock && kept.clock.shift ? { site: String(kept.clock.shift.siteId), mode: got.mode } : null);
+    // Part 404: marked as the copy kept for no signal, with when it was
+    // read, and read again once there is signal (the effect after
+    // loadTasks).
+    setKeptShown({ at: Number(list.savedAt) || null });
     setOfflineOpen(true);
     setScreen("main");
   };
@@ -3319,7 +3385,7 @@ export default function OCSAStaffPortal() {
       // PORT-06; the window since API part 354).
       const data = await api("/api/shift-sessions", { method: "POST", body: { siteId, startedAt: new Date().toISOString() }, token });
       const cs = await refreshClockStatus();
-      setTasks(null); setPendingSite(null);
+      setTasks(null); setKeptShown(null); setTasksFaultKind(null); setPendingSite(null);
       // A site with shifts asks which one, over the checklist it opens on.
       // Since part 375 a session in a shift run asks too, on the API's pick,
       // once the site's named shifts give it more than one to choose from.
@@ -3351,7 +3417,7 @@ export default function OCSAStaffPortal() {
   const putEnd = (v) => { endRef.current = v; writePendingEnd(v); setEndPending(v); };
   const endedHere = (data) => {
     setClockStatus({ clockedIn: false, shift: null, session: null });
-    setSelectedSite(null); setPendingSite(null); setStartBlock(null); setTasks(null); setCompletedTaskIds(new Set());
+    setSelectedSite(null); setPendingSite(null); setStartBlock(null); setTasks(null); setKeptShown(null); setTasksFaultKind(null); setCompletedTaskIds(new Set());
     setShiftAsk(null); setShiftFault(null); setTickOverrides(new Map());
     const endedAt = data && data.session ? data.session.endedAt : null;
     // Part 375: a session the API closed reads when, and the API's note.
@@ -3377,7 +3443,7 @@ export default function OCSAStaffPortal() {
         // Ended already: by this phone's own earlier send whose answer was
         // lost, or somewhere else. Read the server's view and redraw.
         putEnd(null);
-        setPendingSite(null); setStartBlock(null); setTasks(null);
+        setPendingSite(null); setStartBlock(null); setTasks(null); setKeptShown(null); setTasksFaultKind(null);
         try { await refreshClockStatus(); } catch (e) { setClockStatus({ clockedIn: false, shift: null, session: null }); setSelectedSite(null); }
         // Part 383: the answer carries the session (ocsa-api part 378):
         // when it ended, and its end note, said as a notice. A send whose
@@ -3442,7 +3508,7 @@ export default function OCSAStaffPortal() {
     lastRun.current = { run: runNow, session: sessionIdNow, site: shiftSiteId };
     if (!was || was.run === runNow) return;
     setTaken(new Map()); setTickOverrides(new Map());
-    setTasks(null); setTasksDay(null); tasksAsked.current = null;
+    setTasks(null); setTasksDay(null); setKeptShown(null); setTasksFaultKind(null); tasksAsked.current = null;
     if (was.session && was.session === sessionIdNow) {
       const left = pendingRef.current.filter(x => !(x.counted && x.run === was.run && String(x.sessionId || "") === was.session && !(x.done && x.runId)));
       if (left.length !== pendingRef.current.length) putPending(left);
@@ -3493,7 +3559,66 @@ export default function OCSAStaffPortal() {
   // the newest status, keeps that status with the list and reads none
   // again; a read again after a check or an uncheck still reads it, for
   // the ticks.
-  const loadTasks = async (again) => { const path = checklistAsk; const key = checklistKey; const lang = language; const site = clockStatus && clockStatus.shift ? String(clockStatus.shift.siteId) : null; if (!path || (again !== true && tasksReqAsked.current === key)) return; const mine = ++tasksSeq.current; const asked = Date.now(); tasksReqAsked.current = key; setTasksFailed(false); try { const tt = await api(path, { token }); if (mine !== tasksSeq.current) return; const got = checklistAnswer(tt); setTasks(got.rows); setTasksDay(got.day); setTasksLang(lang); setTasksMode({ site: site, mode: got.mode }); tasksAsked.current = key; tasksReadAt.current = asked; setTickOverrides(prev => { if (prev.size === 0) return prev; const n = new Map(); prev.forEach((v, id) => { if (v.at > asked) n.set(id, v); }); return n; }); const held = statusHeld.current; if (again !== true && held.cs && held.seq === statusSeq.current && asked - held.at < STATUS_FRESH_MS) { if (user && liveToken.current === token) keepChecklist(user.id, user.role, held.cs, tt, lang); return; } const seq = nextStatusSeq(); const cs = await api(statusPath(), { token }); if (takeStatus(cs, seq) && user && mine === tasksSeq.current && liveToken.current === token) keepChecklist(user.id, user.role, cs, tt, lang); } catch (err) { console.error(err); if (mine === tasksSeq.current) setTasksFailed(true); } finally { if (mine === tasksSeq.current) tasksReqAsked.current = null; } };
+  // Part 404 (section 1): when the list does not load and no list for
+  // this request is on the screen, the copy kept on this phone for this
+  // session and day is drawn in place of the fault screen, marked as kept
+  // for no signal with when it was read, and taps on it queue as they do on
+  // the copy opened at start. With no kept copy the fault screen says when
+  // the phone could not reach OCSA. A list that loads takes both away.
+  const drawKept = (k, cs) => {
+    const got = checklistAnswer(k.list.answer);
+    setTasks(got.rows); setTasksDay(got.day); setTasksLang(k.list.lang || null);
+    setTasksMode(cs && cs.shift ? { site: String(cs.shift.siteId), mode: got.mode } : null);
+    setTasksFailed(false); setTasksFaultKind(null);
+    setKeptShown({ at: Number(k.list.savedAt) || null });
+  };
+  const loadTasks = async (again) => {
+    const path = checklistAsk; const key = checklistKey; const lang = language; const cs0 = clockStatus; const who = user;
+    const site = clockStatus && clockStatus.shift ? String(clockStatus.shift.siteId) : null;
+    if (!path || (again !== true && tasksReqAsked.current === key)) return;
+    const mine = ++tasksSeq.current; const asked = Date.now(); tasksReqAsked.current = key; setTasksFailed(false);
+    let listIn = false;
+    try {
+      const tt = await api(path, { token });
+      if (mine !== tasksSeq.current) return;
+      const got = checklistAnswer(tt);
+      setTasks(got.rows); setTasksDay(got.day); setTasksLang(lang); setTasksMode({ site: site, mode: got.mode });
+      setKeptShown(null); setTasksFaultKind(null); listIn = true;
+      tasksAsked.current = key; tasksReadAt.current = asked;
+      setTickOverrides(prev => { if (prev.size === 0) return prev; const n = new Map(); prev.forEach((v, id) => { if (v.at > asked) n.set(id, v); }); return n; });
+      const held = statusHeld.current;
+      if (again !== true && held.cs && held.seq === statusSeq.current && asked - held.at < STATUS_FRESH_MS) { if (user && liveToken.current === token) keepChecklist(user.id, user.role, held.cs, tt, lang); return; }
+      const seq = nextStatusSeq(); const cs = await api(statusPath(), { token });
+      if (takeStatus(cs, seq) && user && mine === tasksSeq.current && liveToken.current === token) keepChecklist(user.id, user.role, cs, tt, lang);
+    } catch (err) {
+      console.error(err);
+      if (mine === tasksSeq.current) {
+        const kept = !listIn && tasksAsked.current !== key && who ? keptListFor(who.id, cs0) : null;
+        if (kept) drawKept(kept, cs0);
+        else { setTasksFailed(true); if (!listIn) setTasksFaultKind(wentNowhere(err) ? "offline" : "other"); }
+        // Part 404 (section 2): the list read that failed, noted on the
+        // phone with whether the kept copy took its place.
+        if (!listIn) noteListFault(err, !!kept);
+      }
+    } finally { if (mine === tasksSeq.current) tasksReqAsked.current = null; }
+  };
+  // Part 404 (section 1): while the kept copy is on the screen, or the
+  // fault screen says the phone could not reach OCSA, the list is read
+  // again with no tap: when the phone says it is online, when the page is
+  // shown again, and every 30 seconds while the page is in front.
+  const loadTasksRef = useRef(loadTasks);
+  loadTasksRef.current = loadTasks;
+  const listWaits = !!keptShown || (tasksFailed && tasks === null && tasksFaultKind === "offline");
+  useEffect(() => {
+    if (!listWaits || !token || screen !== "main" || !checklistKey) return undefined;
+    const again = () => { if (tasksReqAsked.current === null) loadTasksRef.current(true); };
+    const onShow = () => { try { if (document.visibilityState === "hidden") return; } catch (e) {} again(); };
+    window.addEventListener("online", again);
+    window.addEventListener("pageshow", onShow);
+    document.addEventListener("visibilitychange", onShow);
+    const every = setInterval(onShow, KEPT_AGAIN_MS);
+    return () => { window.removeEventListener("online", again); window.removeEventListener("pageshow", onShow); document.removeEventListener("visibilitychange", onShow); clearInterval(every); };
+  }, [listWaits, token, screen, checklistKey]);
   // A check or an uncheck, sent the way it always has been, for the row as
   // the screen draws it. A row outside the id lists is drawn from this
   // phone's own tap until the list comes back. Then the list and the
@@ -4502,7 +4627,7 @@ export default function OCSAStaffPortal() {
     tasksSeq.current += 1;
     setOfflineOpen(false);
     if (!keepList) { forgetKept(); forgetPersonalWork(); }
-    setTasks(null); setTasksFailed(false); setCompletedTaskIds(new Set()); setTasksLang(null); setTasksMode(null); setNotTracked({}); setSiteListAt(null);
+    setTasks(null); setTasksFailed(false); setTasksFaultKind(null); setKeptShown(null); setCompletedTaskIds(new Set()); setTasksLang(null); setTasksMode(null); setNotTracked({}); setSiteListAt(null);
     setIssues([]); setAssignedTasks([]); setSupplies([]); setSupplyLogs([]);
     setChannels(null); setChannelsFailed(false); setMessages([]); setMessagesOf(null); setActiveChannel(null);
     setAgentConversation(null); setFormsDraft(null); setFieldKitAt(null); setEquipmentShown(null); setEquipmentBack(null); setInspectAt(null); setTaskFocus(null); setIssueAt(null);
@@ -4758,7 +4883,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
               {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={firstTrainingsFrom} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} count={summaryCount("signaturesToSign", "sign")} onOpen={openSign} onOpenCard={openSignCard} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} count={summary === null ? "wait" : summary === false ? undefined : summary.counts.unfinishedForms} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} count={summaryCount("clientRequests", "requests")} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} count={supplyHolder ? summaryCount("supplyOrdersWaiting", "supply") : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} todoCount={summaryCount("trainingToDo", "training")} waitingCount={isAdmin ? summaryCount("trainingToSignOff", "awaiting") : null} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} startFault={startFault} onSelectSite={(id) => { setStartFault(null); handleSelectSite(id); }} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSitesForPerson(user, sessionSites)} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} statusFailed={statusFailed} onRetryStatus={() => { refreshClockStatus().catch(() => setStatusFailed(true)); }} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} at={scheduleAt} />}
-              {activeTab === "tasks" && <TasksView token={token} rereadList={() => (checklistAsk ? api(checklistAsk, { token }) : Promise.reject(Object.assign(new Error(ERR_GENERIC), { status: 404 })))} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} onRetryTasks={loadTasks} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} shiftChoices={siteShifts} shiftNames={shiftNames} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} alsoHere={alsoHere} t={t} />}
+              {activeTab === "tasks" && <TasksView token={token} rereadList={() => (checklistAsk ? api(checklistAsk, { token }) : Promise.reject(Object.assign(new Error(ERR_GENERIC), { status: 404 })))} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} faultOffline={tasksFaultKind === "offline"} kept={keptShown} onRetryTasks={() => loadTasks(true)} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} shiftChoices={siteShifts} shiftNames={shiftNames} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} alsoHere={alsoHere} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView userId={user && user.id} assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
               {activeTab === "chat" && <ChatView channels={channels} channelsFailed={channelsFailed} onRetryChannels={retryChannels} messages={messagesOf === activeChannel ? messages : null} messagesFailed={!!activeChannel && messagesFailedOf === activeChannel && messagesOf !== activeChannel} onRetryMessages={() => { setMessagesFailedOf(null); loadMessages(activeChannel); }} readMessages={readMessages} activeChannel={activeChannel} setActiveChannel={chooseChat} sendMessage={sendMessage} onOpenChat={openNewChat} user={user} t={t} token={token} />}
               {activeTab === "agent" && <AgentView userId={user && user.id} token={token} showToast={showToast} t={t} language={language} conversationId={agentConversation} onConversation={setAgentConversation} onFillForm={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} onTicket={() => setSupportAsked(n => n + 1)} onOpenDocument={(d) => openLibraryDoc(d, null)} />}
@@ -5444,7 +5569,9 @@ const leaveWord = (value, label) => tr(label || LEAVE_WORDS[value] || value || "
 // A leave type's name in the screen's language (part 399). A type the
 // portal's own table names reads as it always did, so every request filed
 // before part 395 (PTO, Bereavement and personal, Jury duty, Military
-// leave, and Paid sick leave and Unpaid time off) keeps its name. A type
+// leave, and Paid sick leave and Unpaid time off) keeps its name; since
+// part 404 the table holds the API's own words for the last two, so the
+// form, the list and the balances say them alike. A type
 // it does not name, such as Vacation, Personal day or Bereavement (API
 // part 395), takes the API's own words in the screen's language: words
 // on a type or a request, else the type's name.
@@ -7313,7 +7440,7 @@ function ShiftSheet({ shifts, current, mode, busy, fault, onUse, onChoose, picke
 // focus: a task a notice asked for, { id, at }; with a shift open and the
 // task on its list, its details open, else the list, and onFocused says it
 // was looked for either way.
-function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, completedTaskIds, pendingTicks, pendingKept, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, shiftChoices, shiftNames, onChangeShift, nowMs, reference, standalone, watch, focus, onFocused, alsoHere, rereadList, t }) {
+function TasksView({ token, clockStatus, tasks, tasksFailed, faultOffline, kept, onRetryTasks, completedTaskIds, pendingTicks, pendingKept, tickOverrides, toggleTask, rowNote, onRowNote, apiWords, listDay, shiftSheet, shiftChoices, shiftNames, onChangeShift, nowMs, reference, standalone, watch, focus, onFocused, alsoHere, rereadList, t }) {
   const [detail, setDetail] = useState(null);
   useEffect(() => {
     if (!focus) return;
@@ -7491,10 +7618,14 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
   );
   // Until the session carries a shift, the sheet sits where the list goes.
   if (shiftSheet) return <ShiftSheet key={shiftSheet.mode + "|" + (inUse || "")} shifts={shiftSheet.shifts} current={inUse} mode={shiftSheet.mode} busy={shiftSheet.busy} fault={shiftSheet.fault} onUse={shiftSheet.onUse} onChoose={shiftSheet.onChoose} picked={shiftSheet.picked} t={t} />;
+  // Part 404: when the phone could not reach OCSA the fault screen says it
+  // has no signal; the list is read again by itself when signal returns,
+  // and Try again stays.
   if (!loaded && tasksFailed) return (
-    <div style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow, margin: 16 }}>
+    <div data-tasks-fault={faultOffline ? "offline" : "other"} style={{ padding: "48px 24px", textAlign: "center", background: t.card, borderRadius: R.md, border: "1px solid " + t.border, boxShadow: t.shadow, margin: 16 }}>
       <CheckIco sz={40} c={t.borderSolid} />
       <div style={{ fontSize: 15, color: t.textMut, marginTop: 16, fontFamily: FONT_HEAD }}>{tr("Your tasks did not load.")}</div>
+      {faultOffline && <div role="status" style={{ fontSize: 13, color: t.textSec, marginTop: 8, lineHeight: 1.5 }}>{tr("This phone has no signal. Your list loads by itself when signal returns.")}</div>}
       <button onClick={onRetryTasks} style={{ minHeight: 44, marginTop: 16, padding: "0 20px", borderRadius: R.md, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Try again")}</button>
     </div>
   );
@@ -7592,6 +7723,9 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, onRetryTasks, compl
     <div style={{ padding: "16px" }}>
       {/* Who else is on shift at this site now (part 356). */}
       {Array.isArray(alsoHere) && alsoHere.length > 0 && <div data-also-here={alsoHere.length} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 12px", marginBottom: 12, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}><PersonIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 13, color: t.textSec, lineHeight: 1.45, minWidth: 0, overflowWrap: "anywhere" }}>{tr("Also here: {names}", { names: alsoHere.join(", ") })}</div></div>}
+      {/* Part 404: the copy kept on this phone for no signal, with when it
+          was read, until the list is read again. */}
+      {kept && <div data-tasks-kept={kept.at ? String(kept.at) : "1"} role="status" style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: ORANGE + "18", border: "1px solid " + ORANGE + "60" }}><AlertIco sz={16} c={ink(t, ORANGE)} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.text, lineHeight: 1.5, minWidth: 0 }}>{kept.at ? tr("No signal. This is your list as it was read at {time}, kept on this phone. Check-offs you make are kept and send when signal returns.", { time: formatTime(kept.at) }) : tr("No signal. This is your list as it was last read, kept on this phone. Check-offs you make are kept and send when signal returns.")}</div></div>}
       {/* One quiet line while a tap waits for signal. */}
       {!reference && pendingKept && waiting.size > 0 && <div role="status" style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: t.card, border: "1px solid " + t.borderSolid }}><ClockIco sz={16} c={t.textMut} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 12, color: t.textSec, lineHeight: 1.5, minWidth: 0 }}>{tr("Saved on this phone. It sends when you have signal.")}</div></div>}
       {/* A list to read (Step 339): its title, the site and the line
@@ -12786,7 +12920,12 @@ function FirstTrainingsCard({ training, onDocument, onLesson, t }) {
       <div data-first-trainings={docs.length + first.length} style={{ ...fkRowSt(t), marginBottom: 0, border: "1px solid " + t.goldBorder }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
           <BookIco sz={20} c={t.goldText} style={{ flexShrink: 0 }} />
-          <div role="heading" aria-level={2} style={{ ...nameSt, flex: 1, minWidth: 0 }}>{tr("Your first trainings")}</div>
+          {/* Part 404 (section 3): a card holding documents and no
+              first-day training is for someone past their first days,
+              such as a document to sign again, so it reads To read and
+              sign; with any first-day training it keeps Your first
+              trainings. */}
+          <div role="heading" aria-level={2} data-first-heading={first.length === 0 ? "sign" : "first"} style={{ ...nameSt, flex: 1, minWidth: 0 }}>{first.length === 0 ? tr("To read and sign") : tr("Your first trainings")}</div>
         </div>
         {docs.map(x => (
           <div key={x.docCode} data-first-doc={x.docCode} style={rowSt}>

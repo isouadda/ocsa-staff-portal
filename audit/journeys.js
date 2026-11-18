@@ -11328,4 +11328,187 @@ const PART399_S2_JOURNEYS = [
 ];
 JOURNEYS.push(...PART399_S2_JOURNEYS);
 
+// --- Round 15 of the staff app (part 404), section 1 ----------------------
+//
+// The kept list on a phone that wakes with no signal. On live (Nov 17) a
+// cleaner's phone woke in a building with weak signal and showed "Your
+// tasks did not load." for hours with the list kept for no signal unused.
+// The app keeps the list on the screen through a wake while it stays in
+// memory; the fault screen came from the app starting again on wake (its
+// own update, or the phone reloading a page it had set aside), when the
+// sign-in reads answered and the list read did not, and a status read
+// that failed too read as Start your shift. With no signal at all the
+// copy kept at start opened unmarked and was never read again. Each
+// fails on the main of part 399, which drew the fault screen (or Start
+// your shift) on the first two, marked nothing, and read nothing again
+// with no tap.
+const KEPT_LIST_PATH = /\/api\/sites\/[^/]+\/tasks(\?|$)/;
+const KEPT_STATUS_PATH = /\/api\/clock\/status(\?|$)/;
+const keptListReads = (stub) => stub.state.calls.filter(c => c.method === "GET" && /^\/api\/sites\/[^/]+\/tasks$/.test(c.path));
+const keptShowPage = (page, v) => page.evaluate((s) => { Object.defineProperty(document, "visibilityState", { configurable: true, get: () => s }); Object.defineProperty(document, "hidden", { configurable: true, get: () => s === "hidden" }); document.dispatchEvent(new Event("visibilitychange")); }, v);
+// When the kept list was read, as the screen says it, from the copy kept.
+const keptAtWords = (page, language) => page.evaluate((l) => {
+  const v = JSON.parse(window.localStorage.getItem("ocsa-checklist-kept") || "null");
+  const at = v ? Math.max.apply(null, Object.keys(v.lists).map(k => Number(v.lists[k].savedAt))) : 0;
+  return at ? new Date(at).toLocaleTimeString(l, { hour: "numeric", minute: "2-digit", hour12: true }) : "";
+}, language === "es" ? "es-US" : "en-US");
+const keptLine = (page) => page.evaluate(() => { const d = document.querySelector("[data-tasks-kept]"); return d ? d.innerText.replace(/\s+/g, " ").trim() : ""; });
+const keptTaskRows = (page) => page.evaluate(() => document.querySelectorAll(".sp-content button[aria-label]").length);
+const keptOpenList = async (app, language) => {
+  await openTab(app.page, "tasks", language);
+  return app.page.waitForFunction(() => document.querySelectorAll(".sp-content button[aria-label]").length > 2, null, { timeout: 8000 }).then(() => true).catch(() => false);
+};
+const PART404_S1_JOURNEYS = [
+  {
+    id: "keptwake",
+    label: "The kept list on a phone that wakes with no signal (part 404, 1.1 to 1.3): a shift open and its list read, the phone hidden, the network cut and the app started again on wake: the kept list is drawn, marked as kept for no signal with the time it was read, a check-off on it queues, and when signal returns the list is read again with no tap, the mark gone and the check-off sent; the same when only the list read fails on wake, and when the status read fails with it",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        expect("the list is read at start", await keptOpenList(app, language), (await bodyText(app.page)).slice(0, 200));
+        const at = await keptAtWords(app.page, language);
+        await keptShowPage(app.page, "hidden");
+        await goOffline(app);
+        await app.page.reload().catch(() => {});
+        await pause(app.page, 3000);
+        await openTab(app.page, "tasks", language).catch(() => {});
+        const marked = await shows(app.page, "[data-tasks-kept]", 8000);
+        const line = marked ? await keptLine(app.page) : "";
+        expect("with no signal the kept list is drawn, marked with the time it was read", marked && !!at && line === say("No signal. This is your list as it was read at {time}, kept on this phone. Check-offs you make are kept and send when signal returns.", language).replace("{time}", at) && (await keptTaskRows(app.page)) > 2, line || (await bodyText(app.page)).slice(0, 200));
+        const label = await taskBox(app.page, language, false);
+        await tapAria(app.page, label);
+        await pause(app.page, 900);
+        expect("a check-off on the kept list queues on the phone", (await pendingTaps(app.page)) === 1, (await pendingTaps(app.page)) + " on the phone");
+        await spokenHere(app, language, expect);
+        const before = keptListReads(app.stub).length;
+        await goOnline(app);
+        const gone = await app.page.waitForFunction(() => !document.querySelector("[data-tasks-kept]"), null, { timeout: 8000 }).then(() => true).catch(() => false);
+        await pause(app.page, 1500);
+        expect("when signal returns the list is read again with no tap, and the mark goes", gone && keptListReads(app.stub).length > before, (keptListReads(app.stub).length - before) + " reads; " + (await keptLine(app.page)));
+        expect("and the check-off is sent", (await pendingTaps(app.page)) === 0 && checkoffSends(app.stub).length >= 1, (await pendingTaps(app.page)) + " on the phone, " + checkoffSends(app.stub).length + " sent");
+      } finally { await app.context.close(); }
+      // The app starts again on wake where the sign-in reads answer and the
+      // list read does not, and then where the status read fails with it.
+      for (const [how, paths] of [["only the list read fails", [KEPT_LIST_PATH]], ["the status read fails with it", [KEPT_LIST_PATH, KEPT_STATUS_PATH]]]) {
+        const weak = await open({});
+        try {
+          await keptOpenList(weak, language);
+          for (const rx of paths) await weak.context.route(rx, (r) => r.abort());
+          await weak.page.reload().catch(() => {});
+          await pause(weak.page, 3000);
+          await openTab(weak.page, "tasks", language).catch(() => {});
+          const marked = await shows(weak.page, "[data-tasks-kept]", 8000);
+          const text = await bodyText(weak.page);
+          expect("when " + how + " on wake the kept list is drawn in place of the fault screen, marked", marked && (await keptTaskRows(weak.page)) > 2 && !has(text, say("Your tasks did not load.", language)) && !has(text, say("Start your shift to see and check off your tasks.", language)), text.slice(0, 200));
+          const before = keptListReads(weak.stub).length;
+          for (const rx of paths) await weak.context.unroute(rx);
+          await weak.page.evaluate(() => window.dispatchEvent(new Event("online")));
+          const gone = await weak.page.waitForFunction(() => !document.querySelector("[data-tasks-kept]"), null, { timeout: 8000 }).then(() => true).catch(() => false);
+          expect("and when signal returns the list is read again with no tap (" + how + ")", gone && keptListReads(weak.stub).length > before, (keptListReads(weak.stub).length - before) + " reads");
+        } finally { await weak.context.close(); }
+      }
+    },
+  },
+  {
+    id: "keptnone",
+    label: "No kept copy (part 404, 1.4): the app starts again on wake with no list kept for this session and the list read fails for want of signal: the fault screen says the phone has no signal, keeps Try again, and reads the list again by itself when signal returns",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await keptOpenList(app, language);
+        await app.page.evaluate(() => window.localStorage.removeItem("ocsa-checklist-kept"));
+        await app.context.route(KEPT_LIST_PATH, (r) => r.abort());
+        await app.page.reload().catch(() => {});
+        await pause(app.page, 3000);
+        await openTab(app.page, "tasks", language).catch(() => {});
+        const fault = await shows(app.page, '[data-tasks-fault="offline"]', 8000);
+        const text = fault ? await app.page.evaluate(() => document.querySelector("[data-tasks-fault]").innerText.replace(/\s+/g, " ")) : "";
+        expect("the fault screen says the phone has no signal", fault && has(text, say("Your tasks did not load.", language)) && has(text, say("This phone has no signal. Your list loads by itself when signal returns.", language)), text || (await bodyText(app.page)).slice(0, 200));
+        expect("and keeps Try again", fault && has(text, say("Try again", language)), text);
+        await spokenHere(app, language, expect);
+        const before = keptListReads(app.stub).length;
+        await app.context.unroute(KEPT_LIST_PATH);
+        await app.page.evaluate(() => window.dispatchEvent(new Event("online")));
+        const back = await app.page.waitForFunction(() => document.querySelectorAll(".sp-content button[aria-label]").length > 2 && !document.querySelector("[data-tasks-fault]"), null, { timeout: 8000 }).then(() => true).catch(() => false);
+        expect("when signal returns the list is read again with no tap", back && keptListReads(app.stub).length > before, (keptListReads(app.stub).length - before) + " reads; " + (await bodyText(app.page)).slice(0, 160));
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART404_S1_JOURNEYS);
+
+// --- Round 15 of the staff app (part 404), section 2 ----------------------
+//
+// A record of what failed: each time the shift's task list does not load,
+// a short note kept on the phone (when, the kind of failure, whether the
+// kept copy took its place), with no name, site or id. ocsa-api takes no
+// app report it could go with (its App support tickets go to the office
+// and mail it on a bug; its health runs take the robot's key alone), so
+// the notes stay on the phone. Fails on the main of part 399, which kept
+// no note.
+const listFaultNotes = (page) => page.evaluate(() => { try { return JSON.parse(window.localStorage.getItem("ocsa-list-faults") || "[]"); } catch (e) { return null; } });
+const PART404_S2_JOURNEYS = [
+  {
+    id: "listfaultnote",
+    label: "A record of what failed (part 404, 2): a task list that does not load leaves a note on the phone, when, the kind (offline, or server with its status) and whether the kept copy was drawn, and nothing more",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await keptOpenList(app, language);
+        await app.context.route(KEPT_LIST_PATH, (r) => r.abort());
+        await app.page.reload().catch(() => {});
+        await pause(app.page, 3000);
+        await openTab(app.page, "tasks", language).catch(() => {});
+        await shows(app.page, "[data-tasks-kept]", 8000);
+        const one = (await listFaultNotes(app.page)) || [];
+        const last = one[one.length - 1] || {};
+        expect("a list read with no signal leaves a note: offline, the kept copy drawn", last.what === "taskList" && last.kind === "offline" && last.keptShown === true && last.status === null && !isNaN(Date.parse(last.at)), JSON.stringify(one));
+        expect("the note holds when, the kind and the kept copy, and nothing more", JSON.stringify(Object.keys(last).sort()) === JSON.stringify(["at", "keptShown", "kind", "online", "status", "what"]), JSON.stringify(last));
+        await app.context.unroute(KEPT_LIST_PATH);
+        await app.page.evaluate(() => window.localStorage.removeItem("ocsa-checklist-kept"));
+        app.stub.state.refuse["GET /api/sites/site-north/tasks"] = { status: 500, body: { error: "Something went wrong on our end. Try again in a minute." } };
+        await app.page.reload().catch(() => {});
+        await pause(app.page, 3000);
+        await openTab(app.page, "tasks", language).catch(() => {});
+        await shows(app.page, "[data-tasks-fault]", 8000);
+        const two = (await listFaultNotes(app.page)) || [];
+        const fresh = two.slice(one.length);
+        expect("a list the API answered 500 leaves a note: server, its status, no kept copy", fresh.length >= 1 && fresh.some(n => n.kind === "server" && n.status === 500 && n.keptShown === false), JSON.stringify(fresh));
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART404_S2_JOURNEYS);
+
+// --- Round 15 of the staff app (part 404), section 3 ----------------------
+//
+// The sign card's heading: Home's card of documents to sign read "Your
+// first trainings" even for someone months in with only a document to
+// sign again. With documents and no first-day training it reads "To read
+// and sign"; with both it keeps "Your first trainings". Fails on the main
+// of part 399, which read Your first trainings for both.
+const firstHeading = (page) => page.evaluate(() => { const c = document.querySelector("[data-first-trainings]"); const h = c && c.querySelector('[role="heading"]'); return h ? h.innerText.trim() : ""; });
+const PART404_S3_JOURNEYS = [
+  {
+    id: "signheading",
+    label: "The sign card's heading (part 404, 3): a person with only a document to sign reads To read and sign over it on Home, and one with a first-day training as well keeps Your first trainings",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { training: true, documents: true, firstDayNone: true } });
+      try {
+        const up = await shows(app.page, '[data-first-trainings="1"] [data-first-doc]', 8000);
+        const heading = up ? await firstHeading(app.page) : "";
+        expect("only a document to sign reads To read and sign", up && heading === say("To read and sign", language), heading || (await bodyText(app.page)).slice(0, 200));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const both = await open({ stubOptions: { training: true, documents: true } });
+      try {
+        const up = await shows(both.page, "[data-first-trainings] [data-first-item]", 8000);
+        const heading = up ? await firstHeading(both.page) : "";
+        expect("a document and a first-day training keep Your first trainings", up && heading === say("Your first trainings", language), heading || (await bodyText(both.page)).slice(0, 200));
+      } finally { await both.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART404_S3_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };
