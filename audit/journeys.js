@@ -8675,7 +8675,7 @@ const PART373_S3_JOURNEYS = [
       // A new entry goes at the end: after it come only the entries added
       // since, in the order they were added (part 388's two).
       const after = whole.slice(whole.indexOf("\n## " + FILL_TITLE) + 4).split("\n## ").slice(1).map(x => x.split("\n")[0]);
-      expect("it comes after every entry before it, followed only by those added since", JSON.stringify(after) === JSON.stringify(["See the findings about your work (staff portal)", "Follow up an inspection finding (staff portal)"]), JSON.stringify(after));
+      expect("it comes after every entry before it, followed only by those added since", JSON.stringify(after) === JSON.stringify(["See the findings about your work (staff portal)", "Follow up an inspection finding (staff portal)", "Cancel a scheduled inspection (staff portal)"]), JSON.stringify(after));
       const pictures = ["inspection-fill-card", "inspection-fill-send"];
       expect("with its two pictures, each taken in English and Spanish", pictures.every(n => entry.indexOf("\nPicture: " + n + "\n") !== -1 && ["en", "es"].every(l => require("fs").existsSync(shotFile(n, l)))), JSON.stringify(pictures));
       expect("and the words people ask with, in English and Spanish", has(entry, "fill out an inspection") && has(entry, "llenar la inspecci\u00f3n"), entry.split("\n").find(x => x.indexOf("Words people use") === 0) || "");
