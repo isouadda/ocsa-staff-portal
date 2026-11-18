@@ -2007,6 +2007,18 @@ function makeState(opts) {
     // unless a case gives a list (none, for a person Chat cannot open a
     // site chat for on its own).
     assignedSites: Array.isArray(o.assignedSites) ? o.assignedSites : null,
+    // Part 408: GET /api/forms/my-sites answered to anyone, as routes/forms.js
+    // answers it; the uncheck of a check made in an earlier session refused
+    // 409 tasks.notThisSession, as ocsa-api Round 17 is to answer it; and a
+    // read of My Schedule's held back by scheduleSlow ({ startDate, ms }: the first
+    // read of the week starting startDate answers ms late, once).
+    mySites: o.mySites === true,
+    // Part 408: values the person's profile holds (routes/users.js answers
+    // null for one never set), over the empty ones it answers by default.
+    profileValues: o.profileValues && typeof o.profileValues === "object" ? Object.assign({}, o.profileValues) : null,
+    notThisSession: o.notThisSession === true,
+    scheduleSlow: o.scheduleSlow && typeof o.scheduleSlow === "object" ? Object.assign({}, o.scheduleSlow) : null,
+    scheduleReads: 0,
     // Part 344: every first form's draft sent, by path, so a second send
     // is refused the way the API refuses it.
     submittedDrafts: [],
@@ -3152,6 +3164,9 @@ const SHIFT_REFUSALS = [
   { key: "serverError", status: 500, en: SERVER_ERROR, es: ES[SERVER_ERROR] },
 ];
 const NOT_YOUR_CHECK = { status: 403, code: "NOT_YOUR_CHECK", en: "Only the person who checked this can uncheck it.", es: "Solo la persona que marc\u00f3 esta tarea puede desmarcarla." };
+// Part 408: ocsa-api Round 17's refusal of an uncheck of a check made in an
+// earlier session. The API has not written its words yet; these stand in.
+const NOT_THIS_SESSION = { status: 409, code: "tasks.notThisSession", en: "This was checked in an earlier session, so it stays checked.", es: "Esto se marc\u00f3 en una sesi\u00f3n anterior, as\u00ed que sigue marcado." };
 // One refusal's sentence in a language, with what fills it.
 const refusalIn = (r, lang, vars) => String(lang === "es" ? r.es : r.en).replace(/\{(\w+)\}/g, (whole, k) => (vars && k in vars ? String(vars[k]) : whole));
 // West Building's shifts, each with its Spanish twin, and the way the
@@ -5031,6 +5046,19 @@ function createStub(opts) {
       const kit = fieldKitAnswer(method, pathname, search, body, key, lang);
       if (kit) return kit;
     }
+    // Part 408: GET /api/forms/my-sites as routes/forms.js answers it to
+    // anyone (MY_SITES_SQL): every site to management, the person's
+    // assigned sites to anyone else, each { id, name, checklistMode,
+    // isTest }, the test site only for a test account or an admin
+    // (testCrew.keepsTestSite). Behind mySites, so the cases written before
+    // it keep the answer they were written against.
+    if (state.mySites && key === "GET /api/forms/my-sites") {
+      const management = FK_MANAGEMENT.indexOf(state.person.role) !== -1;
+      const keepsTest = state.person.isTestAccount === true || state.person.role === "admin";
+      const rows = (management ? SITES : (state.assignedSites || SITES)).map(x => ({ id: x.siteId, name: x.siteName, checklistMode: modeOf(x.siteId) || "tracked", isTest: x.isTest === true || x.siteId === TEST_SITE.id }))
+        .concat(state.testSite && (management || !state.assignedSites) ? [{ id: TEST_SITE.id, name: testSiteName(), checklistMode: "tracked", isTest: true }] : []);
+      return json(200, { sites: rows.filter(x => !x.isTest || keepsTest) });
+    }
     if (state.equipment && pathname.indexOf("/api/equipment/") === 0) {
       if (key === "GET /api/equipment/by-qr/" + EQ_CODE) return json(200, { equipment: EQ_ITEM, events: state.equipmentEvents.slice(0, 10) });
       if (key === "POST /api/equipment/" + EQ_ITEM.id + "/events") {
@@ -5154,7 +5182,7 @@ function createStub(opts) {
       return json(200, summaryNow(search, headers));
     }
     if (key === "GET /api/users/profile/me") return json(200, {
-      user: Object.assign({}, state.person, { isTestAccount: state.person.isTestAccount === true, employeeId: "OCSA-0001", preferredLanguage: "English", addressLine1: "", city: "", state: "", zipCode: "", emergencyContactName: "", emergencyContactPhone: "", birthday: state.midnightDates ? "1990-08-14T00:00:00.000Z" : "1990-08-14" }),
+      user: Object.assign({}, state.person, { isTestAccount: state.person.isTestAccount === true, employeeId: "OCSA-0001", preferredLanguage: "English", addressLine1: "", city: "", state: "", zipCode: "", emergencyContactName: "", emergencyContactPhone: "", birthday: state.midnightDates ? "1990-08-14T00:00:00.000Z" : "1990-08-14" }, state.profileValues || {}),
       assignments: [{ site_name: "North Building", role_at_site: "Staff", shift_name: "Evening", shift_start: "17:00", shift_end: "23:00" }],
     });
     if (key === "PATCH /api/users/profile/me") return json(200, { ok: true });
@@ -5227,8 +5255,18 @@ function createStub(opts) {
       if (todays.length > 0 && !todays.some(c => c.userId === state.person.id)) {
         return json(NOT_YOUR_CHECK.status, { error: refusalIn(NOT_YOUR_CHECK, languageOf(search, state)), code: NOT_YOUR_CHECK.code });
       }
+      // Part 408: the uncheck is scoped to the session open now, as
+      // routes/clock.js's UPDATE is (site_session_id): the person's own
+      // check made before this session started stays, and the route still
+      // answers 200 tasks.uncompleted. With notThisSession it is refused
+      // 409 tasks.notThisSession, as ocsa-api Round 17 is to answer it.
+      const thisSession = (c) => atOf(c) >= state.sessionStartedAt;
+      const mineHeld = todays.filter(c => c.userId === state.person.id);
+      if (state.notThisSession && mineHeld.length > 0 && !mineHeld.some(thisSession)) {
+        return json(NOT_THIS_SESSION.status, { error: refusalIn(NOT_THIS_SESSION, languageOf(search, state)), code: NOT_THIS_SESSION.code });
+      }
       const had = state.completions.length;
-      state.completions = state.completions.filter(c => !(c.taskId === id && c.userId === state.person.id && inRun(c)));
+      state.completions = state.completions.filter(c => !(c.taskId === id && c.userId === state.person.id && inRun(c) && thisSession(c)));
       if (state.completions.length !== had) noteChange(state.site);
       return json(200, { message: "Task uncompleted" });
     }
@@ -5382,6 +5420,16 @@ function createStub(opts) {
 
     // --- the calendar
     if (pathname === "/api/pickups/my-schedule") {
+      // Part 408: scheduleSlow holds the first read of the week starting
+      // on its startDate back ms, so a later read answers first.
+      state.scheduleReads += 1;
+      const slowWeek = state.scheduleSlow && new URLSearchParams(search || "").get("start_date") === state.scheduleSlow.startDate;
+      const held = slowWeek ? new Promise((done) => setTimeout(done, Number(state.scheduleSlow.ms) || 1500)) : null;
+      if (slowWeek) state.scheduleSlow = null;
+      const reply = scheduleAnswer();
+      return held ? Object.assign(reply, { after: held }) : reply;
+    }
+    function scheduleAnswer() {
       // A drop asked here is listed under pendingDrops while it waits, as
       // routes/pickups.js lists the person's requested open shifts; one
       // the office already posted for pickup is not.
@@ -6198,7 +6246,12 @@ function createStub(opts) {
       }
       const parts = libraryIn(shelved, "parts", loc);
       const out = { docCode: shelved.docCode, title: libraryIn(shelved, "title", loc), version: shelved.version, locale: loc, locales: shelved.locales.slice(), sections: libraryIn(shelved, "sections", loc).map(s => Object.assign({}, s)) };
-      if (parts.length > 0) out.parts = parts.map(p => Object.assign({}, p));
+      // Part 408: parts always, [] for a document with none, as
+      // helpers/documents.js answers it (partsIn).
+      out.parts = parts.map(p => Object.assign({}, p));
+      // A section's number and title, as the plain reader draws them in its
+      // heading, are a value the stub served.
+      out.sections.forEach(x => recordWord([x.ref, x.title].filter(Boolean).join(" "), "name"));
       if (shelved.hasPdf) out.pdfUrl = "/api/documents/" + shelved.docCode + "/pdf?locale=" + loc;
       if (loc !== asked) out.shownInEnglish = true;
       return json(200, { document: out });
@@ -6229,7 +6282,7 @@ function createStub(opts) {
           const asked = new URLSearchParams(search || "").get("locale") || lang;
           const loc = D.locales.indexOf(asked) !== -1 ? asked : "en";
           const R = docToSign(state, loc);
-          const out = { docCode: R.docCode, title: R.title, version: R.version, locale: loc, locales: R.locales.slice(), sections: R.sections.map(s => Object.assign({}, s)), acknowledgement: R.acknowledgement };
+          const out = { docCode: R.docCode, title: R.title, version: R.version, locale: loc, locales: R.locales.slice(), parts: [], sections: R.sections.map(s => Object.assign({}, s)), acknowledgement: R.acknowledgement };
           if (state.handbook) {
             const p = state.person;
             out.parts = HANDBOOK.parts[loc].map(x => Object.assign({}, x));
@@ -6765,6 +6818,9 @@ function createStub(opts) {
     if (state.supplyItems && (key === "GET /api/supplies/requests" || key === "POST /api/supplies/requests")) return supplyRequestAnswer(method, search, body, lang);
     // The API's own index with Step 280 built, the route the office
     // decides items through among its supply routes (Step 285).
+    // Part 408: authenticate first (part 370, API-118): 401 auth.required
+    // to a call with no token, as the API's index answers since then.
+    if (state.supplyItems && key === "GET /api" && !/^Bearer /.test(String((headers || {}).authorization || ""))) return json(401, { error: "Sign in first", code: "auth.required" });
     if (state.supplyItems && key === "GET /api") return json(200, { name: "Invented API", endpoints: { supplies: { "GET /api/supplies/requests": "The supply requests", "POST /api/supplies/requests/:reqId/decide": "Decide a request's items" } } });
     if (key === "POST /api/supplies/requests") return json(200, { ok: true });
 
@@ -7563,7 +7619,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { R15_WORDS, R15_TYPE_WORDS, R15_LINES, R15_RULES, TEST_SITE, TEST_SITE_REFUSAL, runIdFor: runIdOf, FOLLOW_UP_REFUSALS, FOLLOW_UP_TOPICS, CLOSED_NOTE, BAD_SHIFT_RUN, DROP_REFUSALS, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { NOT_THIS_SESSION, R15_WORDS, R15_TYPE_WORDS, R15_LINES, R15_RULES, TEST_SITE, TEST_SITE_REFUSAL, runIdFor: runIdOf, FOLLOW_UP_REFUSALS, FOLLOW_UP_TOPICS, CLOSED_NOTE, BAD_SHIFT_RUN, DROP_REFUSALS, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

@@ -3685,7 +3685,7 @@ export default function OCSAStaffPortal() {
         const tap = pendingRef.current.find(mine);
         if (!tap) break;
         const fresh = freshTaps.current.delete(tap.clientId);
-        let taken = false, kept = false, doneBy = null, bare = false, answer = null;
+        let taken = false, kept = false, doneBy = null, bare = false, answer = null, stays = false;
         inFlightTaskIds.current.add(tap.taskId);
         try {
           answer = await api(checkoffPath(tap.taskId), { method: tap.done ? "POST" : "DELETE", body: Object.assign({ clientId: tap.clientId, completedAt: tap.completedAt }, tap.done && tap.runId ? { shiftRunId: tap.runId } : {}), token: tok });
@@ -3704,6 +3704,10 @@ export default function OCSAStaffPortal() {
           else if (tap.done && err && err.status === 409 && err.code === ALREADY_CHECKED) doneBy = err.body && typeof err.body.firstName === "string" ? err.body.firstName.trim() : "";
           else if (keepsTap(err)) kept = true;
           else if (!tap.done && err.code === "NOT_YOUR_CHECK") showRowNote(tap.taskId, tr(err.message));
+          // Part 408: an uncheck of a check made in an earlier session,
+          // refused (409 tasks.notThisSession, ocsa-api Round 17): the
+          // API's words under the row, and the box checked again at once.
+          else if (!tap.done && err.status === 409 && err.code === NOT_THIS_SESSION) { showRowNote(tap.taskId, tr(err.message)); stays = true; }
           else if (err.code === CHECKLIST_NOT_TRACKED) refusedNotTracked(tap.siteId);
           else { showRowNote(tap.taskId, tr(err.message)); showToast(tr(err.message), "error"); }
         } finally { inFlightTaskIds.current.delete(tap.taskId); }
@@ -3736,6 +3740,11 @@ export default function OCSAStaffPortal() {
         if (doneBy !== null) {
           showRowNote(tap.taskId, doneBy ? tr("Already done by {firstName}", { firstName: doneBy }) : tr("Already done"));
           setTickOverrides(prev => { if (!prev.has(tap.taskId)) return prev; const n = new Map(prev); n.delete(tap.taskId); return n; });
+        }
+        // The check stays: the box shows it again before the list is read.
+        if (stays) {
+          if (tap.counted) setCompletedTaskIds(prev => new Set(prev).add(tap.taskId));
+          else setTickOverrides(prev => { if (!prev.has(tap.taskId)) return prev; const n = new Map(prev); n.delete(tap.taskId); return n; });
         }
         putPending(pendingRef.current.filter(x => x.clientId !== tap.clientId));
       }
@@ -3834,7 +3843,7 @@ export default function OCSAStaffPortal() {
   const submitIssue = async (title, description, zone, severity, photoUrl, siteId, clientId) => { const actualSiteId = siteId || clockStatus?.shift?.siteId; if (!actualSiteId) throw new Error("Select a site first"); const data = await api("/api/issues", { method: "POST", body: Object.assign({ siteId: actualSiteId, title, description, zone, severity }, clientId ? { clientId: clientId } : {}), token }); const issue = data && data.issue ? data.issue : null; if (photoUrl && issue) { try { await attachIssuePhoto(issue.id, photoUrl); } catch (err) { return { issue: issue, photoFault: err }; } } else loadIssues(); showToast(tr("Issue reported")); return { issue: issue }; };
   const loadSupplies = async () => { try { const url = clockStatus?.shift?.siteId ? "/api/supplies?site_id=" + clockStatus.shift.siteId : "/api/supplies"; const data = await api(url, { token }); setSupplies(data); setSuppliesLoaded(true); setSuppliesFailed(false); } catch (err) { console.error(err); setSuppliesFailed(true); } };
   const logSupplyUsage = async (supplyId, quantity) => { try { const data = await api("/api/supplies/log-usage", { method: "POST", body: { supplyId, quantity, siteId: clockStatus.shift.siteId, scanMethod: "manual" }, token }); showToast(data.message); setSupplyLogs(prev => [{ ...data.log, loggedAt: now().toISOString() }, ...prev]); if (data.lowStockAlert) showToast(tr("Low stock alert!"), "notice"); } catch (err) { showToast(tr(err.message), "error"); } };
-  const submitSupplyRequest = async (requestType, itemName, description, urgency, supplyId) => { try { const siteId = clockStatus?.shift?.siteId || null; await api("/api/supplies/requests", { method: "POST", body: { requestType, itemName, description, urgency, supplyId, siteId }, token }); showToast(tr("Request submitted")); } catch (err) { showToast(tr(err.message), "error"); } };
+  const submitSupplyRequest = async (requestType, itemName, description, urgency, supplyId, chosenSiteId) => { try { const siteId = clockStatus?.shift?.siteId || chosenSiteId || null; await api("/api/supplies/requests", { method: "POST", body: { requestType, itemName, description, urgency, supplyId, siteId }, token }); showToast(tr("Request submitted")); } catch (err) { showToast(tr(err.message), "error"); } };
   // The list of chats. One that did not load is said as such, apart from
   // one with nothing in it, and a list already on the screen stays when a
   // later read of it fails. A reply that is not a list counts as a list
@@ -5773,7 +5782,13 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
   const dayNames = Array.from({ length: 7 }, (_, i) => new Date(Date.UTC(2024, 0, 1 + i)).toLocaleDateString(dateLocale(), { weekday: "short", timeZone: "UTC" }));
   const isToday = (ds) => ds === ymdLocal(todayLocal());
 
+  // Part 408 (the robot's finding 4): each read is numbered, and only the
+  // newest one's answer is drawn, so tapping Next quickly never leaves an
+  // older week's answer, arriving last, under the week shown.
+  const scheduleAsk = useRef(0);
   const loadSchedule = async () => {
+    const mine = ++scheduleAsk.current;
+    const newest = () => mine === scheduleAsk.current;
     setLoading(true);
     try {
       const sd = toISO(weekStart);
@@ -5788,8 +5803,9 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
       // company's clock, from 00:00 on the first day to 00:00 after the
       // last, so the days asked for are the days drawn.
       const d = await api("/api/pickups/my-schedule?start_date=" + sd + "&end_date=" + ed, { token });
+      if (!newest()) return;
       setData(scheduleForPerson(user, d)); setFailed(false);
-    } catch (err) { console.error("Schedule load error:", err); setFailed(true); }
+    } catch (err) { if (!newest()) return; console.error("Schedule load error:", err); setFailed(true); }
     setLoading(false);
   };
 
@@ -7009,6 +7025,9 @@ const CHECKLIST_NOT_TRACKED = "tasks.siteNotTracked";
 // A step on the site's shared list somebody else checked first today
 // (API part 354): 409 with the first checker's firstName.
 const ALREADY_CHECKED = "tasks.alreadyChecked";
+// Part 408: an uncheck of a check made in an earlier session, refused
+// with its own code once ocsa-api Round 17 answers one.
+const NOT_THIS_SESSION = "tasks.notThisSession";
 const checklistModeOf = (x) => { if (!x || typeof x !== "object") return null; const v = x.checklistMode !== undefined ? x.checklistMode : x.checklist_mode; return v === "reference" || v === "tracked" ? v : null; };
 // A site's mode from lists of sites, each row named by siteId or id:
 // Start Shift's sites, the person's own and every site.
@@ -7653,15 +7672,23 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, faultOffline, kept,
   // A coworker's check, by their first name. The list kept for no signal
   // keeps no names, so a check opened from it names nobody.
   const checkedBy = (tk) => { const c = checkedOf(tk); return c && c.firstName ? tr("Checked by {firstName}", { firstName: c.firstName }) : null; };
+  // Part 408 (the robot's finding 1): the API takes back only a check made
+  // in the session open now (routes/clock.js scopes the uncheck on the
+  // session), so a check the person made before this session started, in
+  // an earlier session of the same shift run or checklist day, would be
+  // answered and stay. None is offered, and a tap says why.
+  const sessionStart = (() => { const s = clockStatus && ((clockStatus.session && clockStatus.session.startedAt) || (clockStatus.shift && (clockStatus.shift.startedAt || clockStatus.shift.clockInTime))); const ms = s ? Date.parse(s) : NaN; return Number.isFinite(ms) ? ms : null; })();
+  const beforeSession = (c) => { if (sessionStart === null || !c || !c.completedAt) return false; const at = Date.parse(c.completedAt); return Number.isFinite(at) && at < sessionStart; };
   const lockOf = (tk, done) => {
     if (!done || waiting.has(tk.id)) return null;
     const c = checkedOf(tk);
-    if (c && c.byCaller === true) return null;
+    if (c && c.byCaller === true) return beforeSession(c) ? "session" : null;
     if (c && c.byCaller === false) return "other";
     return isDueToday(tk) ? null : "earlier";
   };
   const tap = (tk, done, lock) => {
     if (lock === "other") { onRowNote(tk.id, tr("Only the person who checked this can uncheck it.")); return; }
+    if (lock === "session") { onRowNote(tk.id, tr("You checked this on an earlier shift. It stays checked.")); return; }
     if (lock === "earlier") return;
     toggleTask(tk, done);
   };
@@ -7716,6 +7743,9 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, faultOffline, kept,
     // PORT-62 (part 375): a coworker's check today is theirs to take back,
     // so its detail says so and offers no Uncheck Task.
     if (lock === "other") return drawDetail(detail, byWho, <div data-task-theirs="1" style={{ padding: "14px 16px", borderTop: "1px solid " + t.borderSolid, fontSize: 13, color: t.textSec, lineHeight: 1.45 }}>{tr("Only the person who checked this can uncheck it.")}</div>);
+    // Part 408: a check of an earlier shift stays, so its detail says so
+    // and offers no Uncheck Task.
+    if (lock === "session") return drawDetail(detail, byWho, <div data-task-earlier-shift="1" style={{ padding: "14px 16px", borderTop: "1px solid " + t.borderSolid, fontSize: 13, color: t.textSec, lineHeight: 1.45 }}>{tr("You checked this on an earlier shift. It stays checked.")}</div>);
     return drawDetail(detail, byWho, lock !== "earlier" && <button onClick={() => { tap(current, done, lock); setDetail(null); }} style={{ width: "100%", padding: "14px", border: "none", background: done ? t.cardAlt : "linear-gradient(135deg," + GOLD + "," + GOLD_LIGHT + ")", color: done ? t.textMut : NAVY, fontSize: 14, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", fontFamily: FONT_HEAD }}>{done ? tr("Uncheck Task") : tr("Mark Complete")}</button>);
   }
 
@@ -8134,7 +8164,14 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, message
     })();
     return () => { alive = false; };
   }, [office, token]);
-  const canStart = office && Array.isArray(people) && people.length > 0;
+  // Part 408 (the robot's finding 7): a staff member's private chat opens
+  // only for those who read every private line, an admin or the super
+  // admin (the API's readsPrivateLines; a supervisor is refused 403
+  // chat.staffLineAdminsOnly), so staff are offered to them alone, as the
+  // dashboard does.
+  const readsLines = !!user && user.status !== "inactive" && (user.role === "admin" || user.isSuperAdmin === true);
+  const offered = Array.isArray(people) ? people.filter(p => p.kind === "office" || readsLines) : null;
+  const canStart = office && Array.isArray(offered) && offered.length > 0;
   const closeNew = () => { if (opening) return; setNewOpen(false); setNewQuery(""); setOpenFault(null); };
   // An office person opens the direct chat the two of them share, and a
   // staff member their private chat with the office, each made by the
@@ -8155,7 +8192,7 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, message
     } finally { setOpening(null); }
   };
   const newNeedle = newQuery.trim().toLowerCase();
-  const newRows = canStart ? people.filter(p => !newNeedle || p.name.toLowerCase().indexOf(newNeedle) !== -1) : [];
+  const newRows = canStart ? offered.filter(p => !newNeedle || p.name.toLowerCase().indexOf(newNeedle) !== -1) : [];
   useBusy("new message", !!opening);
   // Words in the box, or a send on its way, hold off an update. The box
   // empties only once the API has taken the words and the answer is drawn,
@@ -10288,12 +10325,15 @@ function supplyMineOf(d, userId, decideListed) {
 }
 // Whether GET /api lists POST /api/supplies/requests/:reqId/decide, asked
 // once while the app is open and again only after an answer that did not
-// come. No token goes with it.
+// come. Part 408 (the robot's finding 2): asked with the token, since the
+// API answers its index only to someone signed in (part 370, API-118);
+// asked without one it was refused, and the first request always used the
+// old form.
 const SUPPLY_DECIDE_ROUTE = "POST /api/supplies/requests/:reqId/decide";
 let supplyDecideAsk = null;
-function supplyDecideListed() {
+function supplyDecideListed(token) {
   if (!supplyDecideAsk) {
-    supplyDecideAsk = api("/api", { noAuthEvent: true })
+    supplyDecideAsk = api("/api", { token, noAuthEvent: true })
       .then(d => !!d && !!d.endpoints && typeof d.endpoints === "object" && Object.keys(d.endpoints).some(k => { const g = d.endpoints[k]; return !!g && typeof g === "object" && Object.prototype.hasOwnProperty.call(g, SUPPLY_DECIDE_ROUTE); }))
       .catch(() => { supplyDecideAsk = null; return false; });
   }
@@ -10355,10 +10395,30 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
   const [lineFaults, setLineFaults] = useState({});
   const [sending, setSending] = useState(false);
   const userId = user ? user.id : null;
+  // Part 408 (the robot's finding 3): off the clock a request names its
+  // site, one the person may name (GET /api/forms/my-sites, the rule the
+  // API's canReadSite takes a site by): picked for them when they have one,
+  // chosen when they have more. On the clock the shift's site is the
+  // request's, as before; with no site to name it goes with none.
+  const shiftSite = clockStatus && clockStatus.shift && clockStatus.shift.siteId ? clockStatus.shift.siteId : null;
+  const [reqSites, setReqSites] = useState(null);
+  const [siteFault, setSiteFault] = useState(null);
+  const formOpen = !!reqForm;
+  useEffect(() => {
+    if (!formOpen || shiftSite || reqSites !== null || !token) return undefined;
+    let live = true;
+    api("/api/forms/my-sites", { token })
+      .then(d => sitesForPerson(user, (d && Array.isArray(d.sites) ? d.sites : []).filter(x => x && x.id !== undefined && x.id !== null)).map(x => ({ id: String(x.id), name: typeof x.name === "string" ? x.name : "" })))
+      .then(list => { if (!live) return; setReqSites(list); if (list.length === 1) setReqForm(f => (f && !f.siteId ? { ...f, siteId: list[0].id } : f)); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [formOpen, shiftSite, token]);
+  const siteChosen = (f) => shiftSite || (f && f.siteId) || null;
+  const siteMissing = (f) => !shiftSite && Array.isArray(reqSites) && reqSites.length > 1 && !(f && f.siteId);
   useEffect(() => {
     let live = true;
     api("/api/supplies/requests", { token })
-      .then(d => { const rows = wsRows(d, "requests"); return rows && rows.length === 0 ? supplyDecideListed().then(listed => supplyMineOf(d, userId, listed)) : supplyMineOf(d, userId, false); })
+      .then(d => { const rows = wsRows(d, "requests"); return rows && rows.length === 0 ? supplyDecideListed(token).then(listed => supplyMineOf(d, userId, listed)) : supplyMineOf(d, userId, false); })
       .then(mine => { if (live) setMine(mine); }).catch(() => {});
     return () => { live = false; };
   }, [token, userId, mineAsked]);
@@ -10367,8 +10427,8 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
   const typeWord = (v) => { const o = typeOpts.find(x => x.v === v); return o ? o.l : titleCase(v || ""); };
   const linesOn = !!reqForm && mine !== null && SUPPLY_LINE_TYPES.indexOf(reqForm.type) !== -1;
   const typedLines = !!reqForm && (reqForm.type !== "refill" || supplies.length === 0);
-  const openForm = () => { setLineFaults({}); setReqForm({ type: "", itemName: "", description: "", urgency: "normal", supplyId: null, lines: [supplyLineBlank()] }); };
-  const handleSubmitReq = () => { if (!reqForm.type) { showToast(tr("Select a request type"), "error"); return; } if ((reqForm.type === "new_gear" || reqForm.type === "new_supply") && !reqForm.itemName) { showToast(tr("Enter the item name"), "error"); return; } Promise.resolve(submitRequest(reqForm.type, reqForm.itemName, reqForm.description, reqForm.urgency, reqForm.supplyId)).then(() => setMineAsked(n => n + 1)); setReqForm(null); };
+  const openForm = () => { setLineFaults({}); setSiteFault(null); setReqForm({ type: "", itemName: "", description: "", urgency: "normal", supplyId: null, siteId: !shiftSite && Array.isArray(reqSites) && reqSites.length === 1 ? reqSites[0].id : null, lines: [supplyLineBlank()] }); };
+  const handleSubmitReq = () => { if (!reqForm.type) { showToast(tr("Select a request type"), "error"); return; } if ((reqForm.type === "new_gear" || reqForm.type === "new_supply") && !reqForm.itemName) { showToast(tr("Enter the item name"), "error"); return; } if (siteMissing(reqForm)) { setSiteFault(tr("Choose a site first.")); return; } Promise.resolve(submitRequest(reqForm.type, reqForm.itemName, reqForm.description, reqForm.urgency, reqForm.supplyId, siteChosen(reqForm))).then(() => setMineAsked(n => n + 1)); setReqForm(null); };
   const editLine = (i, field, value, box) => {
     setReqForm(f => ({ ...f, lines: f.lines.map((ln, j) => (j === i ? { ...ln, [field]: value } : ln)) }));
     const k = i + "." + (box || field);
@@ -10389,9 +10449,10 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
       const q = supplyQtyOf(ln.quantity);
       if (!/^\d+$/.test(String(ln.quantity).trim()) || q < 1 || q > SUPPLY_QTY_MAX) local[i + ".quantity"] = tr("Enter a quantity from 1 to 999.");
     });
-    if (Object.keys(local).length > 0) { setLineFaults(local); return; }
+    if (siteMissing(reqForm)) setSiteFault(tr("Choose a site first."));
+    if (Object.keys(local).length > 0 || siteMissing(reqForm)) { setLineFaults(local); return; }
     const items = reqForm.lines.map(ln => Object.assign(typedLines ? { itemName: ln.itemName.trim() } : { supplyId: ln.supplyId }, { quantity: supplyQtyOf(ln.quantity) }, ln.note.trim() ? { note: ln.note.trim() } : {}));
-    const body = { requestType: reqForm.type, items: items, description: reqForm.description.trim(), urgency: reqForm.urgency, siteId: clockStatus?.shift?.siteId || null };
+    const body = { requestType: reqForm.type, items: items, description: reqForm.description.trim(), urgency: reqForm.urgency, siteId: siteChosen(reqForm) };
     setSending(true); setLineFaults({});
     try {
       const d = await api("/api/supplies/requests", { method: "POST", body: body, token });
@@ -10447,6 +10508,15 @@ function SuppliesView({ clockStatus, supplies, loaded, failed, onRetry, supplyLo
       {!linesOn && (reqForm.type === "refill" || reqForm.type === "damage_report") && supplies.length > 0 && (<div data-supply-one="1" style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Supply Item")}</label><SearchPick name="supply-one" rows={supplyRows} value={reqForm.supplyId || ""} onPick={(v) => setReqForm(f => ({ ...f, supplyId: v || null, itemName: supplies.find(s => String(s.id) === v)?.name || "" }))} none={tr("Choose a supply")} empty={tr("Choose a supply")} noMatch={tr("No supply matches that name.")} t={t} /></div>)}
       {!linesOn && (reqForm.type === "new_gear" || reqForm.type === "new_supply") && (<div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Item Name")}</label><input value={reqForm.itemName} onChange={e => setReqForm({ ...reqForm, itemName: e.target.value })} placeholder={tr("What do you need?")} style={inputSt} /></div>)}
       {linesOn && linesUI()}
+      {!shiftSite && Array.isArray(reqSites) && reqSites.length > 0 && (
+        <div data-supply-site={reqForm.siteId || ""} style={{ marginBottom: 10 }}>
+          <div style={labelSt}>{tr("Site")}</div>
+          {reqSites.length === 1
+            ? <div style={{ fontSize: 13, fontWeight: 600, color: t.text, padding: "4px 0", overflowWrap: "anywhere" }}>{reqSites[0].name}</div>
+            : <SearchPick name="supply-site" rows={reqSites} value={reqForm.siteId || ""} onPick={(v) => { setReqForm(f => ({ ...f, siteId: v || null })); setSiteFault(null); }} none={tr("Choose a site first.")} empty={tr("Choose a site first.")} noMatch={tr("No site matches that name.")} invalid={!!siteFault} t={t} />}
+          {siteFault && <div role="alert" style={mkFieldErr(t)}>{siteFault}</div>}
+        </div>
+      )}
       <div style={{ marginBottom: 10 }}><label style={labelSt}>{tr("Details")}</label><textarea value={reqForm.description} onChange={e => setReqForm({ ...reqForm, description: e.target.value })} placeholder={tr("Describe the request...")} rows={2} style={{ ...inputSt, resize: "vertical", fontFamily: "inherit" }} /></div>
       <div style={{ marginBottom: 12 }}><label style={labelSt}>{tr("Urgency")}</label><div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{(() => { const urgOpts = getOpts("urgency_levels"); const urgColors = lkColorMap("urgency_levels"); const items = urgOpts.length > 0 ? urgOpts.map(o => ({ v: o.v, l: o.l, c: urgColors[o.v] || t.textSec })) : [{ v: "low", l: tr("Low"), c: GREEN }, { v: "normal", l: tr("Normal"), c: t.textSec }, { v: "high", l: tr("High"), c: ORANGE }, { v: "urgent", l: tr("Urgent"), c: RED }]; return items.map(u => (<button key={u.v} onClick={() => setReqForm({ ...reqForm, urgency: u.v })} style={{ flex: 1, minHeight: TAP, padding: "7px", borderRadius: R.sm, border: reqForm.urgency === u.v ? "2px solid " + u.c : "1px solid " + t.borderSolid, background: reqForm.urgency === u.v ? u.c + "1A" : "transparent", color: ink(t, u.c), fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{u.l}</button>)); })()}</div></div>
       {linesOn && lineFaults.form && <div role="alert" style={{ ...mkFieldErr(t), marginTop: 0, marginBottom: 10 }}>{lineFaults.form}</div>}
@@ -12126,7 +12196,7 @@ function documentReadOf(d) {
   // no parts the reader is the one Step 264 drew.
   const pdf = str("pdfUrl");
   return { docCode: str("docCode"), title: str("title"), version: str("version"), locale: locale, locales: (Array.isArray(doc.locales) ? doc.locales : []).filter(v => typeof v === "string"), sections: sections, acknowledgement: lessonText(doc.acknowledgement, locale),
-    parts: docPartsOf(doc.parts), ackSectionRef: typeof doc.ackSectionRef === "string" || typeof doc.ackSectionRef === "number" ? String(doc.ackSectionRef).trim() : "",
+    parts: (() => { const ps = docPartsOf(doc.parts); return ps && ps.length > 0 ? ps : null; })(), ackSectionRef: typeof doc.ackSectionRef === "string" || typeof doc.ackSectionRef === "number" ? String(doc.ackSectionRef).trim() : "",
     pdfUrl: /^(https:\/\/|\/api\/)/i.test(pdf) ? pdf : "", shownInEnglish: doc.shownInEnglish === true || d.shownInEnglish === true, ackFields: doc.ackFields };
 }
 // A section's content as paragraphs: blank lines split them, and a line
@@ -12224,8 +12294,10 @@ function DocumentReader({ token, doc, signed, onBack, onSigned, t, library }) {
       {d && d.locale !== languageToSend() && d.locale === "en" && <div data-doc-english="1" style={{ ...smallSt, fontSize: 12, marginTop: 6 }}>{tr("This document is shown in English.")}</div>}
     </div>
   );
-  // An answer with parts (Step 289) reads in the handbook's look.
-  if (state.kind === "read" && d && d.parts) {
+  // An answer with parts (Step 289) reads in the handbook's look. Part 408
+  // (the robot's finding 9): the API answers parts on every document, []
+  // for one with none, and an empty list reads in the plain look.
+  if (state.kind === "read" && d && Array.isArray(d.parts) && d.parts.length > 0) {
     return <HandbookReader key={d.version + ":" + d.locale} token={token} doc={doc} d={d} signed={signed} changed={again} onBack={onBack} onSigned={onSigned} onAgain={() => { setAgain(true); setAsked(n => n + 1); }} library={library} t={t} />;
   }
   if (state.kind === "loading" || state.kind === "fault") {
@@ -22134,7 +22206,9 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
 
   const saveProfile = async () => {
     const changed = {};
-    Object.keys(form).forEach((k) => { if ((form[k] || "") !== (opened.current[k] || "")) changed[k] = form[k] || ""; });
+    // Part 408 (the robot's finding 8): a field cleared is sent as null, so
+    // the account holds no value again, where it stored "" before.
+    Object.keys(form).forEach((k) => { if ((form[k] || "") !== (opened.current[k] || "")) changed[k] = String(form[k] || "").trim() ? form[k] : null; });
     if (Object.keys(changed).length === 0) { setEditing(false); return; }
     setSaving(true);
     try {

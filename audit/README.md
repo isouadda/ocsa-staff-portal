@@ -2173,6 +2173,49 @@ say the same as the dashboard and Help, for new requests and old ones
 alike. The stub's twins for the two names follow the table, so its
 Spanish is now the API's as well.
 
+## What the robot found in the staff app (part 408, section 1)
+
+The robot's Round 5 (ocsa-journeys part 406, "Findings while building")
+listed seven faults in the staff app. Each is fixed and held by a journey,
+in English and Spanish, failing on the main of part 404:
+
+- `uncheckearlier`: a check the person made before this session started
+  (an earlier session of the same shift run or checklist day) is not
+  offered an uncheck, since routes/clock.js takes back only a check of the
+  session open now and would answer 200 and remove nothing. A tap says
+  **You checked this on an earlier shift. It stays checked.** under the
+  row and sends nothing. An uncheck the API turns away as made in an
+  earlier session (409 `tasks.notThisSession`, ocsa-api Round 17, not on
+  its main yet) shows the API's words under the row and checks the box
+  again at once, with no error toast. The stub scopes its uncheck on the
+  session as routes/clock.js does, and answers the 409 behind
+  `notThisSession` with words of its own until the API writes them.
+- `supplyfirstform`: the API's index (`GET /api`) is asked with the
+  token, since part 370 answers it to someone signed in alone, so the
+  form with items, a quantity and a note shows on a person's first
+  request. The stub answers the index 401 `auth.required` with no token.
+- `supplysiteoff`: off the clock a supply request names one of the
+  person's sites (`GET /api/forms/my-sites`, the rule the API's
+  canReadSite takes a site by): picked and shown when they have one,
+  chosen when they have more (Choose a site first. until one is), and sent
+  as `siteId` on both forms. The stub answers my-sites to anyone behind
+  `mySites`.
+- `schedulenewest`: My Schedule draws only the newest read's answer, so
+  Next tapped twice quickly never lets the older week's late answer
+  replace the week shown. The stub holds the first read of one week
+  behind `scheduleSlow` ({ startDate, ms }).
+- `newmessagestaff`: New message offers staff only to an admin or the
+  super admin (`user.isSuperAdmin`), who the API lets open a staff
+  member's private chat (readsPrivateLines); a supervisor is offered the
+  office alone, as the dashboard does.
+- `profilecleared`: a profile field cleared is sent as null, never "". The
+  stub's `profileValues` gives the profile values to clear. Remove photo
+  waits on the API: `POST /api/users/profile/photo` refuses an empty
+  photoUrl and no route clears it.
+- `docpartsnone`: the API answers `parts` on every document, [] for one
+  with none (helpers/documents.js partsIn), and an empty list reads in the
+  plain look, a section at a time. The stub now answers `parts` always.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names
