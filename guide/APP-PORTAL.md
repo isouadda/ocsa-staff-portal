@@ -1642,3 +1642,11 @@ If it does not work: **Not cancelled yet. Check your signal and try again.** (**
 Words people use for this: cancel an inspection, remove an inspection, delete a scheduled inspection, take an inspection off my list, cancelar inspección, annuler une inspection.
 Picture: inspect-cancel
 Last checked: 2026-11-18
+
+## Who starts shifts in the app at a Team Clean site (staff portal)
+Who can do this: anyone signed in
+Everyone who works for OCSA starts and ends every shift in the app, at every site OCSA staffs, Team Clean sites included. If OCSA employs you and you are working a Team Clean site, start your shift in the app when you arrive and end it when you leave, as at any other site (see Start your shift at a site and End your shift).
+Team Clean's own employees working a Team Clean project do not use the OCSA app and do not start or end shifts in it.
+Your hours for pay are recorded on the ADP tablet at the site, so clock in and out there too.
+Words people use for this: team clean, subcontractor, do i have to sign in, do i sign out, do team clean staff sign in, team clean employees, sign in and out at a team clean site.
+Last checked: 2026-11-19
