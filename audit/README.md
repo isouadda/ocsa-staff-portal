@@ -2173,6 +2173,101 @@ say the same as the dashboard and Help, for new requests and old ones
 alike. The stub's twins for the two names follow the table, so its
 Spanish is now the API's as well.
 
+## What the robot found in the staff app (part 408, section 1)
+
+The robot's Round 5 (ocsa-journeys part 406, "Findings while building")
+listed seven faults in the staff app. Each is fixed and held by a journey,
+in English and Spanish, failing on the main of part 404:
+
+- `uncheckearlier`: a check the person made before this session started
+  (an earlier session of the same shift run or checklist day) is not
+  offered an uncheck, since routes/clock.js takes back only a check of the
+  session open now and would answer 200 and remove nothing. A tap says
+  **You checked this on an earlier shift. It stays checked.** under the
+  row and sends nothing. An uncheck the API turns away as made in an
+  earlier session (409 `tasks.notThisSession`, ocsa-api Round 17, not on
+  its main yet) shows the API's words under the row and checks the box
+  again at once, with no error toast. The stub scopes its uncheck on the
+  session as routes/clock.js does, and answers the 409 behind
+  `notThisSession` with words of its own until the API writes them.
+- `supplyfirstform`: the API's index (`GET /api`) is asked with the
+  token, since part 370 answers it to someone signed in alone, so the
+  form with items, a quantity and a note shows on a person's first
+  request. The stub answers the index 401 `auth.required` with no token.
+- `supplysiteoff`: off the clock a supply request names one of the
+  person's sites (`GET /api/forms/my-sites`, the rule the API's
+  canReadSite takes a site by): picked and shown when they have one,
+  chosen when they have more (Choose a site first. until one is), and sent
+  as `siteId` on both forms. The stub answers my-sites to anyone behind
+  `mySites`.
+- `schedulenewest`: My Schedule draws only the newest read's answer, so
+  Next tapped twice quickly never lets the older week's late answer
+  replace the week shown. The stub holds the first read of one week
+  behind `scheduleSlow` ({ startDate, ms }).
+- `newmessagestaff`: New message offers staff only to an admin or the
+  super admin (`user.isSuperAdmin`), who the API lets open a staff
+  member's private chat (readsPrivateLines); a supervisor is offered the
+  office alone, as the dashboard does.
+- `profilecleared`: a profile field cleared is sent as null, never "". The
+  stub's `profileValues` gives the profile values to clear. Remove photo
+  waits on the API: `POST /api/users/profile/photo` refuses an empty
+  photoUrl and no route clears it.
+- `docpartsnone`: the API answers `parts` on every document, [] for one
+  with none (helpers/documents.js partsIn), and an empty list reads in the
+  plain look, a section at a time. The stub now answers `parts` always.
+
+## The hooks the robot asked for (part 408, section 2)
+
+Every hook and mark under the robot's "Waiting on the staff app"
+(ocsa-journeys part 406), as it named them where it named them:
+
+- Chat: `data-chat-id` and `data-chat-type` on each chat in the list (the
+  group, site and private rows), `data-chat-input` on the message box and
+  `data-chat-send` on Send.
+- My Schedule: `data-week-day` (YYYY-MM-DD) on each day of the week strip,
+  `data-time-off-row` and `data-time-off-status` on each row of My time
+  off, `data-pickup-id` on Shift Pickup's open shifts and My Pickups (with
+  `data-pickup-list` available or mine), `data-drop-form` on the shift's
+  drop form.
+- The checklist: `data-task-box` and `data-task-done` on a person's own
+  box, `data-task-saved` on "Saved on this phone. It sends when you have
+  signal.", `data-task-note` on a row's note.
+- `data-form-field` on each question of a form (the walk's blocks keep
+  `data-walk-field` beside it).
+- Supplies: `data-supply-type` and `data-supply-urgency` on the request's
+  choices, `data-supply-row` on each supply, `data-supply-log` on each line
+  of this shift's log.
+- `data-help-draft` on each row of Help's Unfinished reports.
+- Settings: `data-language-pick` and `data-text-size` with `data-picked`
+  on the picks; `data-bell` and `data-unread` on the bell and
+  `data-notice-id` (with `data-notice-unread`) on each of its rows;
+  `data-profile-field` on the profile's values.
+- Inspect: `data-inspect-row` (with `data-inspect-status`) on each row of
+  My Inspections; the Field kit's `data-fk-tile` on each tile,
+  `data-fk-session-cancel` on Cancel the session and
+  `data-fk-signin-remove` on a sign-in's Remove; `data-library-count` on
+  the Library.
+
+A hook changes nothing a person sees. The one thing the robot asked for
+that does is a cancel for a scheduled inspection on Inspect: under each
+open row of My Inspections, for a holder of manage_inspections (the
+capability Inspect already reads for + Schedule), **Cancel inspection**
+asks **Cancel this inspection?** with Keep it, sends PATCH
+/api/inspections/scheduled/:id { status: cancelled } (the route voids its
+walk draft), says **Inspection cancelled** and reads the list again; a
+refusal is said in the API's words under the row. The stub answers that
+PATCH as routes/inspections.js does (403 without the capability, the
+status list, 404, a completed one locked).
+
+Two journeys, in English and Spanish, each failing on the main of part
+404:
+
+- `robothooks` finds every hook above on the screen a person reaches it
+  from, as a custodian and as a supervisor (26 checks).
+- `inspectcancel`: Cancel inspection asked first, Keep it changing nothing,
+  the PATCH sent and said once done, and none offered without the
+  capability.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

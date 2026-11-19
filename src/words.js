@@ -1719,6 +1719,11 @@ export const WORDS = {
   "This phone has no signal. Your list loads by itself when signal returns.": "Este tel\u00e9fono no tiene se\u00f1al. Su lista se carga sola cuando vuelva la se\u00f1al.",
   // Part 404: the sign card's heading.
   "To read and sign": "Para leer y firmar",
+  "You checked this on an earlier shift. It stays checked.": "Usted marc\u00f3 esta tarea en un turno anterior. Sigue marcada.",
+  "Cancel inspection": "Cancelar inspecci\u00f3n",
+  "Cancel this inspection?": "\u00bfCancelar esta inspecci\u00f3n?",
+  "Inspection cancelled": "Inspecci\u00f3n cancelada",
+  "Not cancelled yet. Check your signal and try again.": "Todav\u00eda no se cancel\u00f3. Revise su se\u00f1al e intente de nuevo.",
   },
 };
 
@@ -3314,6 +3319,11 @@ WORDS.fr = {
   "This phone has no signal. Your list loads by itself when signal returns.": "Ce t\u00e9l\u00e9phone n'a pas de r\u00e9seau. Votre liste se charge toute seule d\u00e8s que le r\u00e9seau revient.",
   // Part 404: the sign card's heading.
   "To read and sign": "\u00c0 lire et \u00e0 signer",
+  "You checked this on an earlier shift. It stays checked.": "Vous avez coch\u00e9 cette t\u00e2che lors d'un service pr\u00e9c\u00e9dent. Elle reste coch\u00e9e.",
+  "Cancel inspection": "Annuler l'inspection",
+  "Cancel this inspection?": "Annuler cette inspection\u00a0?",
+  "Inspection cancelled": "Inspection annul\u00e9e",
+  "Not cancelled yet. Check your signal and try again.": "Pas encore annul\u00e9e. V\u00e9rifiez votre r\u00e9seau et r\u00e9essayez.",
 };
 
 // {name} is replaced after the language is chosen, so the

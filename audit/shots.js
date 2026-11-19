@@ -750,6 +750,17 @@ const SHOTS = [
       await s.pause(400);
       return s.mark("[data-shots-target]");
     } },
+  // Part 408: a check made on an earlier shift, tapped: the line under it
+  // says it stays checked.
+  { name: "task-earlier-shift", entry: E("Uncheck a task checked by mistake"), o: { signedIn: true, stub: { completions: [{ taskId: "task-1", userId: "u-one" }, { taskId: "task-3", userId: "u-one", at: NOW.getTime() - 4 * 60 * 60 * 1000 }], sessionStartedAt: new Date(NOW.getTime() - 3 * 60 * 60 * 1000).toISOString() } },
+    go: async (s) => {
+      if (!(await s.go("Tasks"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector('[data-task-box="task-3"]')))) return false;
+      await s.page.evaluate(() => { const b = document.querySelector('[data-task-box="task-3"]'); b.scrollIntoView({ block: "center" }); b.click(); });
+      if (!(await s.waitFor(() => !!document.querySelector('[data-task-note="task-3"]')))) return false;
+      await s.pause(400);
+      return s.mark('[data-task-row="task-3"]');
+    } },
   { name: "task-detail", entry: E("See a checklist task's details"), o: { signedIn: true },
     go: async (s) => {
       if (!(await s.go("Tasks"))) return false;
@@ -815,7 +826,7 @@ const SHOTS = [
     } },
   { name: "issues-list", entry: E("See the issues reported at your sites"), o: { signedIn: true, stub: { issueSheet: true, person: SUPERVISOR } },
     go: async (s) => { if (!(await s.go("Issues"))) return false; if (!(await s.waitFor(() => !!document.querySelector('[data-issue-row="iss-a1"] [data-issue-mine]')))) return false; await s.show(s.say("Issues")); return true; } },
-  { name: "supply-request", entry: E("Request supplies or report damaged gear"), o: { signedIn: true, stub: { clockedIn: false, supplyItems: true } },
+  { name: "supply-request", entry: E("Request supplies or report damaged gear"), o: { signedIn: true, stub: { clockedIn: false, supplyItems: true, mySites: true } },
     go: async (s) => {
       if (!(await s.go("Supplies"))) return false;
       await s.tap(s.say("+ Request"));
@@ -829,7 +840,13 @@ const SHOTS = [
       // The second item's supply narrowed by typing, before it is tapped.
       await s.fill('[data-supply-line-supply="1"] [data-pick-search]', "soap");
       if (!(await s.waitFor(() => document.querySelectorAll('[data-supply-line-supply="1"] [data-pick-row]').length === 1))) return false;
-      await s.top();
+      // Part 408: off the clock the request names its site, chosen here
+      // from the person's three.
+      if (!(await s.waitFor(() => !!document.querySelector('[data-supply-site] [data-pick-row="site-north"]')))) return false;
+      await s.page.click('[data-supply-site] [data-pick-row="site-north"]');
+      await s.pause(300);
+      await s.page.evaluate(() => { const d = document.querySelector("[data-supply-site]"); if (d) d.scrollIntoView({ block: "center" }); });
+      await s.pause(300);
       return true;
     } },
   { name: "supply-requests-mine", entry: E("Request supplies or report damaged gear"), o: { signedIn: true, stub: { clockedIn: false, supplyItems: true } },
@@ -856,6 +873,17 @@ const SHOTS = [
   // The stub gives a supervisor the permission to schedule one.
   { name: "inspection-schedule", entry: E("Schedule an inspection from the portal"), o: { signedIn: true, stub: { person: SUPERVISOR } },
     go: async (s) => { if (!(await s.go("Inspect"))) return false; await s.pause(600); await s.tap(s.say("+ Schedule")); return s.waitText(s.say("Schedule Inspection")); } },
+  // Part 408: Cancel inspection under a scheduled inspection, asked first.
+  { name: "inspect-cancel", entry: E("Cancel a scheduled inspection"), o: { signedIn: true, stub: { person: SUPERVISOR, scheduleInspections: true } },
+    go: async (s) => {
+      if (!(await s.go("Inspect"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector('[data-inspect-cancel="in-s1"]')))) return false;
+      await s.page.evaluate(() => { const b = document.querySelector('[data-inspect-cancel="in-s1"]'); b.click(); });
+      if (!(await s.waitFor(() => !!document.querySelector('[data-inspect-cancel-ask="in-s1"]')))) return false;
+      await s.page.evaluate(() => { const d = document.querySelector('[data-inspect-row="in-s1"]'); if (d) d.scrollIntoView({ block: "center" }); });
+      await s.pause(400);
+      return s.mark('[data-inspect-cancel-ask="in-s1"]');
+    } },
   // Step 335: Start an inspection at a site with one template, and at one
   // with two, which asks which.
   { name: "inspection-start", entry: E("Start an inspection without a schedule"), o: { signedIn: true, stub: { person: SUPERVISOR, startInspection: true } },
@@ -883,8 +911,10 @@ const SHOTS = [
     go: async (s) => { if (!(await s.go("Chat"))) return false; return s.waitText(s.say("No chats are set up for you yet. Ask your supervisor.")); } },
   { name: "chat-tag", entry: E("Tag someone in a chat"), o: { signedIn: true },
     go: async (s) => { if (!(await s.go("Chat"))) return false; await s.pause(900); await s.tap("North Building"); await s.pause(900); await s.tapLabel(s.say("Tag someone")); return s.waitText(s.say("Tag someone")); } },
-  { name: "chat-new-message", entry: E("Start a message to someone in the office or on staff"), o: { signedIn: true, stub: { person: SUPERVISOR, chatPeopleRoute: true } },
-    go: async (s) => { if (!(await s.go("Chat"))) return false; if (!(await s.waitText(s.say("New message")))) return false; await s.tap(s.say("New message")); return s.waitText(s.say("Office")); } },
+  // Part 408: as an admin, who is offered the office and staff; a
+  // supervisor is offered the office alone.
+  { name: "chat-new-message", entry: E("Start a message to someone in the office or on staff"), o: { signedIn: true, stub: { person: ADMIN_PERSON, chatPeopleRoute: true } },
+    go: async (s) => { if (!(await s.go("Chat"))) return false; if (!(await s.waitText(s.say("New message")))) return false; await s.tap(s.say("New message")); return s.waitText(s.say("Staff")); } },
 
   // Notices, Settings and the app itself.
   // Step 336: a case assigned, which offers Open in the dashboard, a shift

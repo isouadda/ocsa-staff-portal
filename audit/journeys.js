@@ -8675,7 +8675,7 @@ const PART373_S3_JOURNEYS = [
       // A new entry goes at the end: after it come only the entries added
       // since, in the order they were added (part 388's two).
       const after = whole.slice(whole.indexOf("\n## " + FILL_TITLE) + 4).split("\n## ").slice(1).map(x => x.split("\n")[0]);
-      expect("it comes after every entry before it, followed only by those added since", JSON.stringify(after) === JSON.stringify(["See the findings about your work (staff portal)", "Follow up an inspection finding (staff portal)"]), JSON.stringify(after));
+      expect("it comes after every entry before it, followed only by those added since", JSON.stringify(after) === JSON.stringify(["See the findings about your work (staff portal)", "Follow up an inspection finding (staff portal)", "Cancel a scheduled inspection (staff portal)"]), JSON.stringify(after));
       const pictures = ["inspection-fill-card", "inspection-fill-send"];
       expect("with its two pictures, each taken in English and Spanish", pictures.every(n => entry.indexOf("\nPicture: " + n + "\n") !== -1 && ["en", "es"].every(l => require("fs").existsSync(shotFile(n, l)))), JSON.stringify(pictures));
       expect("and the words people ask with, in English and Spanish", has(entry, "fill out an inspection") && has(entry, "llenar la inspecci\u00f3n"), entry.split("\n").find(x => x.indexOf("Words people use") === 0) || "");
@@ -11510,5 +11510,366 @@ const PART404_S3_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...PART404_S3_JOURNEYS);
+
+// --- Round 16 of the staff app (part 408), section 1 ----------------------
+//
+// The robot's findings in the staff app (ocsa-journeys part 406, Findings
+// while building 1 to 4 and 7 to 9), each failing on the main of part 404.
+const R408_NOW = new Date("2026-10-02T01:30:00Z").getTime();
+const r408Body = (stub, method, path) => { const c = sent(stub, method, path); return c.length ? c[c.length - 1].body : null; };
+const r408Sites = (page) => page.evaluate(() => { const d = document.querySelector("[data-supply-site]"); return d ? { value: d.getAttribute("data-supply-site"), text: d.innerText.replace(/\s+/g, " ").trim() } : null; });
+const r408Open = async (page, language, type) => {
+  await clickText(page, say("+ Request", language));
+  await pause(page, 900);
+  await clickText(page, say(type, language));
+  await pause(page, 700);
+};
+const PART408_S1_JOURNEYS = [
+  {
+    id: "uncheckearlier",
+    label: "An uncheck that removes nothing (part 408, 1.1): the person's own check made before this shift started is not offered an uncheck, a tap says it stays checked and sends nothing, and the box stays checked; an uncheck the API turns away as made in an earlier session (409 tasks.notThisSession) says its words under the row and keeps the box checked",
+    run: async (open, language, expect) => {
+      const name = itemName("task-3", language);
+      const app = await open({ stubOptions: { completions: [{ taskId: "task-3", userId: PERSON.id, at: R408_NOW - 4 * 60 * 60 * 1000 }], sessionStartedAt: new Date(R408_NOW - 3 * 60 * 60 * 1000).toISOString() } });
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1400);
+        expect("the check made before this shift started reads checked", (await rowOf(app.page, language, name)).done, JSON.stringify(await rowOf(app.page, language, name)));
+        await watchToasts(app.page);
+        await tapRow(app.page, language, name);
+        await pause(app.page, 1200);
+        const seen = await toastsSeen(app.page);
+        const row = await rowOf(app.page, language, name);
+        expect("a tap on it sends no uncheck", sent(app.stub, "DELETE", "/api/clock/tasks/task-3/complete").length === 0, "sent " + sent(app.stub, "DELETE", "/api/clock/tasks/task-3/complete").length);
+        expect("and says under the row that it stays checked", has(row.text, say("You checked this on an earlier shift. It stays checked.", language)), row.text.slice(0, 200));
+        expect("and never says Task unchecked, the box still checked", row.done && !seen.seen.some(x => x.text === say("Task unchecked", language)), JSON.stringify(seen.seen.map(x => x.text)) + " " + row.done);
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      // A check this phone made in the session it had read, the session
+      // since started again elsewhere: the API answers 409.
+      const again = await open({ stubOptions: { notThisSession: true, completions: [] } });
+      try {
+        await openTab(again.page, "tasks", language);
+        await pause(again.page, 1400);
+        await tapRow(again.page, language, name);
+        await pause(again.page, 2500);
+        expect("a check made now reads checked", (await rowOf(again.page, language, name)).done, JSON.stringify(await rowOf(again.page, language, name)));
+        again.stub.state.sessionStartedAt = R408_NOW + 60 * 1000;
+        await watchToasts(again.page);
+        await tapRowNow(again.page, language, name);
+        await pause(again.page, 400);
+        const quick = await rowOf(again.page, language, name);
+        await pause(again.page, 1600);
+        const seen = await toastsSeen(again.page);
+        const row = await rowOf(again.page, language, name);
+        const said = refusalIn(require("./stub").NOT_THIS_SESSION, language);
+        expect("the uncheck is sent and the API turns it away 409", sent(again.stub, "DELETE", "/api/clock/tasks/task-3/complete").length === 1, "sent " + sent(again.stub, "DELETE", "/api/clock/tasks/task-3/complete").length);
+        expect("its words show under the row", has(row.text, said), row.text.slice(0, 200));
+        expect("the box is checked again at once and stays checked, with no error toast", quick.done && row.done && !seen.seen.some(x => x.text === said || x.text === say("Task unchecked", language)), JSON.stringify({ quick: quick.done, row: row.done, toasts: seen.seen.map(x => x.text) }));
+      } finally { await again.context.close(); }
+    },
+  },
+  {
+    id: "supplyfirstform",
+    label: "The first supply request (part 408, 1.2): with no request yet, the API's index is asked with the token and the form with items, a quantity and a note shows the first time",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { supplyItems: true, supplyEmpty: true } });
+      try {
+        await openTab(app.page, "supplies", language);
+        await pause(app.page, 1400);
+        await r408Open(app.page, language, "Refill");
+        const index = sent(app.stub, "GET", "/api").filter(c => c.path === "/api");
+        expect("the API's index is asked with the token", index.length >= 1 && index.every(c => /^Bearer /.test(String((c.headers || {}).authorization || ""))), JSON.stringify(index.map(c => !!(c.headers || {}).authorization)));
+        const lines = await shows(app.page, "[data-supply-lines] [data-supply-line-qty] , [data-supply-lines] [data-supply-line-note]", 4000);
+        expect("the first request draws the form with items, a quantity and a note", lines && !!(await app.page.$("[data-supply-add]")), (await bodyText(app.page)).slice(0, 220));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "supplysiteoff",
+    label: "Supplies off the clock (part 408, 1.3): a request names one of the person's sites, picked for them when they have one, chosen when they have more, refused on the phone until one is chosen, and sent with it",
+    run: async (open, language, expect) => {
+      const one = await open({ stubOptions: { clockedIn: false, supplyItems: true, supplyEmpty: true, mySites: true, assignedSites: [{ siteId: "site-south", siteName: "South Building" }] } });
+      try {
+        await openTab(one.page, "supplies", language);
+        await pause(one.page, 1400);
+        await r408Open(one.page, language, "New Supply");
+        await shows(one.page, "[data-supply-site]", 4000);
+        const site = await r408Sites(one.page);
+        expect("with one site it is picked and shown", !!site && site.value === "site-south" && has(site.text, "South Building"), JSON.stringify(site));
+        await one.page.fill('[data-supply-line-name="0"]', "Invented mop heads", { timeout: 4000 }).catch(() => {});
+        await clickText(one.page, say("Submit Request", language));
+        await pause(one.page, 1200);
+        const b = r408Body(one.stub, "POST", "/api/supplies/requests");
+        expect("and the request is sent with it", !!b && b.siteId === "site-south", JSON.stringify(b));
+        await spokenHere(one, language, expect);
+      } finally { await one.context.close(); }
+      const more = await open({ stubOptions: { clockedIn: false, supplyItems: true, supplyEmpty: true, mySites: true } });
+      try {
+        await openTab(more.page, "supplies", language);
+        await pause(more.page, 1400);
+        await r408Open(more.page, language, "New Supply");
+        await shows(more.page, "[data-supply-site]", 4000);
+        const site = await r408Sites(more.page);
+        expect("with more sites none is picked", !!site && site.value === "", JSON.stringify(site));
+        await more.page.fill('[data-supply-line-name="0"]', "Invented mop heads", { timeout: 4000 }).catch(() => {});
+        await clickText(more.page, say("Submit Request", language));
+        await pause(more.page, 900);
+        const refused = await r408Sites(more.page);
+        expect("sending with none chosen says to choose a site and sends nothing", !!refused && has(refused.text, say("Choose a site first.", language)) && sent(more.stub, "POST", "/api/supplies/requests").length === 0, JSON.stringify(refused) + " sent " + sent(more.stub, "POST", "/api/supplies/requests").length);
+        await more.page.evaluate(() => { const b = Array.from(document.querySelectorAll("[data-supply-site] button")).find(x => x.innerText.trim() === "West Building"); if (b) b.click(); });
+        await pause(more.page, 500);
+        await clickText(more.page, say("Submit Request", language));
+        await pause(more.page, 1200);
+        const b = r408Body(more.stub, "POST", "/api/supplies/requests");
+        expect("the site chosen is sent", !!b && b.siteId === "site-west", JSON.stringify(b));
+      } finally { await more.context.close(); }
+    },
+  },
+  {
+    id: "schedulenewest",
+    label: "My Schedule's late answer (part 408, 1.4): Next tapped twice quickly, the first week's answer arriving last, the week shown keeps its own shift, and the week before still draws its own",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { scheduleSlow: { startDate: "2026-10-05", ms: 2500 }, schedule: { scheduled: [{ id: "sh-408a", scheduled_date: "2026-10-06", start_time: "06:00", end_time: "14:00", site_name: "South Building", status: "scheduled", building_name: "Annex", floor_number: "1" }, { id: "sh-408b", scheduled_date: "2026-10-13", start_time: "07:00", end_time: "15:00", site_name: "West Building", status: "scheduled", building_name: "Annex", floor_number: "1" }], actual: [], pickups: [] } } });
+      try {
+        await openTab(app.page, "schedule", language);
+        await pause(app.page, 1500);
+        const reads = () => sent(app.stub, "GET", "/api/pickups/my-schedule").filter(c => c.path === "/api/pickups/my-schedule").length;
+        const first = reads();
+        await tapAria(app.page, say("Next", language));
+        await pause(app.page, 250);
+        await tapAria(app.page, say("Next", language));
+        await pause(app.page, 4000);
+        expect("two weeks are asked for", reads() - first >= 2, (reads() - first) + " reads");
+        const text = await bodyText(app.page);
+        expect("the week shown draws its own shift, never replaced by the week before's late answer", has(text, "West Building") && !has(text, "South Building"), text.slice(0, 260));
+        await spokenHere(app, language, expect);
+        await tapAria(app.page, say("Back", language));
+        await pause(app.page, 1500);
+        const back = await bodyText(app.page);
+        expect("the week before, shown again, draws its own shift", has(back, "South Building"), back.slice(0, 260));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "newmessagestaff",
+    label: "New message (part 408, 1.5): a supervisor is offered the office alone, since the API opens a staff member's private chat only for an admin; an admin is offered staff too",
+    run: async (open, language, expect) => {
+      const groups = async (app) => {
+        await openTab(app.page, "chat", language);
+        await pause(app.page, 1400);
+        await clickText(app.page, say("New message", language));
+        await pause(app.page, 900);
+        return app.page.evaluate(() => { const d = document.querySelector('[aria-labelledby="ocsa-new-title"]'); return d ? Array.from(d.querySelectorAll('[role="group"]')).map(g => g.getAttribute("aria-labelledby")) : null; });
+      };
+      const sup = await open({ stubOptions: { person: Object.assign({}, PERSON, { id: "u-408-sup", role: "supervisor" }), chatPeopleRoute: true } });
+      try {
+        const g = await groups(sup);
+        expect("a supervisor is offered the office and no staff", Array.isArray(g) && g.indexOf("ocsa-new-office") !== -1 && g.indexOf("ocsa-new-staff") === -1, JSON.stringify(g));
+        await spokenHere(sup, language, expect);
+      } finally { await sup.context.close(); }
+      const adm = await open({ stubOptions: { person: ADMIN_PERSON, chatPeopleRoute: true } });
+      try {
+        const g = await groups(adm);
+        expect("an admin is offered the office and staff", Array.isArray(g) && g.indexOf("ocsa-new-office") !== -1 && g.indexOf("ocsa-new-staff") !== -1, JSON.stringify(g));
+      } finally { await adm.context.close(); }
+    },
+  },
+  {
+    id: "profilecleared",
+    label: "A profile field cleared (part 408, 1.6): Address Line 2 and Emergency Contact emptied and saved are sent as null, and a field changed is sent as typed",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { profileValues: { addressLine2: "Unit 4", emergencyContactName: "Invented Contact", city: "Invented City" } } });
+      try {
+        await openTab(app.page, "profile", language);
+        await pause(app.page, 1200);
+        await clickText(app.page, say("Edit", language));
+        await pause(app.page, 700);
+        await app.page.fill('input[placeholder="' + say("Apt, suite, etc.", language) + '"]', "");
+        await app.page.fill('input[placeholder="' + say("Full name", language) + '"]', "");
+        await app.page.evaluate((v) => { const i = Array.from(document.querySelectorAll(".sp-content input")).find(x => x.value === v); if (i) i.setAttribute("data-r408-city", "1"); }, "Invented City");
+        await app.page.fill("[data-r408-city]", "Another City");
+        await clickText(app.page, say("Save", language));
+        await pause(app.page, 1200);
+        const b = r408Body(app.stub, "PATCH", "/api/users/profile/me");
+        expect("a field cleared is sent as null", !!b && b.addressLine2 === null && b.emergencyContactName === null, JSON.stringify(b));
+        expect("a field changed is sent as typed, and nothing else", !!b && b.city === "Another City" && Object.keys(b).sort().join(",") === "addressLine2,city,emergencyContactName", JSON.stringify(b));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "docpartsnone",
+    label: "A document with no parts (part 408, 1.7): the API answers parts [] on every document, and one with none opens in the plain look, a section at a time",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { library: true } });
+      try {
+        await openTab(app.page, "library", language);
+        await shows(app.page, '[data-library-folder="QMS"]', 6000);
+        await app.page.evaluate(() => { const b = document.querySelector('[data-library-folder="QMS"]'); if (b) b.click(); });
+        await shows(app.page, '[data-library-doc="OCSA-QMS-907"]', 6000);
+        await app.page.evaluate(() => { const b = document.querySelector('[data-library-doc="OCSA-QMS-907"]'); if (b) { b.scrollIntoView(); b.click(); } });
+        await shows(app.page, '[data-doc="read"], [data-doc-look]', 6000);
+        await pause(app.page, 500);
+        const look = await app.page.evaluate(() => { const d = document.querySelector("[data-doc]"); return d ? { doc: d.getAttribute("data-doc"), look: d.getAttribute("data-doc-look"), section: d.getAttribute("data-doc-section") } : null; });
+        expect("a document with parts [] opens in the plain look", !!look && look.look === null && look.doc === "read" && look.section === "1", JSON.stringify(look) + " " + (await bodyText(app.page)).slice(0, 200));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART408_S1_JOURNEYS);
+
+// --- Round 16 of the staff app (part 408), section 2 ----------------------
+//
+// Every data- hook and mark the robot named under "Waiting on the staff
+// app" (ocsa-journeys part 406), found where it said, on the screen a
+// person reaches it from. A hook changes nothing a person sees; the one
+// thing it asked for that does is a Cancel inspection under a scheduled
+// inspection on Inspect, for a holder of manage_inspections.
+const r408Has = (page, sel) => page.evaluate((q) => { const e = document.querySelector(q); return !!e; }, sel);
+const r408Attr = (page, sel, name) => page.evaluate(([q, n]) => { const e = document.querySelector(q); return e ? e.getAttribute(n) : null; }, [sel, name]);
+const PART408_S2_JOURNEYS = [
+  {
+    id: "robothooks",
+    label: "The hooks the robot asked for (part 408, 2): every data- hook and mark it named, on the chat list, the message box and Send; My Schedule's days, time off rows, pickup cards and the drop form; the checklist box, the saved mark and a row's note; each form question; Supplies; Help's unfinished reports; Settings' picks, the bell and its rows and the profile's values; My Inspections' rows and Cancel inspection; the Field kit's tiles, Cancel the session and a sign-in's Remove; and the Library's count",
+    run: async (open, language, expect) => {
+      const found = (what, ok, detail) => expect(what, !!ok, detail === undefined ? String(ok) : detail);
+      const app = await open({ stubOptions: { completions: [{ taskId: "task-1", userId: PERSON.id }, { taskId: "task-3", userId: PERSON.id, at: R408_NOW - 4 * 60 * 60 * 1000 }], sessionStartedAt: new Date(R408_NOW - 3 * 60 * 60 * 1000).toISOString(), library: true, myTimeOff: [timeOffRow({ id: "to-hooks", status: "requested" })], myPickups: [{ id: "pk-hooks", site_name: "South Building", scheduled_date: "2026-10-08", start_time: "17:00", end_time: "23:00", status: "claimed" }], drafts: [{ id: "draft-hooks", formName: "Incident report", answered: 1, remaining: 4, conversationId: "cv-hooks" }] } });
+      try {
+        // Chat: each chat in the list, then the box and Send of one open.
+        await openTab(app.page, "chat", language);
+        await shows(app.page, "[data-chat-id]", 6000);
+        const chatType = await r408Attr(app.page, "[data-chat-id]", "data-chat-type");
+        found("each chat in the list carries data-chat-id and data-chat-type", chatType !== null && !!(await r408Attr(app.page, "[data-chat-id]", "data-chat-id")), String(chatType));
+        await app.page.evaluate(() => { const b = document.querySelector("[data-chat-id]"); if (b) b.click(); });
+        await pause(app.page, 900);
+        found("the message box and Send carry data-chat-input and data-chat-send", (await r408Has(app.page, "[data-chat-input]")) && (await r408Has(app.page, "[data-chat-send]")));
+        // My Schedule: the week's days, a time off row, the drop form.
+        await openTab(app.page, "schedule", language);
+        await shows(app.page, "[data-week-day]", 6000);
+        const day = await r408Attr(app.page, "[data-week-day]", "data-week-day");
+        found("each day of My Schedule's week carries data-week-day as YYYY-MM-DD", /^\d{4}-\d{2}-\d{2}$/.test(day || ""), String(day));
+        await shows(app.page, "[data-time-off-row]", 6000);
+        found("a row of My time off carries data-time-off-row and data-time-off-status", (await r408Attr(app.page, "[data-time-off-row]", "data-time-off-row")) === "to-hooks" && (await r408Attr(app.page, "[data-time-off-row]", "data-time-off-status")) === "requested", String(await r408Attr(app.page, "[data-time-off-row]", "data-time-off-status")));
+        await openShiftDetail(app.page, language, true);
+        found("the shift's drop form carries data-drop-form", await shows(app.page, "[data-drop-form]", 4000));
+        await app.page.keyboard.press("Escape").catch(() => {});
+        await app.page.mouse.click(8, 8);
+        await pause(app.page, 400);
+        // Shift Pickup: an open shift's card and one of My Pickups.
+        await openTab(app.page, "pickup", language);
+        found("an open shift's card carries data-pickup-id", await shows(app.page, '[data-pickup-id][data-pickup-list="available"]', 6000));
+        await clickText(app.page, say("My Pickups", language));
+        found("a card of My Pickups carries data-pickup-id", await shows(app.page, '[data-pickup-id="pk-hooks"]', 6000));
+        // Supplies: a supply's row, the log after one is used, and the
+        // request form's type and urgency.
+        await openTab(app.page, "supplies", language);
+        found("a supply's row carries data-supply-row", await shows(app.page, "[data-supply-row]", 6000));
+        await app.page.evaluate(() => { const b = document.querySelector("[data-supply-row] button"); if (b) b.click(); });
+        await pause(app.page, 500);
+        await clickText(app.page, say("Log Usage", language));
+        found("a line of this shift's log carries data-supply-log", await shows(app.page, "[data-supply-log]", 6000));
+        await clickText(app.page, say("+ Request", language));
+        found("the request's types and urgencies carry data-supply-type and data-supply-urgency", (await shows(app.page, '[data-supply-type="refill"]', 4000)) && (await r408Has(app.page, '[data-supply-urgency="normal"]')));
+        // Help: a row of Unfinished reports.
+        await openTab(app.page, "agent", language);
+        found("a row of Help's Unfinished reports carries data-help-draft", await shows(app.page, '[data-help-draft="draft-hooks"]', 6000));
+        // Settings: the language and text size picks, and the bell.
+        await openTab(app.page, "settings", language);
+        await shows(app.page, "[data-language-pick]", 6000);
+        found("Settings' language picks carry data-language-pick and data-picked", (await r408Attr(app.page, '[data-language-pick][data-picked="1"]', "data-language-pick")) === language, String(await r408Attr(app.page, '[data-language-pick][data-picked="1"]', "data-language-pick")));
+        found("Settings' text size picks carry data-text-size and data-picked", (await r408Attr(app.page, '[data-text-size][data-picked="1"]', "data-text-size")) !== null);
+        found("the bell carries data-bell and data-unread", (await r408Attr(app.page, "[data-bell]", "data-unread")) !== null);
+        // The profile's values.
+        await openTab(app.page, "profile", language);
+        found("the profile's values carry data-profile-field", (await shows(app.page, '[data-profile-field="name"]', 6000)) && (await r408Has(app.page, '[data-profile-field="emergencyContactName"]')));
+        // The Library's count.
+        await openTab(app.page, "library", language);
+        await shows(app.page, "[data-library-folder]", 6000);
+        found("the Library carries data-library-count", Number(await r408Attr(app.page, "[data-library]", "data-library-count")) > 0, String(await r408Attr(app.page, "[data-library]", "data-library-count")));
+        // The checklist: a person's own box, a row's note, and the mark of
+        // a check kept on the phone.
+        await openTab(app.page, "tasks", language);
+        await shows(app.page, "[data-task-box]", 6000);
+        found("a person's own checklist box carries data-task-box and data-task-done", (await r408Attr(app.page, '[data-task-box="task-1"]', "data-task-done")) === "1", String(await r408Attr(app.page, '[data-task-box="task-1"]', "data-task-done")));
+        await tapRow(app.page, language, itemName("task-3", language));
+        found("a row's note carries data-task-note", await shows(app.page, '[data-task-note="task-3"]', 4000));
+        await spokenHere(app, language, expect);
+        await goOffline(app);
+        await tapRow(app.page, language, itemName("task-4", language));
+        found("the mark of a check kept on this phone carries data-task-saved", await shows(app.page, "[data-task-saved]", 6000));
+      } finally { await app.context.close(); }
+      // A form, on its own: each question's block.
+      const form = await open({});
+      try {
+        await openTab(form.page, "forms", language);
+        await pause(form.page, 900);
+        await startForm(form.page, formP(language).title);
+        found("each question of a form carries data-form-field", await shows(form.page, "[data-form-field]", 6000));
+      } finally { await form.context.close(); }
+      // A supervisor: My Inspections, the bell's rows and the Field kit.
+      const sup = await open({ stubOptions: { person: Object.assign({}, PERSON, { id: "u-408-hooks", role: "supervisor" }), scheduleInspections: true, training: true, fieldKit: true } });
+      try {
+        await openTab(sup.page, "inspect", language);
+        found("a row of My Inspections carries data-inspect-row", await shows(sup.page, '[data-inspect-row="in-s1"]', 6000));
+        found("a scheduled inspection offers Cancel inspection to a holder of manage_inspections", await shows(sup.page, '[data-inspect-cancel="in-s1"]', 4000));
+        await openTab(sup.page, "fieldkit", language);
+        found("each Field kit tile carries data-fk-tile", await shows(sup.page, '[data-fk-tile="session"]', 8000));
+        await sup.page.evaluate(() => { const b = document.querySelector('[data-fk-tile="session"]'); if (b) b.click(); });
+        const form = await shows(sup.page, '[data-fk-session-topic="tp-2"]', 8000);
+        if (form) {
+          await sup.page.fill("#ocsa-session-title", "Invented hooks refresher", { timeout: 4000 }).catch(() => {});
+          await sup.page.evaluate(() => { const b = document.querySelector('[data-fk-session-topic="tp-2"]'); if (b) b.click(); });
+          await pause(sup.page, 300);
+          await sup.page.evaluate(() => { const b = document.querySelector('[data-fk-session-start="1"]'); if (b) b.click(); });
+        }
+        const started = form && await shows(sup.page, '[data-fk-session="open"]', 8000);
+        for (let i = 0; started && i < 4 && !(await sup.page.$('[data-fk-signin="si-arrived"]')); i += 1) { await sup.page.clock.runFor(5000); await pause(sup.page, 300); }
+        found("an open session's Cancel the session carries data-fk-session-cancel", started && (await r408Has(sup.page, "[data-fk-session-cancel]")));
+        found("a sign-in's Remove carries data-fk-signin-remove", await shows(sup.page, '[data-fk-signin-remove="si-arrived"]', 6000));
+        await sup.page.evaluate(() => { const b = document.querySelector("[data-bell]"); if (b) b.click(); });
+        found("each row of the bell carries data-notice-id", await shows(sup.page, '[data-notice-id="n-insp"]', 6000));
+      } finally { await sup.context.close(); }
+    },
+  },
+  {
+    id: "inspectcancel",
+    label: "Cancel inspection (part 408, 2): a holder of manage_inspections cancels a scheduled inspection from its row on Inspect, asked first, Keep it changing nothing, sent as PATCH { status: cancelled } and said once done; someone without the capability is offered none",
+    run: async (open, language, expect) => {
+      const sup = await open({ stubOptions: { person: Object.assign({}, PERSON, { id: "u-408-insp", role: "supervisor" }), scheduleInspections: true } });
+      try {
+        await openTab(sup.page, "inspect", language);
+        await shows(sup.page, '[data-inspect-cancel="in-s1"]', 6000);
+        await sup.page.evaluate(() => { const b = document.querySelector('[data-inspect-cancel="in-s1"]'); if (b) b.click(); });
+        const asked = await shows(sup.page, '[data-inspect-cancel-ask="in-s1"]', 3000);
+        const askText = asked ? await sup.page.evaluate(() => document.querySelector('[data-inspect-cancel-ask="in-s1"]').innerText.replace(/\s+/g, " ")) : "";
+        expect("a tap on Cancel inspection asks first, sending nothing", asked && has(askText, say("Cancel this inspection?", language)) && has(askText, say("Keep it", language)) && sent(sup.stub, "PATCH", "/api/inspections/scheduled/").length === 0, askText);
+        await clickText(sup.page, say("Keep it", language));
+        expect("Keep it leaves it as it was", !(await r408Has(sup.page, '[data-inspect-cancel-ask="in-s1"]')) && sent(sup.stub, "PATCH", "/api/inspections/scheduled/").length === 0, "sent " + sent(sup.stub, "PATCH", "/api/inspections/scheduled/").length);
+        await sup.page.evaluate(() => { const b = document.querySelector('[data-inspect-cancel="in-s1"]'); if (b) b.click(); });
+        await shows(sup.page, '[data-inspect-cancel-yes="in-s1"]', 3000);
+        await watchToasts(sup.page);
+        await sup.page.evaluate(() => { const b = document.querySelector('[data-inspect-cancel-yes="in-s1"]'); if (b) b.click(); });
+        await pause(sup.page, 1500);
+        const seen = await toastsSeen(sup.page);
+        const b = r408Body(sup.stub, "PATCH", "/api/inspections/scheduled/in-s1");
+        expect("Cancel inspection sends PATCH { status: cancelled }", !!b && b.status === "cancelled" && Object.keys(b).length === 1, JSON.stringify(b));
+        const left = await r408Attr(sup.page, '[data-inspect-row="in-s1"]', "data-inspect-status");
+        expect("and says Inspection cancelled, the list read again with it gone or cancelled and Cancel inspection no longer offered", seen.seen.some(x => x.text === say("Inspection cancelled", language)) && !(await r408Has(sup.page, '[data-inspect-cancel="in-s1"]')) && (left === null || left === "cancelled") && sent(sup.stub, "GET", "/api/inspections/scheduled").length >= 2, JSON.stringify(seen.seen.map(x => x.text)) + " " + left);
+        await spokenHere(sup, language, expect);
+      } finally { await sup.context.close(); }
+      const lead = await open({ stubOptions: { person: Object.assign({}, PERSON, { id: "u-408-lead", role: "custodial_lead" }), scheduleInspections: true } });
+      try {
+        await openTab(lead.page, "inspect", language);
+        await shows(lead.page, '[data-inspect-row="in-s1"]', 6000);
+        await pause(lead.page, 800);
+        expect("someone without manage_inspections is offered no Cancel inspection", !(await r408Has(lead.page, "[data-inspect-cancel]")), "offered");
+      } finally { await lead.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART408_S2_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };
