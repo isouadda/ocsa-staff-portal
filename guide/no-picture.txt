@@ -13,3 +13,4 @@ What the environmental audit asks (staff portal) | It describes the questions of
 What the PPE hazard assessment asks (staff portal) | It describes the questions of the PPE hazard assessment, whose screen is the picture of Do a PPE hazard assessment; the stub does not hold the API's questions.
 What the safety committee minutes ask (staff portal) | It describes the questions of the safety committee minutes, whose screen is the picture of Record safety committee minutes; the stub does not hold the API's questions.
 Fill in a performance review with the employee (staff portal) | The review is filled on the admin dashboard, and the portal has no screen for it.
+Who starts shifts in the app at a Team Clean site (staff portal) | It states who uses the app at a Team Clean site, and has no screen of its own.
