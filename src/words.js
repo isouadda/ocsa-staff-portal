@@ -1724,6 +1724,10 @@ export const WORDS = {
   "Cancel this inspection?": "\u00bfCancelar esta inspecci\u00f3n?",
   "Inspection cancelled": "Inspecci\u00f3n cancelada",
   "Not cancelled yet. Check your signal and try again.": "Todav\u00eda no se cancel\u00f3. Revise su se\u00f1al e intente de nuevo.",
+  // Part 414 (section 1): the Employee of the Month's reveal.
+  "Employee of the Month": "Empleado del Mes",
+  "You're Employee of the Month": "Usted es el Empleado del Mes",
+  "See your certificate": "Ver su certificado",
   },
 };
 
@@ -3324,6 +3328,10 @@ WORDS.fr = {
   "Cancel this inspection?": "Annuler cette inspection\u00a0?",
   "Inspection cancelled": "Inspection annul\u00e9e",
   "Not cancelled yet. Check your signal and try again.": "Pas encore annul\u00e9e. V\u00e9rifiez votre r\u00e9seau et r\u00e9essayez.",
+  // Part 414 (section 1): the Employee of the Month's reveal.
+  "Employee of the Month": "Employ\u00e9 du mois",
+  "You're Employee of the Month": "Vous \u00eates l'employ\u00e9 du mois",
+  "See your certificate": "Voir votre certificat",
 };
 
 // {name} is replaced after the language is chosen, so the

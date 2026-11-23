@@ -2268,6 +2268,44 @@ Two journeys, in English and Spanish, each failing on the main of part
   the PATCH sent and said once done, and none offered without the
   capability.
 
+## The Employee of the Month's reveal (part 414, section 1)
+
+ocsa-api Round 19 (part 411, isouadda/ocsa-api#169, merged as 3782f2d)
+answers `recognition { current: { id, seen, isMe } | null, newShoutouts }
+| null` on `GET /api/me/summary`. With `current` there and `seen` false,
+Home plays the reveal once: a short burst of confetti (a canvas that takes
+no taps) and a card with the photo, or the initials in a gold circle when
+`photoUrl` is null, the name, **Employee of the Month**, the month name and
+the reason as the API answers them, and the site when there is one; then
+`POST /api/recognition/awards/:id/seen` (204, which `api()` now reads as
+done with nothing to read). The card is in Home's own column, above
+Start Shift and never over it, and its close button or a swipe across it
+closes it. It plays only on Home, past Choose your PIN and the alerts
+card, with no notice still to open, no sheet open and nothing first-day
+waiting on Home. A phone set to reduce motion gets the card alone. The
+winner reads **You're Employee of the Month** with their reason and
+**See your certificate**, which opens `GET
+/api/recognition/awards/:id/certificate.pdf`. `recognition` null shows
+nothing and reads nothing more. A photo link that ran out is read again
+through `GET /api/recognition/current` (FreshImg).
+
+The stub answers every route of routes/recognition.js as the person reads
+it (`recognition` in its options, see recogStateOf), the summary's part,
+and, behind `staffAt`, `GET /api/sites/:id`'s staff for the shout-out
+picker. `openApp` takes `reducedMotion`. Five journeys, in English and
+Spanish, each failing on the main of part 408:
+
+- `awardreveal`: the reveal plays by itself with confetti and the card's
+  every part, seen is sent once, Close closes it, and a reload never plays
+  it again; `recognition` null reads no award; a stale photo link is read
+  again and the photo shows.
+- `awardrevealme`: the winner's version and the certificate's read.
+- `awardinitials`: no photo, the initials **JE** in a gold circle.
+- `awardmotion`: reduce motion, the card and no confetti at any moment.
+- `awardstartshift`: the card and Start Shift never overlap and a tap at
+  Start Shift reaches it while the confetti falls; a swipe across the card
+  closes it; on Choose your PIN nothing plays and nothing is marked seen.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

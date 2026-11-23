@@ -11872,4 +11872,145 @@ const PART408_S2_JOURNEYS = [
 ];
 JOURNEYS.push(...PART408_S2_JOURNEYS);
 
+// --- Round 17 of the staff app (part 414), section 1 ----------------------
+//
+// The Employee of the Month's reveal (ocsa-api Round 19, part 411), each
+// failing on the main of part 408, where no screen reads recognition.
+const R414_AWARD = "aw-2026-09";
+const r414Reveal = (page) => page.evaluate(() => {
+  const e = document.querySelector("[data-recognition-reveal]");
+  if (!e) return null;
+  const r = e.getBoundingClientRect();
+  return { id: e.getAttribute("data-recognition-reveal"), me: e.getAttribute("data-reveal-me") === "1", motion: e.getAttribute("data-reveal-motion"), text: e.innerText.replace(/\s+/g, " ").trim(), box: { top: r.top + window.scrollY, bottom: r.bottom + window.scrollY, left: r.left, right: r.right } };
+});
+const r414Has = (page, sel) => page.evaluate((x) => !!document.querySelector(x), sel);
+const r414Click = (page, sel) => page.evaluate((x) => { const b = document.querySelector(x); if (b) b.click(); return !!b; }, sel);
+const r414Seen = (stub) => sent(stub, "POST", "/api/recognition/awards/" + R414_AWARD + "/seen").length;
+const r414Words = (language) => ({ month: require("./stub").recogMonthName("2026-09", language), reason: require("./stub").RECOG_REASON[language === "es" ? "es" : "en"] });
+// Whether confetti draws at any moment of the next ms milliseconds.
+const r414ConfettiWithin = async (page, ms) => { const end = Date.now() + ms; while (Date.now() < end) { if (await r414Has(page, "[data-confetti]")) return true; await pause(page, 100); } return false; };
+const PART414_S1_JOURNEYS = [
+  {
+    id: "awardreveal",
+    label: "The Employee of the Month's reveal (part 414, 1.1, 1.4): with recognition's current not seen, Home plays the reveal once, confetti and the card with the photo, the name, Employee of the Month, the month name and the reason as the API answers them and the site; seen is sent once; closed, it never plays again on the next open; recognition null shows nothing and reads nothing; a photo link that ran out is read again",
+    run: async (open, language, expect) => {
+      const words = r414Words(language);
+      const app = await open({ stubOptions: { recognition: {} } });
+      try {
+        const drawn = await shows(app.page, '[data-recognition-reveal="' + R414_AWARD + '"]', 8000);
+        const confetti = await r414ConfettiWithin(app.page, 1500);
+        const card = await r414Reveal(app.page);
+        expect("the reveal plays on Home by itself, with confetti", drawn && confetti, JSON.stringify(card));
+        expect("its card names the winner, Employee of the Month, the month, the site and the reason as the API answers them", !!card && has(card.text, "Jordan Example") && has(card.text, say("Employee of the Month", language)) && has(card.text, words.month) && has(card.text, "North Building") && has(card.text, words.reason) && !card.me, card ? card.text.slice(0, 220) : "no card");
+        expect("with the winner's photo", await shows(app.page, "[data-recognition-reveal] [data-award-photo]", 3000), "no photo");
+        await pause(app.page, 800);
+        expect("POST /api/recognition/awards/:id/seen is sent once", r414Seen(app.stub) === 1, "sent " + r414Seen(app.stub));
+        await spokenHere(app, language, expect);
+        await r414Click(app.page, "[data-reveal-close]");
+        await pause(app.page, 500);
+        expect("its close button closes it", !(await r414Has(app.page, "[data-recognition-reveal]")), "still drawn");
+        await app.page.reload();
+        await shows(app.page, "[data-start-shift], [data-bell]", 8000);
+        await pause(app.page, 3000);
+        expect("on the next open it never plays again, and seen is not sent again", !(await r414Has(app.page, "[data-recognition-reveal]")) && r414Seen(app.stub) === 1, "seen " + r414Seen(app.stub));
+      } finally { await app.context.close(); }
+      // recognition null: nothing shows and nothing more is read.
+      const none = await open({ stubOptions: { recognition: { null: true } } });
+      try {
+        await shows(none.page, "[data-bell]", 8000);
+        await pause(none.page, 2500);
+        expect("recognition null shows nothing and reads no award", !(await r414Has(none.page, "[data-recognition-reveal]")) && sent(none.stub, "GET", "/api/recognition/current").length === 0, "reads " + sent(none.stub, "GET", "/api/recognition/current").length);
+      } finally { await none.context.close(); }
+      // A photo link that ran out: the award is read again for a fresh one.
+      const stale = await open({ stubOptions: { recognition: {}, photoStale: { "GET /api/recognition/current": 1 } } });
+      try {
+        const fresh = await shows(stale.page, '[data-recognition-reveal] [data-award-photo][data-photo-fresh="1"]', 8000);
+        expect("a photo link that ran out is read again (GET /api/recognition/current) and the photo shows", fresh && sent(stale.stub, "GET", "/api/recognition/current").length >= 2, "reads " + sent(stale.stub, "GET", "/api/recognition/current").length);
+      } finally { await stale.context.close(); }
+    },
+  },
+  {
+    id: "awardrevealme",
+    label: "The winner's reveal (part 414, 1.3): the winner reads You're Employee of the Month with their reason, and See your certificate asks for GET /api/recognition/awards/:id/certificate.pdf",
+    run: async (open, language, expect) => {
+      const words = r414Words(language);
+      const app = await open({ stubOptions: { recognition: { award: "me" } } });
+      try {
+        await shows(app.page, '[data-recognition-reveal="' + R414_AWARD + '"]', 8000);
+        const card = await r414Reveal(app.page);
+        expect("the winner's own version: You're Employee of the Month, with their reason", !!card && card.me && has(card.text, say("You're Employee of the Month", language)) && has(card.text, words.reason), card ? card.text.slice(0, 220) : "no card");
+        expect("and See your certificate", await r414Has(app.page, '[data-certificate="' + R414_AWARD + '"]'), "none");
+        await r414Click(app.page, '[data-certificate="' + R414_AWARD + '"]');
+        await pause(app.page, 1500);
+        expect("See your certificate reads the certificate", sent(app.stub, "GET", "/api/recognition/awards/" + R414_AWARD + "/certificate.pdf").length === 1, "sent " + sent(app.stub, "GET", "/api/recognition/awards/" + R414_AWARD + "/certificate.pdf").length);
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "awardinitials",
+    label: "No photo (part 414, 1.1): with photoUrl null the reveal draws the initials in a gold circle and no photo",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { recognition: { photo: false } } });
+      try {
+        await shows(app.page, '[data-recognition-reveal="' + R414_AWARD + '"]', 8000);
+        expect("the initials in a gold circle, and no photo", (await r414Has(app.page, '[data-recognition-reveal] [data-award-initials="JE"]')) && !(await r414Has(app.page, "[data-recognition-reveal] [data-award-photo]")), (await r414Reveal(app.page) || {}).text);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "awardmotion",
+    label: "Reduce motion (part 414, 1.2): a phone set to reduce motion gets the card and no confetti",
+    run: async (open, language, expect) => {
+      const app = await open({ reducedMotion: true, stubOptions: { recognition: {} } });
+      try {
+        const drawn = await shows(app.page, '[data-recognition-reveal="' + R414_AWARD + '"]', 8000);
+        const confetti = await r414ConfettiWithin(app.page, 2000);
+        const card = await r414Reveal(app.page);
+        expect("the card is drawn, with no confetti at any moment", drawn && !confetti && !!card && card.motion === "0", JSON.stringify({ drawn: drawn, confetti: confetti, motion: card && card.motion }));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "awardstartshift",
+    label: "The reveal never blocks the app (part 414, 1.2): it waits for Choose your PIN, it is never over Start Shift, Start Shift takes a tap while the confetti falls, and a swipe across the card closes it",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { clockedIn: false, recognition: {} } });
+      try {
+        await shows(app.page, '[data-recognition-reveal="' + R414_AWARD + '"]', 8000);
+        await shows(app.page, "[data-start-shift]", 6000);
+        const hit = await app.page.evaluate(() => {
+          const b = document.querySelector("[data-start-shift]");
+          const c = document.querySelector("[data-recognition-reveal]");
+          if (!b || !c) return { ok: false, why: "missing" };
+          b.scrollIntoView({ block: "center" });
+          const r = b.getBoundingClientRect();
+          const k = c.getBoundingClientRect();
+          const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          const apart = r.bottom <= k.top || r.top >= k.bottom || r.right <= k.left || r.left >= k.right;
+          return { ok: apart && !!at && (at === b || b.contains(at)), apart: apart, at: at ? at.tagName + " " + (at.getAttribute("data-start-shift") || at.getAttribute("data-confetti") || "") : null };
+        });
+        expect("Start Shift is never behind it: the two never overlap, and a tap at Start Shift reaches Start Shift", hit.ok, JSON.stringify(hit));
+        await app.page.evaluate(() => window.scrollTo(0, 0));
+        const card = await r414Reveal(app.page);
+        const y = card.box.top + 40 - (await app.page.evaluate(() => window.scrollY));
+        await app.page.mouse.move(card.box.left + 30, y);
+        await app.page.mouse.down();
+        await app.page.mouse.move(card.box.left + 120, y, { steps: 6 });
+        await app.page.mouse.move(card.box.left + 220, y, { steps: 6 });
+        await app.page.mouse.up();
+        await pause(app.page, 500);
+        expect("a swipe across the card closes it", !(await r414Has(app.page, "[data-recognition-reveal]")), "still drawn");
+      } finally { await app.context.close(); }
+      // Choose your PIN first: no reveal over it, and none sent as seen.
+      const pin = await open({ stubOptions: { mustSetPin: true, recognition: {} } });
+      try {
+        await pause(pin.page, 3500);
+        expect("on Choose your PIN no reveal plays and nothing is marked seen", !(await r414Has(pin.page, "[data-recognition-reveal]")) && r414Seen(pin.stub) === 0, "seen " + r414Seen(pin.stub));
+      } finally { await pin.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART414_S1_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };

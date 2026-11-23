@@ -1543,3 +1543,6 @@ Cancel inspection,Cancelar inspección,Annuler l'inspection,"Inspect, under a sc
 Cancel this inspection?,¿Cancelar esta inspección?,Annuler cette inspection ?,"Inspect, asked before a scheduled inspection is cancelled"
 Inspection cancelled,Inspección cancelada,Inspection annulée,"Inspect, a toast once a scheduled inspection is cancelled"
 Not cancelled yet. Check your signal and try again.,Todavía no se canceló. Revise su señal e intente de nuevo.,Pas encore annulée. Vérifiez votre réseau et réessayez.,"Inspect, a cancel that could not reach OCSA"
+Employee of the Month,Empleado del Mes,Employé du mois,"Home, the Employee of the Month's card and its reveal"
+You're Employee of the Month,Usted es el Empleado del Mes,Vous êtes l'employé du mois,"Home, the reveal the winner reads"
+See your certificate,Ver su certificado,Voir votre certificat,"Home, the winner's reveal, the certificate"

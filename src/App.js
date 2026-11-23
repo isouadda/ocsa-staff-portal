@@ -704,6 +704,9 @@ async function api(path, opts = {}) {
     res = await reach(API + path, init);
   } finally { flightDown(); }
   await refuseUnlessOk(res, opts);
+  // Part 414: an answer with no body (204, ocsa-api Round 19's seen
+  // routes) is done, with nothing to read.
+  if (res.status === 204) return null;
   return withoutMoney(await readJson(res));
 }
 
@@ -1123,7 +1126,9 @@ function summaryOf(d) {
   SUMMARY_FEATURES.forEach(k => { features[k] = d.features[k] === true; });
   const counts = {};
   SUMMARY_COUNTS.forEach(k => { const n = d.counts[k]; counts[k] = typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.floor(n) : null; });
-  return { features: features, counts: counts };
+  // Part 414: recognition (ocsa-api Round 19), null when its part failed
+  // or the API answers none (recognitionOf).
+  return { features: features, counts: counts, recognition: recognitionOf(d.recognition) };
 }
 
 // The four places between Home and More. The default is the bar as it was:
@@ -4704,6 +4709,62 @@ export default function OCSAStaffPortal() {
     if (r === "on") showToast(tr("Alerts are on for this phone."));
     else if (r === "failed") showToast(tr("Your settings did not save."), "error");
   };
+
+  // Part 414 (section 1): the Employee of the Month. recog is the
+  // summary's part, null when it failed or the API answers none (then
+  // nothing shows, and the next open asks again). award is what GET
+  // /api/recognition/current answered, read again each time the summary
+  // is, so its photo link and its counts are fresh. reveal is the card
+  // drawn big on Home, auto when it plays on its own, once per award per
+  // open; revealGone, the awards whose reveal was closed this open.
+  const recog = summary && summary.recognition ? summary.recognition : null;
+  const recogId = recog && recog.current ? recog.current.id : null;
+  const [award, setAward] = useState(null);
+  const [reveal, setReveal] = useState(null);
+  const revealPlayed = useRef(new Set());
+  const readAward = useCallback(async () => {
+    const d = awardReadOf(await api("/api/recognition/current", { token }));
+    if (liveToken.current !== token) return d;
+    setAward(d && d.award ? d : null);
+    return d;
+  }, [token]);
+  useEffect(() => {
+    if (!token) { revealPlayed.current.clear(); seenSent.current.clear(); }
+    if (!token || screen !== "main" || !recogId) { setAward(null); setReveal(null); return; }
+    readAward().catch(() => {});
+  }, [token, screen, recogId, summary ? summary.at : 0]);
+  // What Home holds first: a first-day training or a document to read and
+  // sign (FirstTrainingsCard). The reveal waits until it is done.
+  const firstWaiting = !!firstTrainingsFrom && (firstTrainingsFrom.documentsToSign.length > 0 || firstTrainingsOf(firstTrainingsFrom).length > 0);
+  // The reveal plays by itself once the portal is up and settled: Home on
+  // the screen, past the alerts card, no notice still to open, no bell,
+  // announcement, More or sheet open, the sign screen closed, and nothing
+  // first-day waiting. A sheet drawn outside this component (the install
+  // sheet) is looked for on the page, again every second and a half.
+  const revealWaits = !award || !award.award || award.seen || !recog || !recog.current || recog.current.id !== award.award.id || revealPlayed.current.has(award.award.id);
+  useEffect(() => {
+    if (revealWaits) return undefined;
+    const ready = () => !booting && screen === "main" && alertsSettled && activeTab === "clock" && !signAt && !openAsk && !notifOpen && !announcementOpen && !showMore && !firstWaiting && !reveal;
+    if (!ready()) return undefined;
+    const play = () => { if (anySheetOpen()) return false; revealPlayed.current.add(award.award.id); setReveal({ read: award, motion: true }); return true; };
+    if (play()) return undefined;
+    const iv = setInterval(() => { if (play()) clearInterval(iv); }, 1500);
+    return () => clearInterval(iv);
+  }, [revealWaits, booting, screen, alertsSettled, activeTab, signAt, openAsk, notifOpen, announcementOpen, showMore, firstWaiting, reveal]);
+  // Seen once the reveal is drawn: POST /api/recognition/awards/:id/seen,
+  // once per award. A seen that does not go leaves the award unseen, so
+  // the next open plays it again.
+  const seenSent = useRef(new Set());
+  const awardSeen = (id) => {
+    if (!award || !award.award || award.award.id !== id || award.seen || seenSent.current.has(id)) return;
+    seenSent.current.add(id);
+    api("/api/recognition/awards/" + encodeURIComponent(id) + "/seen", { method: "POST", token })
+      .then(() => setAward(prev => (prev && prev.award && prev.award.id === id ? Object.assign({}, prev, { seen: true }) : prev)))
+      .catch(() => { seenSent.current.delete(id); });
+  };
+  const awardBlock = activeTab === "clock" && reveal && reveal.read && reveal.read.award
+    ? <AwardReveal key={reveal.read.award.id + ":" + (reveal.at || 0)} token={token} read={reveal.read} motion={reveal.motion} onSeen={awardSeen} onClose={() => setReveal(null)} reread={() => api("/api/recognition/current", { token })} t={t} />
+    : null;
   // A count that rises while the app is open is said (PORT-29): the bell's
   // own count, as last drawn, against the one just read. The first read
   // after a sign-in only sets it.
@@ -4890,7 +4951,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "support" && destCtx.support && <SupportView userId={user && user.id} token={token} tickets={support} read={supportRead} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} focus={supportAt} t={t} />}
               {activeTab === "supplyorders" && (destCtx.supplyOrders || !!supplyAt) && <SupplyOrdersView token={token} user={user} holder={supplyHolder === true} rows={supplyOrders} onReload={() => loadSupplyOrders()} onRow={takeSupplyOrder} at={supplyAt} onAt={setSupplyAt} getOpts={getOpts} showToast={showToast} t={t} />}
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
-              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={firstTrainingsFrom} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} count={summaryCount("signaturesToSign", "sign")} onOpen={openSign} onOpenCard={openSignCard} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} count={summary === null ? "wait" : summary === false ? undefined : summary.counts.unfinishedForms} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} count={summaryCount("clientRequests", "requests")} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} count={supplyHolder ? summaryCount("supplyOrdersWaiting", "supply") : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} todoCount={summaryCount("trainingToDo", "training")} waitingCount={isAdmin ? summaryCount("trainingToSignOff", "awaiting") : null} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} startFault={startFault} onSelectSite={(id) => { setStartFault(null); handleSelectSite(id); }} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSitesForPerson(user, sessionSites)} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} statusFailed={statusFailed} onRetryStatus={() => { refreshClockStatus().catch(() => setStatusFailed(true)); }} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
+              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={firstTrainingsFrom} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} count={summaryCount("signaturesToSign", "sign")} onOpen={openSign} onOpenCard={openSignCard} t={t} />{awardBlock}<UnfinishedFormsCard token={token} user={user} language={language} count={summary === null ? "wait" : summary === false ? undefined : summary.counts.unfinishedForms} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} count={summaryCount("clientRequests", "requests")} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} count={supplyHolder ? summaryCount("supplyOrdersWaiting", "supply") : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} todoCount={summaryCount("trainingToDo", "training")} waitingCount={isAdmin ? summaryCount("trainingToSignOff", "awaiting") : null} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} startFault={startFault} onSelectSite={(id) => { setStartFault(null); handleSelectSite(id); }} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSitesForPerson(user, sessionSites)} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} statusFailed={statusFailed} onRetryStatus={() => { refreshClockStatus().catch(() => setStatusFailed(true)); }} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} at={scheduleAt} />}
               {activeTab === "tasks" && <TasksView token={token} rereadList={() => (checklistAsk ? api(checklistAsk, { token }) : Promise.reject(Object.assign(new Error(ERR_GENERIC), { status: 404 })))} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} faultOffline={tasksFaultKind === "offline"} kept={keptShown} onRetryTasks={() => loadTasks(true)} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} shiftChoices={siteShifts} shiftNames={shiftNames} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} alsoHere={alsoHere} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView userId={user && user.id} assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
@@ -22165,6 +22226,172 @@ function WalkSectionsSheet({ zones, scoredIds, scored, total, safetyCounts, safe
           <span style={nameSt}>{tr("Sign and send")}</span>
         </button>
       </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Employee of the Month (part 414, section 1; ocsa-api Round 19, part
+// 411, "For the staff app")
+//
+// GET /api/me/summary answers recognition { current: { id, seen, isMe }
+// | null, newShoutouts } | null. null, and an answer with no such key (an
+// API from before Round 19), read as null: nothing is shown, and the next
+// open asks again. With current there, the award is read (GET
+// /api/recognition/current answers { award, seen, isMe }), and with seen
+// false the reveal plays once on Home: a short burst of confetti and the
+// card, with the photo (or the initials in a gold circle when photoUrl is
+// null), the name, Employee of the Month, the month name and the reason
+// as the API answers them, and the site when there is one; then POST
+// /api/recognition/awards/:id/seen. It waits for the portal itself: past
+// sign-in, Choose your PIN and the alerts card, with Home on the screen,
+// no sheet open and nothing first-day waiting on Home. It is a card in
+// Home's own column, never drawn over it, so Start Shift is never behind
+// it; its close button, or a swipe across it, closes it. A phone set to
+// reduce motion gets the card with no confetti. The winner (isMe) reads
+// their own version, with their certificate (GET
+// /api/recognition/awards/:id/certificate.pdf). A photo's link lives 60
+// minutes, so a picture that no longer loads reads the award again for a
+// fresh one, as the profile's does (FreshImg).
+// ------------------------------------------------------------
+const AwardIco = (p) => <Ico d="M12 15a6 6 0 1 0 0-12 6 6 0 0 0 0 12zM8.21 13.89L7 23l5-3 5 3-1.21-9.12" {...p} />;
+const XIco = (p) => <Ico d="M18 6L6 18M6 6l12 12" {...p} />;
+const plainOf = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+// The summary's part, or null.
+function recognitionOf(r) {
+  if (!plainOf(r)) return null;
+  const c = r.current;
+  const current = plainOf(c) && c.id !== undefined && c.id !== null && String(c.id) ? { id: String(c.id), seen: c.seen === true, isMe: c.isMe === true } : null;
+  const n = Number(r.newShoutouts);
+  return { current: current, newShoutouts: Number.isFinite(n) && n > 0 ? Math.floor(n) : 0 };
+}
+// The five reactions, in the API's order (helpers/recognition.js
+// REACTIONS), each with its picture and its name.
+const REACTION_KEYS = ["clap", "star", "heart", "fire", "muscle"];
+const REACTION_GLYPHS = { clap: "\uD83D\uDC4F", star: "\u2b50", heart: "\u2764\ufe0f", fire: "\uD83D\uDD25", muscle: "\uD83D\uDCAA" };
+const REACTION_NAMES = { clap: "Clap", star: "Star", heart: "Heart", fire: "Fire", muscle: "Muscle" };
+function reactionsOf(r) {
+  const counts = {};
+  let total = 0;
+  REACTION_KEYS.forEach((k) => { const n = plainOf(r) && plainOf(r.counts) ? Number(r.counts[k]) : 0; counts[k] = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0; total += counts[k]; });
+  const mine = plainOf(r) && REACTION_KEYS.indexOf(r.mine) !== -1 ? r.mine : null;
+  const said = plainOf(r) ? Number(r.total) : NaN;
+  return { counts: counts, total: Number.isFinite(said) && said >= 0 ? Math.floor(said) : total, mine: mine };
+}
+// A person on an award or a shout-out: the name, the initials and the
+// photo's link, null with none.
+function awardPersonOf(p) {
+  if (!plainOf(p)) return null;
+  const first = typeof p.firstName === "string" ? p.firstName.trim() : "";
+  const last = typeof p.lastName === "string" ? p.lastName.trim() : "";
+  const name = [first, last].filter(Boolean).join(" ");
+  const initials = typeof p.initials === "string" && p.initials.trim() ? p.initials.trim().slice(0, 3) : ((first[0] || "") + (last[0] || "")).toUpperCase();
+  return { id: p.id === undefined || p.id === null ? "" : String(p.id), firstName: first, lastName: last, name: name, initials: initials, photoUrl: typeof p.photoUrl === "string" && p.photoUrl ? p.photoUrl : null };
+}
+// An award as the API answers it, or null.
+function awardOf(a) {
+  if (!plainOf(a) || a.id === undefined || a.id === null || !String(a.id)) return null;
+  const person = awardPersonOf(a.person);
+  if (!person || !person.name) return null;
+  const siteName = plainOf(a.site) ? fkText(a.site, ["name"]) : "";
+  return {
+    id: String(a.id), month: typeof a.month === "string" ? a.month : "", monthName: fkText(a, ["monthName"]),
+    person: person, site: siteName ? { id: a.site.id === undefined || a.site.id === null ? "" : String(a.site.id), name: siteName } : null,
+    reason: fkText(a, ["reason"]), postedAt: typeof a.postedAt === "string" ? a.postedAt : null, reactions: reactionsOf(a.reactions),
+  };
+}
+// { award, seen, isMe }, as GET /api/recognition/current and GET
+// /api/recognition/awards/:id answer it; award null when none is shown.
+function awardReadOf(d) {
+  if (!plainOf(d)) return null;
+  return { award: awardOf(d.award), seen: d.seen === true, isMe: d.isMe === true };
+}
+// A phone set to reduce motion.
+const reducesMotion = () => { try { return !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { return false; } };
+
+// A short burst of confetti over the screen. It takes no taps: anything
+// under it, Start Shift among them, is reached through it. It is a canvas
+// and not a div, so it never reads as a sheet that holds off an update.
+const CONFETTI_MS = 2600;
+const CONFETTI_COLORS = [GOLD, GOLD_LIGHT, "#FFFFFF", BLUE_BRIGHT, GREEN];
+function Confetti({ onDone }) {
+  const ref = useRef(null);
+  const ended = useRef(false);
+  useEffect(() => {
+    const end = () => { if (ended.current) return; ended.current = true; if (onDone) onDone(); };
+    const canvas = ref.current;
+    const ctx = canvas && canvas.getContext ? canvas.getContext("2d") : null;
+    const stop = setTimeout(end, CONFETTI_MS + 400);
+    if (!ctx) return () => clearTimeout(stop);
+    const w = window.innerWidth || 390, h = window.innerHeight || 800;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    ctx.scale(dpr, dpr);
+    const pieces = [];
+    for (let i = 0; i < 90; i += 1) pieces.push({ x: w / 2 + (Math.random() - 0.5) * w * 0.4, y: h * 0.28, vx: (Math.random() - 0.5) * 10, vy: -4 - Math.random() * 11, size: 5 + Math.random() * 6, angle: Math.random() * Math.PI, spin: (Math.random() - 0.5) * 0.4, color: CONFETTI_COLORS[i % CONFETTI_COLORS.length] });
+    const start = Date.now();
+    let frame = 0;
+    const draw = () => {
+      const at = Date.now() - start;
+      ctx.clearRect(0, 0, w, h);
+      ctx.globalAlpha = Math.max(0, 1 - at / CONFETTI_MS);
+      pieces.forEach((p) => {
+        p.vy += 0.32; p.vx *= 0.99; p.x += p.vx; p.y += p.vy; p.angle += p.spin;
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.angle); ctx.fillStyle = p.color; ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2); ctx.restore();
+      });
+      if (at < CONFETTI_MS) frame = window.requestAnimationFrame(draw); else end();
+    };
+    frame = window.requestAnimationFrame(draw);
+    return () => { window.cancelAnimationFrame(frame); clearTimeout(stop); };
+  }, []);
+  return <canvas ref={ref} data-confetti="1" aria-hidden="true" style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 2500 }} />;
+}
+
+// The photo in a circle, or the initials in a gold circle when there is
+// no photo or it can no longer be shown. reread reads the record again
+// for a fresh link.
+function AwardFace({ person, size, reread, readKey, t }) {
+  const [gone, setGone] = useState(false);
+  useEffect(() => { setGone(false); }, [person && person.photoUrl]);
+  const box = { width: size, height: size, borderRadius: "50%", border: "2px solid " + GOLD, flexShrink: 0 };
+  if (person && person.photoUrl && !gone) return <FreshImg src={person.photoUrl} reread={reread} readKey={readKey} onGone={() => setGone(true)} data-award-photo="1" alt={person.name} style={{ ...box, objectFit: "cover", display: "block" }} />;
+  return <div data-award-initials={person ? person.initials : ""} role="img" aria-label={person ? person.name : ""} style={{ ...box, background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, display: "flex", alignItems: "center", justifyContent: "center", fontSize: Math.round(size * 0.36), fontWeight: 600, fontFamily: FONT_HEAD, letterSpacing: "1px" }}>{person ? person.initials : ""}</div>;
+}
+
+// The reveal: the card, played with confetti (motion true and the phone
+// not set to reduce motion). Seen once drawn (onSeen). A swipe across it
+// sideways, or its close button, closes it; a swipe up and down scrolls
+// the page as ever. children is what section 2 adds under the card.
+function AwardReveal({ token, read, motion, onSeen, onClose, reread, t, children }) {
+  const a = read.award;
+  const me = read.isMe === true;
+  const [confetti, setConfetti] = useState(() => !!motion && !reducesMotion());
+  const [certFault, setCertFault] = useState(null);
+  useEffect(() => { if (onSeen) onSeen(a.id); }, [a.id]);
+  const swipe = useRef(null);
+  const down = (e) => { swipe.current = { x: e.clientX, y: e.clientY }; };
+  const up = (e) => { const s = swipe.current; swipe.current = null; if (!s) return; const dx = e.clientX - s.x, dy = e.clientY - s.y; if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) onClose(); };
+  const certificate = async () => {
+    setCertFault(null);
+    try { await openApiPdf("/api/recognition/awards/" + encodeURIComponent(a.id) + "/certificate.pdf", "employee-of-the-month-" + (a.month || a.id) + ".pdf", token); }
+    catch (err) { setCertFault(saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC)); }
+  };
+  const quiet = { fontSize: 13, color: t.textSec, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" };
+  return (
+    <div style={{ padding: "16px 16px 0" }}>
+      {confetti && <Confetti onDone={() => setConfetti(false)} />}
+      <section data-recognition-reveal={a.id} data-reveal-me={me ? "1" : undefined} data-reveal-motion={motion && !reducesMotion() ? "1" : "0"} aria-labelledby={"ocsa-award-" + a.id} onPointerDown={down} onPointerUp={up} onPointerCancel={() => { swipe.current = null; }} style={{ position: "relative", touchAction: "pan-y", padding: "22px 16px 16px", borderRadius: R.lg, background: t.card, border: "1.5px solid " + GOLD, boxShadow: "0 0 0 4px " + t.goldBg + ", 0 10px 30px rgba(231,176,23,0.25)", textAlign: "center", animation: "slideUp 0.35s ease-out" }}>
+        <button type="button" data-reveal-close="1" onClick={onClose} aria-label={tr("Close")} style={mkTapFrame({ position: "absolute", top: 2, right: 2 })}><XIco sz={18} c={t.textSec} /></button>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}><AwardFace person={a.person} size={96} reread={reread} readKey={"award:" + a.id} t={t} /></div>
+        <div style={{ ...mkLabel(t), display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 4 }}><AwardIco sz={14} c={t.goldText} /><span data-reveal-title="1">{me ? tr("You're Employee of the Month") : tr("Employee of the Month")}</span></div>
+        <div id={"ocsa-award-" + a.id} role="heading" aria-level={2} data-award-name="1" style={{ fontSize: 22, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.25, overflowWrap: "anywhere" }}>{a.person.name}</div>
+        {a.monthName && <div data-award-month="1" style={{ ...quiet, color: t.goldText, fontWeight: 600, fontFamily: FONT_HEAD }}>{a.monthName}</div>}
+        {a.site && <div data-award-site="1" style={quiet}>{a.site.name}</div>}
+        {a.reason && <div data-award-reason="1" style={{ fontSize: 14, color: t.text, lineHeight: 1.5, marginTop: 12, padding: "10px 12px", borderRadius: R.md, background: t.goldSubtle, border: "1px solid " + t.goldBorder, textAlign: "left", overflowWrap: "anywhere" }}>{a.reason}</div>}
+        {me && <button type="button" data-certificate={a.id} onClick={certificate} style={{ ...wsMainBtn(t, false), width: "100%", marginTop: 12 }}>{tr("See your certificate")}</button>}
+        {certFault && <div role="alert" data-certificate-fault="1" style={{ fontSize: 12, color: ink(t, RED), marginTop: 6, lineHeight: 1.45 }}>{certFault}</div>}
+        {children}
+      </section>
     </div>
   );
 }
