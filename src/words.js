@@ -1739,6 +1739,23 @@ export const WORDS = {
   "Muscle": "M\u00fasculo",
   "Team wall": "Muro del equipo",
   "No Employee of the Month yet.": "Todav\u00eda no hay Empleado del Mes.",
+  // Part 414 (section 3): shout-outs.
+  "Shout-outs": "Reconocimientos",
+  "Shout-out": "Reconocimiento",
+  "{count} new": "{count} nuevos",
+  "No shout-outs at your sites in the last 30 days.": "No hay reconocimientos en sus sitios en los \u00faltimos 30 d\u00edas.",
+  "Give a shout-out": "Dar un reconocimiento",
+  "Who": "Qui\u00e9n",
+  "Choose a site": "Elija un sitio",
+  "What they did": "Lo que hizo",
+  "Post the shout-out": "Publicar el reconocimiento",
+  "Shout-out posted": "Reconocimiento publicado",
+  "Take down": "Retirar",
+  "Take down this shout-out?": "\u00bfRetirar este reconocimiento?",
+  "Shout-out taken down": "Reconocimiento retirado",
+  "Keep the shout-out": "Conservar el reconocimiento",
+  "No one shares a site with you.": "Nadie comparte un sitio con usted.",
+  "The people at your sites did not load.": "Las personas de sus sitios no se cargaron.",
   },
 };
 
@@ -3354,6 +3371,23 @@ WORDS.fr = {
   "Muscle": "Muscle",
   "Team wall": "Mur de l'\u00e9quipe",
   "No Employee of the Month yet.": "Pas encore d'employ\u00e9 du mois.",
+  // Part 414 (section 3): shout-outs.
+  "Shout-outs": "F\u00e9licitations",
+  "Shout-out": "F\u00e9licitations",
+  "{count} new": "{count} nouvelles",
+  "No shout-outs at your sites in the last 30 days.": "Aucune f\u00e9licitation sur vos sites ces 30 derniers jours.",
+  "Give a shout-out": "F\u00e9liciter quelqu'un",
+  "Who": "Qui",
+  "Choose a site": "Choisissez un site",
+  "What they did": "Ce que la personne a fait",
+  "Post the shout-out": "Publier les f\u00e9licitations",
+  "Shout-out posted": "F\u00e9licitations publi\u00e9es",
+  "Take down": "Retirer",
+  "Take down this shout-out?": "Retirer ces f\u00e9licitations\u00a0?",
+  "Shout-out taken down": "F\u00e9licitations retir\u00e9es",
+  "Keep the shout-out": "Garder les f\u00e9licitations",
+  "No one shares a site with you.": "Personne ne partage un site avec vous.",
+  "The people at your sites did not load.": "Les personnes de vos sites ne se sont pas charg\u00e9es.",
 };
 
 // {name} is replaced after the language is chosen, so the

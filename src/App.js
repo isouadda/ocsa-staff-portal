@@ -3946,6 +3946,7 @@ export default function OCSAStaffPortal() {
     if (place.announcement) { setAnnouncementOpen(place.announcement); return; }
     // Part 414: the Employee of the Month the bell names, over the screen.
     if (place.award) { setAwardAt({ id: String(place.award), at: Date.now() }); setShowMore(false); return; }
+    if (place.shoutout) { setShoutAt({ id: String(place.shoutout), at: Date.now() }); setShowMore(false); return; }
     // A case, a client's concern or a filed report this person may not
     // read, or one the API already turned away here, opens the bell,
     // where its notice keeps the dashboard's link.
@@ -4726,6 +4727,16 @@ export default function OCSAStaffPortal() {
   // Part 414 (section 2): the award the bell opened, and the team wall.
   const [awardAt, setAwardAt] = useState(null);
   const [wallOpen, setWallOpen] = useState(false);
+  // Part 414 (section 3): Home's shout-outs, a page at a time (rows null
+  // until read), the ones opened this open that were new, the one open
+  // over the screen, and the form.
+  const [shoutRows, setShoutRows] = useState(null);
+  const [shoutNext, setShoutNext] = useState(null);
+  const [shoutFault, setShoutFault] = useState(null);
+  const [shoutBusy, setShoutBusy] = useState(false);
+  const [shoutOpened, setShoutOpened] = useState([]);
+  const [shoutAt, setShoutAt] = useState(null);
+  const [shoutForm, setShoutForm] = useState(false);
   const revealPlayed = useRef(new Set());
   const readAward = useCallback(async () => {
     const d = awardReadOf(await api("/api/recognition/current", { token }));
@@ -4749,13 +4760,13 @@ export default function OCSAStaffPortal() {
   const revealWaits = !award || !award.award || award.seen || !recog || !recog.current || recog.current.id !== award.award.id || revealPlayed.current.has(award.award.id);
   useEffect(() => {
     if (revealWaits) return undefined;
-    const ready = () => !booting && screen === "main" && alertsSettled && activeTab === "clock" && !signAt && !openAsk && !notifOpen && !announcementOpen && !showMore && !firstWaiting && !reveal && !awardAt && !wallOpen;
+    const ready = () => !booting && screen === "main" && alertsSettled && activeTab === "clock" && !signAt && !openAsk && !notifOpen && !announcementOpen && !showMore && !firstWaiting && !reveal && !awardAt && !wallOpen && !shoutAt && !shoutForm;
     if (!ready()) return undefined;
     const play = () => { if (anySheetOpen()) return false; revealPlayed.current.add(award.award.id); setReveal({ read: award, motion: true }); return true; };
     if (play()) return undefined;
     const iv = setInterval(() => { if (play()) clearInterval(iv); }, 1500);
     return () => clearInterval(iv);
-  }, [revealWaits, booting, screen, alertsSettled, activeTab, signAt, openAsk, notifOpen, announcementOpen, showMore, firstWaiting, reveal, awardAt, wallOpen]);
+  }, [revealWaits, booting, screen, alertsSettled, activeTab, signAt, openAsk, notifOpen, announcementOpen, showMore, firstWaiting, reveal, awardAt, wallOpen, shoutAt, shoutForm]);
   // Seen once the reveal is drawn: POST /api/recognition/awards/:id/seen,
   // once per award. A seen that does not go leaves the award unseen, so
   // the next open plays it again.
@@ -4788,6 +4799,35 @@ export default function OCSAStaffPortal() {
       : award && award.award
         ? <AwardCard token={token} read={award} onOpen={() => setReveal({ read: award, motion: true, at: Date.now() })} onReactions={(rx) => awardReactions(award.award.id, rx)} onWall={() => setWallOpen(true)} reread={rereadAward} t={t} />
         : null;
+  // Part 414 (section 3): the shout-outs, read with the summary while its
+  // recognition part answered, a page at a time.
+  const recogOn = !!recog;
+  const readShoutouts = async (cursor) => {
+    if (!token) return;
+    setShoutBusy(true); setShoutFault(null);
+    try {
+      const d = await api("/api/recognition/shoutouts?limit=" + SHOUT_PAGE + (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""), { token });
+      if (liveToken.current !== token) return;
+      const got = (d && Array.isArray(d.shoutouts) ? d.shoutouts : []).map(shoutoutOf).filter(Boolean);
+      setShoutRows(prev => (cursor && Array.isArray(prev) ? prev.concat(got.filter(x => !prev.some(y => y.id === x.id))) : got));
+      setShoutNext(d && typeof d.nextCursor === "string" && d.nextCursor ? d.nextCursor : null);
+    } catch (err) { setShoutFault(saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC)); }
+    setShoutBusy(false);
+  };
+  useEffect(() => {
+    if (!token || screen !== "main" || !recogOn) { setShoutRows(null); setShoutNext(null); setShoutFault(null); setShoutOpened([]); return; }
+    setShoutOpened([]);
+    readShoutouts(null);
+  }, [token, screen, recogOn, summary ? summary.at : 0]);
+  const shoutPoster = !!caps && caps.post_shoutouts === true;
+  const shoutNew = recog ? Math.max(0, recog.newShoutouts - shoutOpened.length) : 0;
+  const shoutSeen = (id) => {
+    setShoutRows(prev => (Array.isArray(prev) ? prev.map(x => (x.id === id && !x.seen ? Object.assign({}, x, { seen: true }) : x)) : prev));
+    setShoutOpened(prev => (prev.indexOf(id) === -1 ? prev.concat([id]) : prev));
+  };
+  const shoutBlock = activeTab === "clock" && recogOn
+    ? <ShoutoutsCard token={token} rows={shoutRows} next={shoutNext} fault={shoutFault} busy={shoutBusy} newCount={shoutNew} poster={shoutPoster} onMore={() => readShoutouts(shoutNext)} onRetry={() => readShoutouts(null)} onOpen={(x) => setShoutAt({ id: x.id, row: x, at: Date.now() })} onGive={() => setShoutForm(true)} t={t} />
+    : null;
   // A count that rises while the app is open is said (PORT-29): the bell's
   // own count, as last drawn, against the one just read. The first read
   // after a sign-in only sets it.
@@ -4974,7 +5014,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "support" && destCtx.support && <SupportView userId={user && user.id} token={token} tickets={support} read={supportRead} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} focus={supportAt} t={t} />}
               {activeTab === "supplyorders" && (destCtx.supplyOrders || !!supplyAt) && <SupplyOrdersView token={token} user={user} holder={supplyHolder === true} rows={supplyOrders} onReload={() => loadSupplyOrders()} onRow={takeSupplyOrder} at={supplyAt} onAt={setSupplyAt} getOpts={getOpts} showToast={showToast} t={t} />}
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
-              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={firstTrainingsFrom} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} count={summaryCount("signaturesToSign", "sign")} onOpen={openSign} onOpenCard={openSignCard} t={t} />{awardBlock}<UnfinishedFormsCard token={token} user={user} language={language} count={summary === null ? "wait" : summary === false ? undefined : summary.counts.unfinishedForms} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} count={summaryCount("clientRequests", "requests")} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} count={supplyHolder ? summaryCount("supplyOrdersWaiting", "supply") : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} todoCount={summaryCount("trainingToDo", "training")} waitingCount={isAdmin ? summaryCount("trainingToSignOff", "awaiting") : null} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} startFault={startFault} onSelectSite={(id) => { setStartFault(null); handleSelectSite(id); }} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSitesForPerson(user, sessionSites)} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} statusFailed={statusFailed} onRetryStatus={() => { refreshClockStatus().catch(() => setStatusFailed(true)); }} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
+              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={firstTrainingsFrom} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} count={summaryCount("signaturesToSign", "sign")} onOpen={openSign} onOpenCard={openSignCard} t={t} />{awardBlock}<UnfinishedFormsCard token={token} user={user} language={language} count={summary === null ? "wait" : summary === false ? undefined : summary.counts.unfinishedForms} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} count={summaryCount("clientRequests", "requests")} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} count={supplyHolder ? summaryCount("supplyOrdersWaiting", "supply") : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} todoCount={summaryCount("trainingToDo", "training")} waitingCount={isAdmin ? summaryCount("trainingToSignOff", "awaiting") : null} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} startFault={startFault} onSelectSite={(id) => { setStartFault(null); handleSelectSite(id); }} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSitesForPerson(user, sessionSites)} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} statusFailed={statusFailed} onRetryStatus={() => { refreshClockStatus().catch(() => setStatusFailed(true)); }} t={t} />{shoutBlock}<MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} at={scheduleAt} />}
               {activeTab === "tasks" && <TasksView token={token} rereadList={() => (checklistAsk ? api(checklistAsk, { token }) : Promise.reject(Object.assign(new Error(ERR_GENERIC), { status: 404 })))} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} faultOffline={tasksFaultKind === "offline"} kept={keptShown} onRetryTasks={() => loadTasks(true)} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} shiftChoices={siteShifts} shiftNames={shiftNames} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} alsoHere={alsoHere} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView userId={user && user.id} assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
@@ -5084,6 +5124,17 @@ export default function OCSAStaffPortal() {
       )}
       {!booting && screen === "main" && token && wallOpen && (
         <TeamWallSheet token={token} onClose={() => setWallOpen(false)} t={t} />
+      )}
+      {/* Part 414 (section 3): a shout-out, and Give a shout-out. */}
+      {!booting && screen === "main" && token && shoutAt && (
+        <ShoutoutSheet key={shoutAt.id + ":" + shoutAt.at} token={token} id={shoutAt.id} initial={shoutAt.row || null} onSeen={shoutSeen}
+          onChange={(x) => setShoutRows(prev => (Array.isArray(prev) ? prev.map(y => (y.id === x.id ? Object.assign({}, x, { seen: y.seen || x.seen }) : y)) : prev))}
+          onRemoved={(id) => { setShoutRows(prev => (Array.isArray(prev) ? prev.filter(y => y.id !== id) : prev)); showToast(tr("Shout-out taken down")); }}
+          onClose={() => setShoutAt(null)} t={t} />
+      )}
+      {!booting && screen === "main" && token && shoutForm && (
+        <ShoutoutForm token={token} user={user} sites={sites} onClose={() => setShoutForm(false)}
+          onPosted={(x) => { setShoutForm(false); if (x) setShoutRows(prev => [x].concat(Array.isArray(prev) ? prev.filter(y => y.id !== x.id) : [])); showToast(tr("Shout-out posted")); }} t={t} />
       )}
 
       {!booting && screen === "main" && issueAt && (
@@ -14348,6 +14399,7 @@ function notifPlace(subjectType, subjectId, subjectKey) {
   // Part 414 (ocsa-api Round 19): the award posted and the winner's count
   // of congratulations open the award.
   if (subjectType === "recognition_award" || subjectType === "recognition_reactions") return named ? { award: named } : null;
+  if (subjectType === "recognition_shoutout") return named ? { shoutout: named } : null;
   if (caseSubject(subjectType)) return named ? { hrCase: named } : null;
   if (subjectType === "customer_concern") return named ? { concern: named } : null;
   if (subjectType === "support_ticket") return { tab: "support", ticket: named };
@@ -22612,6 +22664,232 @@ function AwardSheet({ token, id, onSeen, onRead, onWall, onClose, t }) {
         )}
       </div>
     </RecogSheet>
+  );
+}
+
+// ------------------------------------------------------------
+// Shout-outs (part 414, section 3)
+//
+// Home counts the new ones (the summary's newShoutouts) and lists the
+// last 30 days at the person's sites, newest first, a page at a time (GET
+// /api/recognition/shoutouts, cursor and limit). Opening one calls POST
+// /api/recognition/shoutouts/:id/seen. Reactions are as an award's, and
+// the person a shout-out names is offered none (409
+// recognition.ownShoutout). A holder of post_shoutouts (GET
+// /api/users/me/permissions) posts one: a searchable picker of the people
+// who share one of their sites (GET /api/sites/:id's staff, for each site
+// of theirs), the site the two share, and a line of up to 200 characters
+// with a live count. The poster takes one down where canRemove. Every
+// refusal is said in the API's words, a test account's 403 among them.
+// The bell's recognition_shoutout opens it
+// (/?open=recognition_shoutout:<id>).
+// ------------------------------------------------------------
+const SHOUT_PAGE = 5;
+const SHOUT_LINE_MAX = 200;
+function shoutoutOf(x) {
+  if (!plainOf(x) || x.id === undefined || x.id === null || !String(x.id)) return null;
+  const person = awardPersonOf(x.person);
+  if (!person || !person.name) return null;
+  const by = awardPersonOf(x.postedBy);
+  return {
+    id: String(x.id), person: person, line: fkText(x, ["line"]),
+    site: plainOf(x.site) && fkText(x.site, ["name"]) ? { id: x.site.id === undefined || x.site.id === null ? "" : String(x.site.id), name: fkText(x.site, ["name"]) } : null,
+    postedBy: by && by.name ? by : null, postedAt: typeof x.postedAt === "string" ? x.postedAt : null,
+    reactions: reactionsOf(x.reactions), seen: x.seen === true, isMe: x.isMe === true, canRemove: x.canRemove === true,
+  };
+}
+// The day a shout-out was given, on the phone's own clock.
+const shoutWhen = (iso) => { const d = iso ? new Date(iso) : null; return d && !isNaN(d.getTime()) ? d.toLocaleDateString(dateLocale(), { month: "short", day: "numeric" }) : ""; };
+
+// A shout-out over the screen: the whole line, who it names and who gave
+// it, the reactions, and Take down for its poster. Opened from Home with
+// the row it already has, or from the bell by id.
+function ShoutoutSheet({ token, id, initial, onSeen, onChange, onRemoved, onClose, t }) {
+  const [x, setX] = useState(initial || null);
+  const [fault, setFault] = useState(null);
+  const [ask, setAsk] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [removeFault, setRemoveFault] = useState(null);
+  const seenSent = useRef(false);
+  const load = async () => {
+    setFault(null);
+    try {
+      const d = await api("/api/recognition/shoutouts/" + encodeURIComponent(id), { token });
+      const got = shoutoutOf(d && d.shoutout);
+      if (!got) throw new Error(ERR_GENERIC);
+      setX(got);
+    } catch (err) { setFault({ said: saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC), gone: !!err && err.status === 404 }); }
+  };
+  useEffect(() => { if (!initial) load(); }, [id]);
+  useEffect(() => {
+    if (!x || x.seen || seenSent.current) return;
+    seenSent.current = true;
+    api("/api/recognition/shoutouts/" + encodeURIComponent(x.id) + "/seen", { method: "POST", token }).then(() => { setX(prev => (prev && prev.id === x.id ? Object.assign({}, prev, { seen: true }) : prev)); if (onSeen) onSeen(x.id); }).catch(() => { seenSent.current = false; });
+  }, [x && x.id]);
+  const takeDown = async () => {
+    if (busy) return;
+    setBusy(true); setRemoveFault(null);
+    try {
+      await api("/api/recognition/shoutouts/" + encodeURIComponent(x.id) + "/remove", { method: "POST", body: {}, token });
+      if (onRemoved) onRemoved(x.id);
+      onClose();
+    } catch (err) { setRemoveFault(saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC)); }
+    setBusy(false);
+  };
+  useBusy("shout-out remove", busy);
+  const quiet = { fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" };
+  return (
+    <RecogSheet id="ocsa-shoutout-sheet" title={tr("Shout-out")} onClose={onClose} t={t}>
+      <div data-shoutout-sheet={id}>
+        {!x && !fault && <div style={{ padding: "20px 0", textAlign: "center", fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div>}
+        {fault && (fault.gone
+          ? <div role="status" data-shoutout-gone="1" style={{ padding: "16px 12px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.borderSolid, fontSize: 14, color: t.text, lineHeight: 1.5, overflowWrap: "anywhere" }}>{fault.said}</div>
+          : <ListFault icon={AwardIco} text={fault.said} onRetry={load} t={t} />)}
+        {x && (
+          <div data-shoutout={x.id}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <AwardFace person={x.person} size={56} reread={() => api("/api/recognition/shoutouts/" + encodeURIComponent(x.id), { token })} readKey={"shout:" + x.id} t={t} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{x.person.name}</div>
+                <div style={quiet}>{[x.site ? x.site.name : "", shoutWhen(x.postedAt)].filter(Boolean).join(" \u00b7 ")}</div>
+              </div>
+            </div>
+            {x.line && <div data-shoutout-line="1" style={{ fontSize: 14, color: t.text, lineHeight: 1.5, marginTop: 12, padding: "10px 12px", borderRadius: R.md, background: t.goldSubtle, border: "1px solid " + t.goldBorder, overflowWrap: "anywhere" }}>{x.line}</div>}
+            {x.postedBy && <div style={quiet}>{tr("From {name}", { name: x.postedBy.name })}</div>}
+            <ReactionRow token={token} path={"/api/recognition/shoutouts/" + encodeURIComponent(x.id) + "/reaction"} reactions={x.reactions} own={x.isMe} onChange={(rx) => { const next = Object.assign({}, x, { reactions: rx }); setX(next); if (onChange) onChange(next); }} t={t} />
+            {x.canRemove && !ask && <button type="button" data-shoutout-remove={x.id} onClick={() => { setAsk(true); setRemoveFault(null); }} style={{ ...mkTapFrame(), marginTop: 10, color: ink(t, RED), fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Take down")}</button>}
+            {x.canRemove && ask && (
+              <div data-shoutout-remove-ask={x.id} role="group" style={{ marginTop: 10, padding: "10px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder }}>
+                <div style={{ fontSize: 13, color: t.text, lineHeight: 1.45 }}>{tr("Take down this shout-out?")}</div>
+                <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                  <button type="button" onClick={() => setAsk(false)} disabled={busy} style={{ flex: "1 1 120px", minHeight: TAP, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, cursor: "pointer" }}>{tr("Keep the shout-out")}</button>
+                  <button type="button" data-shoutout-remove-yes={x.id} onClick={takeDown} aria-busy={busy} style={{ flex: "1 1 120px", minHeight: TAP, borderRadius: R.md, border: "none", background: RED_FILL, color: "#FFFFFF", fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, cursor: busy ? "default" : "pointer" }}>{tr("Take down")}</button>
+                </div>
+              </div>
+            )}
+            {removeFault && <div role="alert" data-shoutout-remove-fault="1" style={{ fontSize: 12, color: ink(t, RED), marginTop: 6, lineHeight: 1.45 }}>{removeFault}</div>}
+          </div>
+        )}
+      </div>
+    </RecogSheet>
+  );
+}
+
+// The people who share one of the poster's sites, from each site's staff
+// (GET /api/sites/:id), the poster and client contacts left out, each
+// with the sites the two share.
+async function shoutPeopleOf(token, sites, user) {
+  const own = (Array.isArray(sites) ? sites : []).map(s => ({ id: String(s.siteId || s.id || ""), name: String(s.siteName || s.name || "") })).filter(s => s.id);
+  const people = new Map();
+  for (const s of own) {
+    const d = await api("/api/sites/" + encodeURIComponent(s.id), { token });
+    (d && Array.isArray(d.staff) ? d.staff : []).forEach((p) => {
+      if (!p || p.id === undefined || p.id === null || (user && String(p.id) === String(user.id)) || p.role === "client_contact") return;
+      const id = String(p.id);
+      const name = [p.first_name || p.firstName, p.last_name || p.lastName].filter(x => typeof x === "string" && x.trim()).map(x => x.trim()).join(" ");
+      if (!name) return;
+      const had = people.get(id) || { id: id, name: name, sites: [] };
+      if (!had.sites.some(x => x.id === s.id)) had.sites.push(s);
+      people.set(id, had);
+    });
+  }
+  return Array.from(people.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Give a shout-out: the person, the site and the line, POST
+// /api/recognition/shoutouts { userId, line, siteId }.
+function ShoutoutForm({ token, user, sites, onPosted, onClose, t }) {
+  const [people, setPeople] = useState(null);
+  const [peopleFault, setPeopleFault] = useState(false);
+  const [who, setWho] = useState("");
+  const [siteId, setSiteId] = useState("");
+  const [line, setLine] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [fault, setFault] = useState(null);
+  const loadPeople = () => { setPeopleFault(false); shoutPeopleOf(token, sites, user).then(setPeople).catch(() => setPeopleFault(true)); };
+  useEffect(() => { loadPeople(); }, []);
+  useBusy("shout-out form", busy || line.trim().length > 0);
+  const person = Array.isArray(people) ? people.find(p => p.id === who) || null : null;
+  const shared = person ? person.sites : [];
+  useEffect(() => { setSiteId(shared.length === 1 ? shared[0].id : ""); }, [who]);
+  const keysSaid = (k) => (fault && fault.keys.indexOf(k) !== -1 ? fault.said : null);
+  const ready = !!person && !!siteId && line.trim().length > 0 && !busy;
+  const post = async () => {
+    if (!ready) return;
+    setBusy(true); setFault(null);
+    try {
+      const d = await api("/api/recognition/shoutouts", { method: "POST", body: { userId: who, line: line.trim(), siteId: siteId }, token });
+      onPosted(shoutoutOf(d && d.shoutout));
+    } catch (err) {
+      const keys = err && err.body && Array.isArray(err.body.keys) ? err.body.keys.filter(k => ["userId", "siteId", "line"].indexOf(k) !== -1) : [];
+      setFault({ said: saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC), keys: err && err.status === 400 ? keys : [] });
+    }
+    setBusy(false);
+  };
+  const saidSt = { display: "flex", alignItems: "flex-start", gap: 6, marginTop: 6, fontSize: 12, color: ink(t, RED), lineHeight: 1.45, overflowWrap: "anywhere" };
+  const said = (k) => { const v = keysSaid(k); return v ? <div role="alert" data-shoutout-error={k} style={saidSt}><AlertIco sz={14} c={ink(t, RED)} style={{ flexShrink: 0, marginTop: 2 }} /><span>{v}</span></div> : null; };
+  return (
+    <RecogSheet id="ocsa-shoutout-form" title={tr("Give a shout-out")} onClose={() => { if (!busy) onClose(); }} t={t}>
+      <div data-shoutout-form="1">
+        <label style={mkLabel(t)} htmlFor="ocsa-shout-who">{tr("Who")}</label>
+        {people === null && !peopleFault && <div style={{ fontSize: 13, color: t.textMut, padding: "8px 0" }}>{tr("Loading...")}</div>}
+        {peopleFault && <ListFault icon={PersonIco} text={tr("The people at your sites did not load.")} onRetry={loadPeople} t={t} />}
+        {Array.isArray(people) && <SearchPick id="ocsa-shout-who" name="shoutout-person" rows={people} value={who} onPick={(v) => { setWho(v); setFault(null); }} noMatch={tr("No one matches that name.")} empty={tr("No one shares a site with you.")} disabled={busy} invalid={!!keysSaid("userId")} rowAttr={(r) => ({ "data-shout-person": r.id })} t={t} />}
+        {said("userId")}
+        {person && (
+          <div style={{ marginTop: 12 }}>
+            <label style={mkLabel(t)} htmlFor="ocsa-shout-site">{tr("Site")}</label>
+            <select id="ocsa-shout-site" data-shoutout-site={siteId} value={siteId} onChange={e => { setSiteId(e.target.value); setFault(null); }} disabled={busy} style={{ ...mkInput(t), minHeight: 44 }}>
+              {shared.length !== 1 && <option value="">{tr("Choose a site")}</option>}
+              {shared.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            {said("siteId")}
+          </div>
+        )}
+        <div style={{ marginTop: 12 }}>
+          <label style={mkLabel(t)} htmlFor="ocsa-shout-line">{tr("What they did")}</label>
+          <textarea id="ocsa-shout-line" data-shoutout-line-box="1" value={line} maxLength={SHOUT_LINE_MAX} onChange={e => { setLine(e.target.value.slice(0, SHOUT_LINE_MAX)); setFault(null); }} disabled={busy} rows={3} style={{ ...mkInput(t), resize: "vertical", lineHeight: 1.45 }} />
+          <div data-shoutout-count={line.length} aria-live="polite" style={{ fontSize: 11, color: line.length >= SHOUT_LINE_MAX ? ink(t, ORANGE) : t.textMut, marginTop: 4, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{tr("{used} of {max} characters used.", { used: line.length, max: SHOUT_LINE_MAX })}</div>
+          {said("line")}
+        </div>
+        {fault && fault.keys.length === 0 && <div role="alert" data-shoutout-fault="1" style={{ ...saidSt, marginTop: 10, padding: "8px 10px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, color: t.text }}><AlertIco sz={14} c={ink(t, RED)} style={{ flexShrink: 0, marginTop: 2 }} /><span>{fault.said}</span></div>}
+        <button type="button" data-shoutout-post="1" onClick={post} aria-disabled={!ready} style={{ ...mkPrimaryBtn(t, busy || !ready), marginTop: 14, cursor: ready ? "pointer" : "default" }}>{busy ? tr("Sending...") : tr("Post the shout-out")}</button>
+      </div>
+    </RecogSheet>
+  );
+}
+
+// Home's list: the count of new ones, the last 30 days a page at a time,
+// and Give a shout-out for a holder of post_shoutouts.
+function ShoutoutsCard({ token, rows, next, fault, busy, newCount, poster, onMore, onRetry, onOpen, onGive, t }) {
+  if (!poster && (!Array.isArray(rows) || rows.length === 0) && !fault) return null;
+  return (
+    <div style={{ padding: "16px 16px 0" }}>
+      <div data-shoutouts={Array.isArray(rows) ? rows.length : "wait"} data-shoutouts-new={newCount} style={{ ...fkRowSt(t), marginBottom: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <AwardIco sz={18} c={t.goldText} style={{ flexShrink: 0 }} />
+          <div role="heading" aria-level={2} style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Shout-outs")}</div>
+          {newCount > 0 && <span data-shoutouts-new-badge={newCount} style={{ padding: "2px 8px", borderRadius: R.pill, background: t.goldBg, border: "1px solid " + t.goldBorder, color: t.goldText, fontSize: 11, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("{count} new", { count: newCount })}</span>}
+        </div>
+        {Array.isArray(rows) && rows.length === 0 && <div style={{ fontSize: 12, color: t.textMut, marginTop: 6, lineHeight: 1.45 }}>{tr("No shout-outs at your sites in the last 30 days.")}</div>}
+        {(rows || []).map(x => (
+          <button key={x.id} type="button" data-shoutout-row={x.id} data-shoutout-seen={x.seen ? "1" : "0"} onClick={() => onOpen(x)} style={{ display: "flex", alignItems: "flex-start", gap: 10, width: "100%", minHeight: TAP, padding: "10px 0", marginTop: 4, background: "none", border: "none", borderTop: "1px solid " + t.border, color: t.text, textAlign: "left", cursor: "pointer" }}>
+            <AwardFace person={x.person} size={36} reread={() => api("/api/recognition/shoutouts/" + encodeURIComponent(x.id), { token })} readKey={"shout:" + x.id} t={t} />
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                {!x.seen && <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: "50%", background: GOLD, flexShrink: 0 }} />}
+                <span style={{ fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{x.person.name}</span>
+              </span>
+              <span style={{ display: "block", fontSize: 13, color: t.textSec, marginTop: 2, lineHeight: 1.45, overflowWrap: "anywhere" }}>{x.line}</span>
+              <span style={{ display: "block", fontSize: 11, color: t.textMut, marginTop: 2 }}>{[x.site ? x.site.name : "", shoutWhen(x.postedAt)].filter(Boolean).join(" \u00b7 ")}</span>
+            </span>
+          </button>
+        ))}
+        {fault && <div role="alert" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 8, fontSize: 12, color: t.text }}><span>{fault}</span><button type="button" onClick={onRetry} style={{ ...mkTapFrame(), color: t.goldText, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Try again")}</button></div>}
+        {next && !fault && <button type="button" data-shoutouts-more="1" onClick={onMore} aria-busy={busy} style={{ ...mkTapFrame(), width: "100%", marginTop: 6, borderRadius: R.md, border: "1px solid " + t.borderSolid, color: t.text, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD }}>{busy ? tr("Loading...") : tr("Show more")}</button>}
+        {poster && <button type="button" data-shoutout-give="1" onClick={onGive} style={{ ...wsMainBtn(t, false), width: "100%", marginTop: 10 }}>{tr("Give a shout-out")}</button>}
+      </div>
+    </div>
   );
 }
 

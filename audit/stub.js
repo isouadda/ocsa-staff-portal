@@ -397,6 +397,9 @@ function shiftsFor(siteId, startMs, lang) {
 // guards), read_hr_records and manage_cases are on the list, which the
 // stub had lagged behind.
 const CAPABILITIES = {
+  // Part 414 (ocsa-api Round 19): the Employee of the Month the office
+  // posts, and shout-outs, given by admins and supervisors by role.
+  manage_recognition: ["admin"], post_shoutouts: ["admin", "supervisor"],
   manage_permissions: ["admin"], manage_settings: ["admin"], manage_lookups: ["admin"], manage_staff: ["admin", "supervisor"],
   manage_employment: ["admin"], read_hr_records: ["admin"], manage_cases: ["admin", "supervisor"],
   manage_sites: ["admin"], manage_integrations: ["admin"], manage_tasks: ["admin", "supervisor"],

@@ -2341,6 +2341,43 @@ Four journeys, in English and Spanish, each failing on the main of part
 - `awardbell`: both notice types open the award from the bell, the link
   opens it, and one taken down reads the API's 404 words.
 
+## Shout-outs (part 414, section 3)
+
+Home's **Shout-outs** card counts the new ones (the summary's
+`newShoutouts`, less the ones opened since) and lists `GET
+/api/recognition/shoutouts?limit=5`, the last 30 days at the person's
+sites, newest first, with **Show more** by the cursor. Opening one draws it
+over the screen (the whole line, the site, who gave it) and calls `POST
+/api/recognition/shoutouts/:id/seen` once. Reactions are as an award's;
+the person a shout-out names reads the counts and is offered none (409
+`recognition.ownShoutout`). A holder of `post_shoutouts` (`GET
+/api/users/me/permissions`) reads **Give a shout-out**: a searchable picker
+of the people who share one of their sites (`GET /api/sites/:id`'s staff,
+for each of their sites, themselves and client contacts left out), the
+site the two share (chosen when there is one), and **What they did**, held
+to 200 characters with a live count. `POST /api/recognition/shoutouts {
+userId, line, siteId }` goes once; a 400 is said under the field its keys
+name, and a 403 (`recognition.notYourTeam`, a test account's
+`testCrew.realRecord`) in the API's words under the form. Where
+`canRemove`, **Take down** asks **Take down this shout-out?** first and
+sends `POST .../remove`. The bell's `recognition_shoutout` opens it, from
+a row and from `/?open=recognition_shoutout:<id>`; a 404 reads the API's
+words. The stub's CAPABILITIES carry `post_shoutouts` (admins and
+supervisors) and `manage_recognition` (admins).
+
+Four journeys, in English and Spanish, each failing on the main of part
+408:
+
+- `shoutoutsread`: five of twelve, 2 new; Show more to the end; one opened,
+  seen sent once, a reaction sent, the row opened and the count at 1; one
+  naming the person offers no reaction.
+- `shoutoutspost`: a supervisor searches, picks, gets the shared site,
+  meets the 200 limit and its count, posts once, reads it first on the
+  list, and takes it down asked first; a custodian is offered nothing.
+- `shoutoutsrefused`: 403 `recognition.notYourTeam` and a test account's
+  403 `testCrew.realRecord`, each in the API's words under the form.
+- `shoutoutbell`: the bell's row, the link, and the API's 404 words.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

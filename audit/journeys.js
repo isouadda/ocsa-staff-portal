@@ -12133,4 +12133,146 @@ const PART414_S2_JOURNEYS = [
 ];
 JOURNEYS.push(...PART414_S2_JOURNEYS);
 
+// --- Round 17 of the staff app (part 414), section 3 ----------------------
+//
+// Shout-outs, each failing on the main of part 408.
+const r414Rows = (page) => page.evaluate(() => Array.from(document.querySelectorAll("[data-shoutout-row]")).map(b => ({ id: b.getAttribute("data-shoutout-row"), seen: b.getAttribute("data-shoutout-seen") === "1", text: b.innerText.replace(/\s+/g, " ").trim() })));
+const r414NewBadge = (page) => page.evaluate(() => { const e = document.querySelector("[data-shoutouts-new-badge]"); return e ? Number(e.getAttribute("data-shoutouts-new-badge")) : 0; });
+const r414Sup = (id, extra) => Object.assign({}, PERSON, { id: id, role: "supervisor" }, extra || {});
+const r414Give = async (page) => {
+  await shows(page, "[data-shoutout-give]", 8000);
+  await r414Click(page, "[data-shoutout-give]");
+  return shows(page, '[data-pick-search="shoutout-person"]', 8000);
+};
+const r414PickAna = async (page) => {
+  await page.fill('[data-pick-search="shoutout-person"]', "Ana", { timeout: 4000 }).catch(() => {});
+  await shows(page, '[data-pick-row="s-01"]', 4000);
+  await r414Click(page, '[data-pick-row="s-01"]');
+  await pause(page, 400);
+};
+const PART414_S3_JOURNEYS = [
+  {
+    id: "shoutoutsread",
+    label: "Reading shout-outs (part 414, 3.1, 3.2): Home counts the new ones and lists the last 30 days, paged; opening one sends seen once and the count drops; reactions as an award's, and none offered on one naming the person",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { recognition: { award: false, shoutouts: 12, unseen: 2 } } });
+      try {
+        await shows(app.page, "[data-shoutout-row]", 8000);
+        const first = await r414Rows(app.page);
+        expect("Home lists the shout-outs, a page of five, newest first, and counts 2 new", first.length === 5 && first[0].id === "so-1" && !first[0].seen && (await r414NewBadge(app.page)) === 2 && has(first[0].text, require("./stub").RECOG_SHOUT_LINES[0][language === "es" ? "es" : "en"]), JSON.stringify({ rows: first.map(r => r.id), badge: await r414NewBadge(app.page) }));
+        for (let i = 0; i < 4 && (await r414Has(app.page, "[data-shoutouts-more]")); i += 1) { await r414Click(app.page, "[data-shoutouts-more]"); await pause(app.page, 900); }
+        const all = await r414Rows(app.page);
+        expect("Show more reads by the cursor to the end, each once", all.length === 12 && new Set(all.map(r => r.id)).size === 12 && !(await r414Has(app.page, "[data-shoutouts-more]")), String(all.length));
+        await r414Click(app.page, '[data-shoutout-row="so-1"]');
+        await shows(app.page, '[data-shoutout-sheet="so-1"] [data-shoutout]', 6000);
+        await pause(app.page, 800);
+        const sheet = await app.page.evaluate(() => document.querySelector("[data-shoutout-sheet]").innerText.replace(/\s+/g, " "));
+        expect("opening one shows the whole line and who gave it, and sends seen once", has(sheet, "Riley Example") && sent(app.stub, "POST", "/api/recognition/shoutouts/so-1/seen").length === 1, sheet.slice(0, 200));
+        await r414Click(app.page, '[data-shoutout-sheet] [data-reaction="heart"]');
+        await shows(app.page, '[data-shoutout-sheet] [data-reaction="heart"][data-reaction-mine="1"]', 4000);
+        const put = sent(app.stub, "PUT", "/api/recognition/shoutouts/so-1/reaction");
+        expect("a reaction is sent as PUT { key } and picked", put.length === 1 && put[0].body && put[0].body.key === "heart", JSON.stringify(put.map(c => c.body)));
+        await r414Click(app.page, '[data-sheet-close="ocsa-shoutout-sheet"]');
+        await pause(app.page, 500);
+        expect("the row reads opened and the count drops to 1", (await r414NewBadge(app.page)) === 1 && (await r414Rows(app.page))[0].seen, String(await r414NewBadge(app.page)));
+        await r414Click(app.page, '[data-shoutout-row="so-3"]');
+        await shows(app.page, '[data-shoutout-sheet="so-3"] [data-reactions-own]', 6000);
+        expect("a shout-out naming the person offers no reaction", !(await r414Has(app.page, '[data-shoutout-sheet] button[data-reaction]')), "offered");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "shoutoutspost",
+    label: "Posting a shout-out (part 414, 3.3): a supervisor picks a person from the people at their sites by searching, the site the two share, and a line held to 200 characters with a live count; POST { userId, line, siteId } once; it is listed, and its poster takes it down asked first; a custodian is offered no Give a shout-out",
+    run: async (open, language, expect) => {
+      const sup = await open({ stubOptions: { person: r414Sup("u-414-sup"), recognition: { award: false, shoutouts: 2, staffAt: true } } });
+      try {
+        const formUp = await r414Give(sup.page);
+        expect("Give a shout-out opens the form with the people at the supervisor's sites", formUp && sent(sup.stub, "GET", "/api/sites/").length >= 3, "reads " + sent(sup.stub, "GET", "/api/sites/").length);
+        await r414PickAna(sup.page);
+        const site = await sup.page.evaluate(() => { const e = document.querySelector("#ocsa-shout-site"); return e ? e.value : null; });
+        expect("the one site the two share is chosen", site === "site-north", String(site));
+        const long = "Invented thanks for the extra help ".repeat(8);
+        TYPED.add(long.slice(0, 200)); TYPED.add("Invented thanks for covering the late shift.");
+        await sup.page.fill("#ocsa-shout-line", long, { timeout: 4000 }).catch(() => {});
+        const count = await sup.page.evaluate(() => { const e = document.querySelector("[data-shoutout-count]"); return e ? { n: Number(e.getAttribute("data-shoutout-count")), text: e.innerText } : null; });
+        expect("the line stops at 200 characters and its count says so as it is typed", !!count && count.n === 200 && has(count.text, "200"), JSON.stringify(count));
+        await sup.page.fill("#ocsa-shout-line", "Invented thanks for covering the late shift.", { timeout: 4000 }).catch(() => {});
+        await r414Click(sup.page, "[data-shoutout-post]");
+        await pause(sup.page, 1500);
+        const posts = sent(sup.stub, "POST", "/api/recognition/shoutouts").filter(c => c.path === "/api/recognition/shoutouts");
+        expect("Post sends { userId, line, siteId } once", posts.length === 1 && posts[0].body.userId === "s-01" && posts[0].body.siteId === "site-north" && posts[0].body.line === "Invented thanks for covering the late shift.", JSON.stringify(posts.map(c => c.body)));
+        const rows = await r414Rows(sup.page);
+        expect("the form closes and the new shout-out is listed first", !(await r414Has(sup.page, "[data-shoutout-form]")) && rows.length === 3 && has(rows[0].text, "Ana Alvarez"), JSON.stringify(rows.map(r => r.id)));
+        await r414Click(sup.page, '[data-shoutout-row="' + rows[0].id + '"]');
+        await shows(sup.page, "[data-shoutout-remove]", 6000);
+        await r414Click(sup.page, "[data-shoutout-remove]");
+        const asked = await shows(sup.page, "[data-shoutout-remove-ask]", 3000);
+        expect("Take down asks first and sends nothing", asked && sent(sup.stub, "POST", "/remove").length === 0 && sup.stub.state.recognition.removedShouts.length === 0, "asked " + asked);
+        await r414Click(sup.page, "[data-shoutout-remove-yes]");
+        await pause(sup.page, 1200);
+        expect("then takes it down (POST .../remove) and it leaves the list", sup.stub.state.recognition.removedShouts.length === 1 && (await r414Rows(sup.page)).length === 2, JSON.stringify(sup.stub.state.recognition.removedShouts));
+        await spokenHere(sup, language, expect);
+      } finally { await sup.context.close(); }
+      const staff = await open({ stubOptions: { recognition: { award: false, shoutouts: 2 } } });
+      try {
+        await shows(staff.page, "[data-shoutout-row]", 8000);
+        await pause(staff.page, 800);
+        expect("a custodian, who holds no post_shoutouts, is offered no Give a shout-out", !(await r414Has(staff.page, "[data-shoutout-give]")), "offered");
+      } finally { await staff.context.close(); }
+    },
+  },
+  {
+    id: "shoutoutsrefused",
+    label: "A shout-out refused (part 414, 3.3, 3.5): a supervisor naming someone who shares no site reads the API's 403 recognition.notYourTeam, and a test account naming a real person the API's 403 testCrew.realRecord, never a bare error",
+    run: async (open, language, expect) => {
+      for (const code of ["recognition.notYourTeam", "testCrew.realRecord"]) {
+        const extra = code === "testCrew.realRecord" ? { isTestAccount: true } : {};
+        const app = await open({ stubOptions: { person: r414Sup("u-414-ref", extra), recognition: { award: false, shoutouts: 1, staffAt: true, postRefusal: code } } });
+        try {
+          await r414Give(app.page);
+          await r414PickAna(app.page);
+          TYPED.add("Invented thanks.");
+          await app.page.fill("#ocsa-shout-line", "Invented thanks.", { timeout: 4000 }).catch(() => {});
+          await r414Click(app.page, "[data-shoutout-post]");
+          const said = await shows(app.page, "[data-shoutout-fault], [data-shoutout-error]", 5000);
+          const text = said ? await app.page.evaluate(() => { const e = document.querySelector("[data-shoutout-fault], [data-shoutout-error]"); return e.innerText; }) : "";
+          const words = require("./stub").RECOG_REFUSALS[code];
+          expect(code + ": the API's 403 words under the form, the form kept", said && has(text, language === "es" ? words.es : words.en) && (await r414Has(app.page, "[data-shoutout-form]")), text);
+          await spokenHere(app, language, expect);
+        } finally { await app.context.close(); }
+      }
+    },
+  },
+  {
+    id: "shoutoutbell",
+    label: "The bell's shout-out (part 414, 3.4): recognition_shoutout opens it from the bell and from /?open=recognition_shoutout:<id>; one taken down reads the API's 404 words",
+    run: async (open, language, expect) => {
+      const notice = { id: "n-so", subjectType: "recognition_shoutout", subjectId: "so-1", title: language === "es" ? "Recibi\u00f3 un reconocimiento" : "You got a shout-out", body: language === "es" ? "Se reconoci\u00f3 su trabajo en North Building." : "Your work at North Building was recognized.", link: "/?open=recognition_shoutout:so-1", createdAt: "2026-10-01T20:10:00.000Z", readAt: null };
+      const app = await open({ stubOptions: { recognition: { award: false, shoutouts: 3 }, notifications: [notice] } });
+      try {
+        await shows(app.page, "[data-bell]", 8000);
+        await r414Click(app.page, "[data-bell]");
+        await shows(app.page, '[data-notice-id="n-so"] button', 6000);
+        await r414Click(app.page, '[data-notice-id="n-so"] button');
+        expect("recognition_shoutout opens the shout-out from the bell, read by id", (await shows(app.page, '[data-shoutout-sheet="so-1"] [data-shoutout]', 6000)) && sent(app.stub, "GET", "/api/recognition/shoutouts/so-1").length >= 1, "not opened");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const linked = await open({ path: "/?open=recognition_shoutout:so-2", stubOptions: { recognition: { award: false, shoutouts: 3 } } });
+      try {
+        expect("/?open=recognition_shoutout:<id> opens it", await shows(linked.page, '[data-shoutout-sheet="so-2"] [data-shoutout]', 8000), "not opened");
+      } finally { await linked.context.close(); }
+      const gone = await open({ path: "/?open=recognition_shoutout:so-gone", stubOptions: { recognition: { award: false, shoutouts: 3 } } });
+      try {
+        const said = await shows(gone.page, "[data-shoutout-gone]", 8000);
+        const text = said ? await gone.page.evaluate(() => document.querySelector("[data-shoutout-gone]").innerText) : "";
+        const words = require("./stub").RECOG_REFUSALS["recognition.shoutoutNotFound"];
+        expect("one taken down reads the API's 404 words", said && has(text, language === "es" ? words.es : words.en), text);
+      } finally { await gone.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART414_S3_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };
