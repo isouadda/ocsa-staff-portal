@@ -393,8 +393,9 @@ const SHOTS = [
     go: (s) => s.waitText([s.say("Activate Account"), s.say("Choose your 4-digit PIN and pick your language.")]) },
 
   // Home, and the shift.
-  { name: "home", entry: E("What Home shows"), o: { signedIn: true, stub: { requests: true, signatures: true, unfinishedForms: true } },
-    go: async (s) => { await s.hasBar(); return s.waitFor(() => !!document.querySelector("[data-request-card], [data-sign-card]") && !!document.querySelector("[data-unfinished-card]")); } },
+  // Part 414: with the Employee of the Month's card, its reveal seen.
+  { name: "home", entry: E("What Home shows"), o: { signedIn: true, stub: { requests: true, signatures: true, unfinishedForms: true, recognition: { seen: true } } },
+    go: async (s) => { await s.hasBar(); return s.waitFor(() => !!document.querySelector("[data-request-card], [data-sign-card]") && !!document.querySelector("[data-unfinished-card]") && !!document.querySelector("[data-award-card]")); } },
   { name: "start-shift", entry: E("Start your shift at a site"), o: { signedIn: true, stub: { clockedIn: false, lastSession: "closed" } },
     go: async (s) => { await s.hasBar(); return s.waitText(s.say("Choose a Site to Start")); } },
   { name: "end-shift", entry: E("End your shift"), o: { signedIn: true },
@@ -919,7 +920,8 @@ const SHOTS = [
   // Notices, Settings and the app itself.
   // Step 336: a case assigned, which offers Open in the dashboard, a shift
   // given, and a supply request approved.
-  { name: "notifications", entry: E("See your notifications"), o: { signedIn: true, stub: { notifications: [
+  { name: "notifications", entry: E("See your notifications"), o: { signedIn: true, stub: { recognition: { seen: true }, notifications: [
+    { id: "n-4", subjectType: "recognition_award", subjectId: "aw-2026-09", title: "Employee of the Month for September 2026", body: "Jordan Example is our Employee of the Month. Open the app to congratulate them.", link: "/?open=recognition_award:aw-2026-09", createdAt: "2026-10-01T23:30:00.000Z", readAt: null },
     { id: "n-3", subjectType: "hr_case_assigned", subjectId: "case-1", title: "A case was assigned to you", body: "Open it in Cases.", link: "https://admin.example.invalid/#cases/case-1", createdAt: "2026-10-01T23:00:00.000Z", readAt: null },
     { id: "n-2", subjectType: "shift_assigned", subjectId: "shift-9", title: "You have a new shift at North Building", body: "Oct 3, 2:00 PM to 10:00 PM.", link: null, createdAt: "2026-10-01T21:00:00.000Z", readAt: null },
     { id: "n-1", subjectType: "supply_request", subjectId: "sr-1", title: "Supply request approved", body: "Two cases of paper towels.", link: null, createdAt: "2026-10-01T18:00:00.000Z", readAt: null },
@@ -955,8 +957,9 @@ const SHOTS = [
   { name: "change-pin", entry: E("Change your PIN"), o: { signedIn: true }, go: (s) => settingsAt(s, "Change PIN") },
   { name: "shortcuts", entry: E("Change the shortcuts on your bottom bar"), o: { signedIn: true },
     go: async (s) => { if (!(await s.go("Settings"))) return false; await s.pause(600); await s.tap(s.say("Edit shortcuts")); return s.waitText(s.say("On your bar")); } },
-  { name: "profile", entry: E("Update your personal information or photo"), o: { signedIn: true },
-    go: async (s) => { await s.hasBar(); await s.tapLabel(s.say("Profile")); return s.waitText(s.say("Emergency Contact")); } },
+  // Part 414: with a photo, so Remove photo shows under it.
+  { name: "profile", entry: E("Update your personal information or photo"), o: { signedIn: true, stub: { person: Object.assign({}, require("./stub").PERSON, { profilePhotoUrl: "profile-photos/profile-me.jpg" }) } },
+    go: async (s) => { await s.hasBar(); await s.tapLabel(s.say("Profile")); if (!(await s.waitText(s.say("Emergency Contact")))) return false; return s.waitFor(() => !!document.querySelector("[data-profile-photo-remove]")); } },
   { name: "phone-alerts-on", entry: E("Turn on alerts on this phone"), o: { signedIn: true, phone: { userAgent: ANDROID, push: { permission: "default" } } },
     go: async (s) => { if (!(await s.go("Settings"))) return false; await s.pause(600); await s.tap(s.say("Phone alerts")); return s.waitText(s.say("Turn on alerts on this phone")); } },
   // Part 367 (PORT-29): an iPhone browser tab told once why it gets no alerts.
@@ -1209,6 +1212,67 @@ const SHOTS = [
       await s.page.evaluate(() => { const sel = window.getSelection && window.getSelection(); if (sel) sel.removeAllRanges(); document.querySelector("[data-inspect-submit]").scrollIntoView({ block: "center" }); });
       await s.pause(300);
       await s.mark("[data-inspect-submit]");
+      return true;
+    } },
+  // Part 414: the Employee of the Month and shout-outs (ocsa-api Round 19).
+  // The reveal once its confetti has fallen.
+  // The runner opens the page twice, and the first open already played it
+  // and marked it seen, so it is made unseen and opened once more.
+  { name: "award-reveal", entry: E("See the Employee of the Month"), o: { signedIn: true, stub: { recognition: {} } },
+    go: async (s) => {
+      s.stub.state.recognition.seen.clear();
+      await s.page.reload({ waitUntil: "domcontentloaded" });
+      await s.hasBar();
+      if (!(await s.waitFor(() => !!document.querySelector("[data-recognition-reveal]")))) return false;
+      await s.pause(3200);
+      return s.waitFor(() => !document.querySelector("[data-confetti]"));
+    } },
+  { name: "award-card", entry: E("The Employee of the Month on Home"), o: { signedIn: true, stub: { recognition: { seen: true } } },
+    go: async (s) => {
+      await s.hasBar();
+      if (!(await s.waitFor(() => !!document.querySelector("[data-award-card]")))) return false;
+      await s.page.evaluate(() => document.querySelector("[data-award-card]").scrollIntoView({ block: "center" }));
+      await s.pause(400);
+      return s.mark("[data-award-card-open]");
+    } },
+  { name: "award-congratulate", entry: E("Congratulate the Employee of the Month"), o: { signedIn: true, stub: { recognition: { seen: true } } },
+    go: async (s) => {
+      await s.hasBar();
+      if (!(await s.waitFor(() => !!document.querySelector('[data-award-card] [data-reaction="clap"]')))) return false;
+      await s.page.evaluate(() => document.querySelector('[data-award-card] [data-reaction="clap"]').click());
+      if (!(await s.waitFor(() => !!document.querySelector('[data-award-card] [data-reaction="clap"][data-reaction-mine="1"]')))) return false;
+      await s.page.evaluate(() => document.querySelector("[data-award-card]").scrollIntoView({ block: "center" }));
+      await s.pause(400);
+      return s.mark('[data-award-card] [data-reaction="clap"]');
+    } },
+  { name: "team-wall", entry: E("See the team wall"), o: { signedIn: true, stub: { recognition: { seen: true, wall: 6 } } },
+    go: async (s) => {
+      await s.hasBar();
+      if (!(await s.waitFor(() => !!document.querySelector("[data-award-card] [data-team-wall-open]")))) return false;
+      await s.page.evaluate(() => document.querySelector("[data-award-card] [data-team-wall-open]").click());
+      if (!(await s.waitFor(() => document.querySelectorAll("[data-wall-award]").length >= 3))) return false;
+      await s.pause(600);
+      return true;
+    } },
+  { name: "shoutout-read", entry: E("Read the shout-outs at your sites"), o: { signedIn: true, stub: { recognition: { award: false, shoutouts: 4 } } },
+    go: async (s) => {
+      await s.hasBar();
+      if (!(await s.waitFor(() => !!document.querySelector('[data-shoutout-row="so-1"]')))) return false;
+      await s.page.evaluate(() => document.querySelector('[data-shoutout-row="so-1"]').click());
+      if (!(await s.waitFor(() => !!document.querySelector('[data-shoutout-sheet="so-1"] [data-reaction="clap"]')))) return false;
+      await s.pause(600);
+      return true;
+    } },
+  { name: "shoutout-give", entry: E("Give a shout-out"), o: { signedIn: true, stub: { person: SUPERVISOR, recognition: { award: false, shoutouts: 2, staffAt: true } } },
+    go: async (s) => {
+      await s.hasBar();
+      if (!(await s.waitFor(() => !!document.querySelector("[data-shoutout-give]")))) return false;
+      await s.page.evaluate(() => document.querySelector("[data-shoutout-give]").click());
+      if (!(await s.waitFor(() => !!document.querySelector('[data-pick-row="s-01"]')))) return false;
+      await s.page.evaluate(() => document.querySelector('[data-pick-row="s-01"]').click());
+      if (!(await s.waitFor(() => !!document.querySelector("#ocsa-shout-line")))) return false;
+      await s.type("#ocsa-shout-line", s.language === "es" ? "Gracias por cubrir el turno de la noche con poco aviso." : "Thank you for covering the late shift on short notice.");
+      await s.pause(400);
       return true;
     } },
 ];

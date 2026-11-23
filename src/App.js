@@ -704,6 +704,9 @@ async function api(path, opts = {}) {
     res = await reach(API + path, init);
   } finally { flightDown(); }
   await refuseUnlessOk(res, opts);
+  // Part 414: an answer with no body (204, ocsa-api Round 19's seen
+  // routes) is done, with nothing to read.
+  if (res.status === 204) return null;
   return withoutMoney(await readJson(res));
 }
 
@@ -1123,7 +1126,9 @@ function summaryOf(d) {
   SUMMARY_FEATURES.forEach(k => { features[k] = d.features[k] === true; });
   const counts = {};
   SUMMARY_COUNTS.forEach(k => { const n = d.counts[k]; counts[k] = typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.floor(n) : null; });
-  return { features: features, counts: counts };
+  // Part 414: recognition (ocsa-api Round 19), null when its part failed
+  // or the API answers none (recognitionOf).
+  return { features: features, counts: counts, recognition: recognitionOf(d.recognition) };
 }
 
 // The four places between Home and More. The default is the bar as it was:
@@ -3635,7 +3640,7 @@ export default function OCSAStaffPortal() {
     const taskId = task.id;
     if (inFlightTaskIds.current.has(taskId)) return;
     const counted = isDueToday(task);
-    const mark = (on) => setTickOverrides(prev => { const n = new Map(prev); n.set(taskId, { done: on, doneThisPeriod: on ? { completedAt: new Date().toISOString(), firstName: user && user.firstName } : null, checkedToday: on ? { byCaller: true, firstName: user && user.firstName, completedAt: new Date().toISOString() } : null, at: Date.now() }); return n; });
+    const mark = (on) => setTickOverrides(prev => { const n = new Map(prev); n.set(taskId, { done: on, doneThisPeriod: on ? { completedAt: new Date().toISOString(), firstName: user && user.firstName } : null, checkedToday: on ? { byCaller: true, firstName: user && user.firstName, completedAt: new Date().toISOString(), thisSession: true } : null, at: Date.now() }); return n; });
     // The box as the person set it.
     if (done) { showRowNote(taskId, null); if (counted) setCompletedTaskIds(prev => { const n = new Set(prev); n.delete(taskId); return n; }); else mark(false); }
     else if (counted) setCompletedTaskIds(prev => new Set(prev).add(taskId)); else mark(true);
@@ -3848,7 +3853,22 @@ export default function OCSAStaffPortal() {
   // one with nothing in it, and a list already on the screen stays when a
   // later read of it fails. A reply that is not a list counts as a list
   // that did not load.
-  const loadChannels = async (tkn) => { try { const data = await api(chatPath("/api/chat/channels"), { token: tkn || token }); const list = Array.isArray(data) ? data : (data && Array.isArray(data.channels) ? data.channels : null); if (!list) throw new Error(ERR_GENERIC); setChannels(list.filter(ch => ch && typeof ch === "object" && ch.id)); setChannelsFailed(false); heldNow("chat"); } catch (err) { console.error(err); setChannelsFailed(true); } };
+  // Part 414 (section 5.2, the robot's Round 6): a test office account
+  // also reads the test accounts' lines as GET /api/chat/dm-inbox answers
+  // them, and a line the list of chats leaves out (one whose owner has
+  // left and wrote there) joins the list's private chats. A read that
+  // fails leaves the list as GET /api/chat/channels answered it.
+  const inboxLines = async (tk, list) => {
+    if (!isTestAccount(user) || !isOfficePerson(user)) return list;
+    try {
+      const rows = await api(chatPath("/api/chat/dm-inbox"), { token: tk });
+      const have = new Set(list.map(ch => ch.id));
+      const more = (Array.isArray(rows) ? rows : []).filter(r => r && r.channelId && !have.has(r.channelId) && typeof r.staffName === "string" && r.staffName.trim())
+        .map(r => ({ id: r.channelId, type: "admin_dm", name: r.staffName.trim(), staffUserId: r.staffUserId, unreadCount: Number(r.unreadCount) > 0 ? Number(r.unreadCount) : 0, lastMessageAt: r.lastMessageAt || null }));
+      return more.length ? list.concat(more) : list;
+    } catch (e) { return list; }
+  };
+  const loadChannels = async (tkn) => { try { const data = await api(chatPath("/api/chat/channels"), { token: tkn || token }); const list = Array.isArray(data) ? data : (data && Array.isArray(data.channels) ? data.channels : null); if (!list) throw new Error(ERR_GENERIC); const rows = await inboxLines(tkn || token, list.filter(ch => ch && typeof ch === "object" && ch.id)); setChannels(rows); setChannelsFailed(false); heldNow("chat"); } catch (err) { console.error(err); setChannelsFailed(true); } };
   const retryChannels = () => { setChannelsFailed(false); loadChannels(); };
   // Opening a chat marks it read: its count on the list goes to zero here
   // at once, and the API is told once. An API that does not answer this
@@ -3939,6 +3959,9 @@ export default function OCSAStaffPortal() {
   const openPlace = (place) => {
     if (!place) return;
     if (place.announcement) { setAnnouncementOpen(place.announcement); return; }
+    // Part 414: the Employee of the Month the bell names, over the screen.
+    if (place.award) { setAwardAt({ id: String(place.award), at: Date.now() }); setShowMore(false); return; }
+    if (place.shoutout) { setShoutAt({ id: String(place.shoutout), at: Date.now() }); setShowMore(false); return; }
     // A case, a client's concern or a filed report this person may not
     // read, or one the API already turned away here, opens the bell,
     // where its notice keeps the dashboard's link.
@@ -4704,6 +4727,122 @@ export default function OCSAStaffPortal() {
     if (r === "on") showToast(tr("Alerts are on for this phone."));
     else if (r === "failed") showToast(tr("Your settings did not save."), "error");
   };
+
+  // Part 414 (section 1): the Employee of the Month. recog is the
+  // summary's part, null when it failed or the API answers none (then
+  // nothing shows, and the next open asks again). award is what GET
+  // /api/recognition/current answered, read again each time the summary
+  // is, so its photo link and its counts are fresh. reveal is the card
+  // drawn big on Home, auto when it plays on its own, once per award per
+  // open; revealGone, the awards whose reveal was closed this open.
+  const recog = summary && summary.recognition ? summary.recognition : null;
+  const recogId = recog && recog.current ? recog.current.id : null;
+  const [award, setAward] = useState(null);
+  const [reveal, setReveal] = useState(null);
+  // Part 414 (section 2): the award the bell opened, and the team wall.
+  const [awardAt, setAwardAt] = useState(null);
+  const [wallOpen, setWallOpen] = useState(false);
+  // Part 414 (section 3): Home's shout-outs, a page at a time (rows null
+  // until read), the ones opened this open that were new, the one open
+  // over the screen, and the form.
+  const [shoutRows, setShoutRows] = useState(null);
+  const [shoutNext, setShoutNext] = useState(null);
+  const [shoutFault, setShoutFault] = useState(null);
+  const [shoutBusy, setShoutBusy] = useState(false);
+  const [shoutOpened, setShoutOpened] = useState([]);
+  const [shoutAt, setShoutAt] = useState(null);
+  const [shoutForm, setShoutForm] = useState(false);
+  const revealPlayed = useRef(new Set());
+  const readAward = useCallback(async () => {
+    const d = awardReadOf(await api("/api/recognition/current", { token }));
+    if (liveToken.current !== token) return d;
+    setAward(d && d.award ? d : null);
+    return d;
+  }, [token]);
+  useEffect(() => {
+    if (!token) { revealPlayed.current.clear(); seenSent.current.clear(); }
+    if (!token || screen !== "main" || !recogId) { setAward(null); setReveal(null); return; }
+    readAward().catch(() => {});
+  }, [token, screen, recogId, summary ? summary.at : 0]);
+  // What Home holds first: a first-day training or a document to read and
+  // sign (FirstTrainingsCard). The reveal waits until it is done.
+  const firstWaiting = !!firstTrainingsFrom && (firstTrainingsFrom.documentsToSign.length > 0 || firstTrainingsOf(firstTrainingsFrom).length > 0);
+  // The reveal plays by itself once the portal is up and settled: Home on
+  // the screen, past the alerts card, no notice still to open, no bell,
+  // announcement, More or sheet open, the sign screen closed, and nothing
+  // first-day waiting. A sheet drawn outside this component (the install
+  // sheet) is looked for on the page, again every second and a half.
+  const revealWaits = !award || !award.award || award.seen || !recog || !recog.current || recog.current.id !== award.award.id || revealPlayed.current.has(award.award.id);
+  useEffect(() => {
+    if (revealWaits) return undefined;
+    const ready = () => !booting && screen === "main" && alertsSettled && activeTab === "clock" && !signAt && !openAsk && !notifOpen && !announcementOpen && !showMore && !firstWaiting && !reveal && !awardAt && !wallOpen && !shoutAt && !shoutForm;
+    if (!ready()) return undefined;
+    const play = () => { if (anySheetOpen()) return false; revealPlayed.current.add(award.award.id); setReveal({ read: award, motion: true }); return true; };
+    if (play()) return undefined;
+    const iv = setInterval(() => { if (play()) clearInterval(iv); }, 1500);
+    return () => clearInterval(iv);
+  }, [revealWaits, booting, screen, alertsSettled, activeTab, signAt, openAsk, notifOpen, announcementOpen, showMore, firstWaiting, reveal, awardAt, wallOpen, shoutAt, shoutForm]);
+  // Seen once the reveal is drawn: POST /api/recognition/awards/:id/seen,
+  // once per award. A seen that does not go leaves the award unseen, so
+  // the next open plays it again.
+  const seenSent = useRef(new Set());
+  const markAwardSeen = (id) => {
+    if (seenSent.current.has(id)) return;
+    seenSent.current.add(id);
+    revealPlayed.current.add(id);
+    api("/api/recognition/awards/" + encodeURIComponent(id) + "/seen", { method: "POST", token })
+      .then(() => setAward(prev => (prev && prev.award && prev.award.id === id ? Object.assign({}, prev, { seen: true }) : prev)))
+      .catch(() => { seenSent.current.delete(id); });
+  };
+  const awardSeen = (id) => { if (award && award.award && award.award.id === id && !award.seen) markAwardSeen(id); };
+  // Part 414 (section 2): a reaction changed on Home, the reveal or the
+  // bell's sheet changes the counts everywhere the award is drawn.
+  const awardReactions = (id, rx) => {
+    const put = (read) => (read && read.award && read.award.id === id ? Object.assign({}, read, { award: Object.assign({}, read.award, { reactions: rx }) }) : read);
+    setAward(put);
+    setReveal(prev => (prev && prev.read ? Object.assign({}, prev, { read: put(prev.read) }) : prev));
+  };
+  const rereadAward = () => api("/api/recognition/current", { token });
+  // Home's part: the reveal while it plays, else the month's card, which
+  // plays it again when tapped.
+  const awardBlock = activeTab !== "clock" ? null
+    : reveal && reveal.read && reveal.read.award
+      ? <AwardReveal key={reveal.read.award.id + ":" + (reveal.at || 0)} token={token} read={reveal.read} motion={reveal.motion} onSeen={awardSeen} onClose={() => setReveal(null)} reread={rereadAward} t={t}>
+          <ReactionRow token={token} path={"/api/recognition/awards/" + encodeURIComponent(reveal.read.award.id) + "/reaction"} reactions={reveal.read.award.reactions} own={reveal.read.isMe} onChange={(rx) => awardReactions(reveal.read.award.id, rx)} t={t} />
+          <button type="button" data-team-wall-open="1" onClick={() => setWallOpen(true)} style={{ ...mkTapFrame(), marginTop: 6, gap: 6, color: t.goldText, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD }}><AwardIco sz={14} c={t.goldText} />{tr("Team wall")}</button>
+        </AwardReveal>
+      : award && award.award
+        ? <AwardCard token={token} read={award} onOpen={() => setReveal({ read: award, motion: true, at: Date.now() })} onReactions={(rx) => awardReactions(award.award.id, rx)} onWall={() => setWallOpen(true)} reread={rereadAward} t={t} />
+        : null;
+  // Part 414 (section 3): the shout-outs, read with the summary while its
+  // recognition part answered, a page at a time.
+  const recogOn = !!recog;
+  const readShoutouts = async (cursor) => {
+    if (!token) return;
+    setShoutBusy(true); setShoutFault(null);
+    try {
+      const d = await api("/api/recognition/shoutouts?limit=" + SHOUT_PAGE + (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""), { token });
+      if (liveToken.current !== token) return;
+      const got = (d && Array.isArray(d.shoutouts) ? d.shoutouts : []).map(shoutoutOf).filter(Boolean);
+      setShoutRows(prev => (cursor && Array.isArray(prev) ? prev.concat(got.filter(x => !prev.some(y => y.id === x.id))) : got));
+      setShoutNext(d && typeof d.nextCursor === "string" && d.nextCursor ? d.nextCursor : null);
+    } catch (err) { setShoutFault(saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC)); }
+    setShoutBusy(false);
+  };
+  useEffect(() => {
+    if (!token || screen !== "main" || !recogOn) { setShoutRows(null); setShoutNext(null); setShoutFault(null); setShoutOpened([]); return; }
+    setShoutOpened([]);
+    readShoutouts(null);
+  }, [token, screen, recogOn, summary ? summary.at : 0]);
+  const shoutPoster = !!caps && caps.post_shoutouts === true;
+  const shoutNew = recog ? Math.max(0, recog.newShoutouts - shoutOpened.length) : 0;
+  const shoutSeen = (id) => {
+    setShoutRows(prev => (Array.isArray(prev) ? prev.map(x => (x.id === id && !x.seen ? Object.assign({}, x, { seen: true }) : x)) : prev));
+    setShoutOpened(prev => (prev.indexOf(id) === -1 ? prev.concat([id]) : prev));
+  };
+  const shoutBlock = activeTab === "clock" && recogOn
+    ? <ShoutoutsCard token={token} rows={shoutRows} next={shoutNext} fault={shoutFault} busy={shoutBusy} newCount={shoutNew} poster={shoutPoster} onMore={() => readShoutouts(shoutNext)} onRetry={() => readShoutouts(null)} onOpen={(x) => setShoutAt({ id: x.id, row: x, at: Date.now() })} onGive={() => setShoutForm(true)} t={t} />
+    : null;
   // A count that rises while the app is open is said (PORT-29): the bell's
   // own count, as last drawn, against the one just read. The first read
   // after a sign-in only sets it.
@@ -4890,7 +5029,7 @@ export default function OCSAStaffPortal() {
               {activeTab === "support" && destCtx.support && <SupportView userId={user && user.id} token={token} tickets={support} read={supportRead} screen={supportFrom.current} isAdmin={isAdmin} onFiled={() => setSupportAsked(n => n + 1)} focus={supportAt} t={t} />}
               {activeTab === "supplyorders" && (destCtx.supplyOrders || !!supplyAt) && <SupplyOrdersView token={token} user={user} holder={supplyHolder === true} rows={supplyOrders} onReload={() => loadSupplyOrders()} onRow={takeSupplyOrder} at={supplyAt} onAt={setSupplyAt} getOpts={getOpts} showToast={showToast} t={t} />}
               {activeTab === "library" && (destCtx.library || !!libraryAt) && <LibraryView token={token} docs={library} onDocs={setLibrary} at={libraryAt} onAt={setLibraryAt} onOpen={(d) => openLibraryDoc(d, d.match ? d.match.sectionRef : null)} toSign={training ? training.documentsToSign : []} onSign={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} t={t} />}
-              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={firstTrainingsFrom} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} count={summaryCount("signaturesToSign", "sign")} onOpen={openSign} onOpenCard={openSignCard} t={t} /><UnfinishedFormsCard token={token} user={user} language={language} count={summary === null ? "wait" : summary === false ? undefined : summary.counts.unfinishedForms} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} count={summaryCount("clientRequests", "requests")} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} count={supplyHolder ? summaryCount("supplyOrdersWaiting", "supply") : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} todoCount={summaryCount("trainingToDo", "training")} waitingCount={isAdmin ? summaryCount("trainingToSignOff", "awaiting") : null} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} startFault={startFault} onSelectSite={(id) => { setStartFault(null); handleSelectSite(id); }} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSitesForPerson(user, sessionSites)} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} statusFailed={statusFailed} onRetryStatus={() => { refreshClockStatus().catch(() => setStatusFailed(true)); }} t={t} /><MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
+              {activeTab === "clock" && !signAt && <div><FirstTrainingsCard training={firstTrainingsFrom} t={t} onDocument={(doc) => { setTrainingAt({ doc: doc }); setActiveTab("training"); setShowMore(false); }} onLesson={(item) => { setTrainingAt({ lesson: item.id }); setActiveTab("training"); setShowMore(false); }} /><SignCard requests={signList} count={summaryCount("signaturesToSign", "sign")} onOpen={openSign} onOpenCard={openSignCard} t={t} />{awardBlock}<UnfinishedFormsCard token={token} user={user} language={language} count={summary === null ? "wait" : summary === false ? undefined : summary.counts.unfinishedForms} onOpen={(id) => { setFormsDraft(String(id)); setActiveTab("forms"); setShowMore(false); }} t={t} /><ClientRequestsCard rows={clientRequests} count={summaryCount("clientRequests", "requests")} user={user} onOpen={() => { setActiveTab("issues"); setShowMore(false); }} t={t} /><SupplyOrdersCard rows={supplyHolder ? supplyOrders : null} count={supplyHolder ? summaryCount("supplyOrdersWaiting", "supply") : null} onOpen={() => { setSupplyAt(null); setActiveTab("supplyorders"); setShowMore(false); }} t={t} /><TrainingCard training={training} awaiting={awaiting} todoCount={summaryCount("trainingToDo", "training")} waitingCount={isAdmin ? summaryCount("trainingToSignOff", "awaiting") : null} onOpen={() => { setActiveTab("training"); setShowMore(false); }} onOpenSignoff={() => openPlace({ tab: "fieldkit", signoff: true })} t={t} /><ClockView clockStatus={clockStatus} currentTime={currentTime} selectedSite={selectedSite} pendingSite={pendingSite} startBlock={startBlock} startFault={startFault} onSelectSite={(id) => { setStartFault(null); handleSelectSite(id); }} onStartSession={handleStartSession} onEndSession={handleEndSession} siteChoices={sessionSitesForPerson(user, sessionSites)} siteChoicesFailed={sessionSitesFailed} onRetrySites={() => loadSessionSites()} loading={loading} completedCount={homeCounts ? homeCounts.done : 0} taskCount={homeCounts ? homeCounts.total : 0} taskListLoaded={!!homeCounts} reference={shiftReference} siteReference={siteReference} onReadList={setSiteListAt} watchSites={isAdmin} endWaiting={!!endPending && (!user || String(endPending.userId) === String(user.id))} statusFailed={statusFailed} onRetryStatus={() => { refreshClockStatus().catch(() => setStatusFailed(true)); }} t={t} />{shoutBlock}<MyScheduleSection token={token} user={user} t={t} compact showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} /></div>}
               {activeTab === "schedule" && <MyScheduleSection token={token} user={user} t={t} showToast={showToast} getOpts={getOpts} lkHasOther={lkHasOther} onOpenInspection={openInspection} at={scheduleAt} />}
               {activeTab === "tasks" && <TasksView token={token} rereadList={() => (checklistAsk ? api(checklistAsk, { token }) : Promise.reject(Object.assign(new Error(ERR_GENERIC), { status: 404 })))} clockStatus={clockStatus} tasks={tasks} tasksFailed={tasksFailed} faultOffline={tasksFaultKind === "offline"} kept={keptShown} onRetryTasks={() => loadTasks(true)} completedTaskIds={shownCompleted} pendingTicks={pendingTicks} pendingKept={pendingKept} tickOverrides={tickOverrides} toggleTask={toggleTask} rowNote={rowNote} onRowNote={showRowNote} apiWords={tasksLang === language} listDay={tasksDay} shiftSheet={shiftSheet} shiftChoices={siteShifts} shiftNames={shiftNames} onChangeShift={() => { setShiftFault(null); setShiftAsk("change"); }} nowMs={currentTime.getTime()} reference={shiftReference} focus={taskFocus} onFocused={() => setTaskFocus(null)} alsoHere={alsoHere} t={t} />}
               {activeTab === "issuetasks" && <AssignedTasksView userId={user && user.id} assignedTasks={assignedTasks} work={myWork} onOpenIssue={openIssue} onOpenRequest={(id) => openPlace({ tab: "issues", request: id })} failed={assignedFailed} onRetry={() => loadAssignedTasks()} resolveTask={resolveAssignedTask} showToast={showToast} t={t} token={token} lkColorMap={lkColorMap} />}
@@ -4991,6 +5130,26 @@ export default function OCSAStaffPortal() {
 
       {announcementOpen && (
         <AnnouncementSheet token={token} id={announcementOpen} t={t} onClose={() => setAnnouncementOpen(null)} />
+      )}
+
+      {/* Part 414 (section 2): the award the bell opened, and the team
+          wall over it. */}
+      {!booting && screen === "main" && token && awardAt && (
+        <AwardSheet key={awardAt.id + ":" + awardAt.at} token={token} id={awardAt.id} onSeen={markAwardSeen} onRead={(d) => { if (d && d.award) awardReactions(d.award.id, d.award.reactions); }} onWall={() => setWallOpen(true)} onClose={() => setAwardAt(null)} t={t} />
+      )}
+      {!booting && screen === "main" && token && wallOpen && (
+        <TeamWallSheet token={token} onClose={() => setWallOpen(false)} t={t} />
+      )}
+      {/* Part 414 (section 3): a shout-out, and Give a shout-out. */}
+      {!booting && screen === "main" && token && shoutAt && (
+        <ShoutoutSheet key={shoutAt.id + ":" + shoutAt.at} token={token} id={shoutAt.id} initial={shoutAt.row || null} onSeen={shoutSeen}
+          onChange={(x) => setShoutRows(prev => (Array.isArray(prev) ? prev.map(y => (y.id === x.id ? Object.assign({}, x, { seen: y.seen || x.seen }) : y)) : prev))}
+          onRemoved={(id) => { setShoutRows(prev => (Array.isArray(prev) ? prev.filter(y => y.id !== id) : prev)); showToast(tr("Shout-out taken down")); }}
+          onClose={() => setShoutAt(null)} t={t} />
+      )}
+      {!booting && screen === "main" && token && shoutForm && (
+        <ShoutoutForm token={token} user={user} sites={sites} onClose={() => setShoutForm(false)}
+          onPosted={(x) => { setShoutForm(false); if (x) setShoutRows(prev => [x].concat(Array.isArray(prev) ? prev.filter(y => y.id !== x.id) : [])); showToast(tr("Shout-out posted")); }} t={t} />
       )}
 
       {!booting && screen === "main" && issueAt && (
@@ -5616,11 +5775,40 @@ function leaveBalancesOf(d) {
     const hours = leaveNum(b.balanceHours);
     const perDay = leaveNum(b.hoursPerDay);
     const days = leaveNum(b.balanceDays) !== null ? leaveNum(b.balanceDays) : hours !== null && perDay ? leaveNum(hours / perDay) : null;
+    // Part 414 (section 4.3, ocsa-api part 410, 3.1): each balance answers
+    // line { text, note, classes } | null, the rule the person follows of
+    // that kind, union included; an API from before it answers none, and
+    // the line is found in the summary's by the class on file, as before.
+    const own = Object.prototype.hasOwnProperty.call(b, "line");
     const mine = lines.filter(l => l && l.kind === b.kind);
-    const line = (cls && mine.find(l => Array.isArray(l.classes) && l.classes.indexOf(cls) !== -1)) || mine.find(l => !Array.isArray(l.classes)) || mine[0];
+    const line = own ? (plainOf(b.line) ? b.line : null) : (cls && mine.find(l => Array.isArray(l.classes) && l.classes.indexOf(cls) !== -1)) || mine.find(l => !Array.isArray(l.classes)) || mine[0];
     const notes = (Array.isArray(b.notes) ? b.notes : []).filter(n => n && typeof n === "object" && n.code !== ADP_NOTE).map(n => fkText(n, ["message"])).filter(Boolean);
     return { kind: b.kind, name: fkText(b, ["kindName"]) || b.kind, unit: b.unit === "days" ? "days" : "hours", hours: hours, days: days, usableFrom: fkText(b, ["usableFrom"]) || null, line: line ? fkText(line, ["text"]) : "", notes: notes };
   }).filter(b => b.hours !== null);
+}
+// Part 414 (section 4.3): the class leave reads for the person's rules
+// (person.leaveClass, union included), and the kinds not offered them
+// (notOffered, as GET /api/time-off/types answers it, each with kindName),
+// grouped by the API's reason.
+const LEAVE_CLASS_LINES = {
+  full_time: "Your time off follows the rules for full-time staff.",
+  part_time: "Your time off follows the rules for part-time staff.",
+  supplemental: "Your time off follows the rules for supplemental staff.",
+  union: "Your time off follows the rules for staff at a union site.",
+  none: "Your employment class is not on file. The office has to set it.",
+};
+const leaveClassOf = (d) => { const c = d && plainOf(d.person) ? d.person.leaveClass : null; return typeof c === "string" && Object.prototype.hasOwnProperty.call(LEAVE_CLASS_LINES, c) ? c : null; };
+function leaveNotOfferedOf(d) {
+  const groups = [];
+  (d && Array.isArray(d.notOffered) ? d.notOffered : []).forEach((x) => {
+    if (!plainOf(x)) return;
+    const name = fkText(x, ["kindName"]) || fkText(x, ["name"]) || fkText(x, ["kind"]) || fkText(x, ["value"]);
+    if (!name) return;
+    const reason = fkText(x, ["reasonText"]);
+    const g = groups.find(y => y.reason === reason);
+    if (g) g.names.push(name); else groups.push({ reason: reason, code: fkText(x, ["reason"]) || "", names: [name] });
+  });
+  return groups;
 }
 // The ADP line, as the first balance that carries it says it.
 function leaveAdpOf(d) {
@@ -5630,6 +5818,10 @@ function leaveAdpOf(d) {
   }
   return "";
 }
+// Part 414 (section 4.5, ocsa-api part 410, 3.3): a request asked inside
+// its notice carries insideNoticeText, in the request's language; an API
+// from before it answers none, and the app's own sentence shows.
+const insideNoticeLine = (r) => fkText(r, ["insideNoticeText"]) || tr("Asked with less notice than the policy asks. The office decides it case by case.");
 const leaveDays = (n) => (n === 1 ? tr("{n} day", { n: String(n) }) : tr("{n} days", { n: String(n) }));
 const leaveUsableLater = (b) => !!b && !!b.usableFrom && b.usableFrom > ymdLocal(todayLocal());
 // A balance's amount as the screen says it: days for a kind kept in days
@@ -5661,7 +5853,10 @@ function TimeOffLeave({ leave, status, before, t }) {
   if (status !== "requested" || (lv.tracked !== true && warnings.length === 0)) return null;
   const would = leaveAmount(unit, lv.wouldLeaveDays, lv.wouldLeaveHours);
   const days = (Array.isArray(lv.days) ? lv.days : []).filter(x => x && typeof x === "object" && typeof x.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(x.date));
-  const marked = days.some(x => x.from === "holiday" || x.from === "dayOff");
+  // Part 414 (section 4.4, ocsa-api part 410, 3.2): each day answers
+  // holiday { key, name } | null, the name in the request's language.
+  const holidayName = (x) => (x && plainOf(x.holiday) ? fkText(x.holiday, ["name"]) : "");
+  const marked = days.some(x => x.from === "holiday" || x.from === "dayOff" || !!holidayName(x));
   const dayWord = (x) => (x.from === "holiday" ? tr("Paid holiday, not taken") : x.from === "dayOff" ? tr("Day off, not taken") : unit === "days" ? leaveDays(1) : timeOffHours(x.hours));
   return (
     <div data-leave-state="pending" data-leave-unit={unit} style={box}>
@@ -5672,8 +5867,8 @@ function TimeOffLeave({ leave, status, before, t }) {
           {days.map(x => {
             const none = x.from === "holiday" || x.from === "dayOff";
             return (
-              <div key={x.date} data-leave-day={x.date} data-leave-from={String(x.from || "")} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap", padding: "4px 0", borderTop: "1px solid " + t.borderSolid, fontSize: 12, lineHeight: 1.45 }}>
-                <span style={{ color: none ? t.textMut : t.text }}>{dueDayText(x.date, { weekday: "short", month: "short", day: "numeric" })}</span>
+              <div key={x.date} data-leave-day={x.date} data-leave-from={String(x.from || "")} data-leave-holiday={holidayName(x) ? "1" : undefined} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap", padding: "4px 0", borderTop: "1px solid " + t.borderSolid, fontSize: 12, lineHeight: 1.45 }}>
+                <span style={{ color: none ? t.textMut : t.text }}><span>{dueDayText(x.date, { weekday: "short", month: "short", day: "numeric" })}</span>{holidayName(x) && <span>{" \u00b7 "}</span>}{holidayName(x) && <span data-leave-holiday-name="1" style={{ fontWeight: 600 }}>{holidayName(x)}</span>}</span>
                 <span style={{ color: none ? ink(t, TIME_OFF_COLOR) : t.textSec, fontWeight: none ? 600 : 400 }}>{dayWord(x)}</span>
               </div>
             );
@@ -5755,7 +5950,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
   useEffect(() => {
     if (compact || !token) return undefined;
     let gone = false;
-    api("/api/leave/me", { token }).then((d) => { if (!gone) setLeaveMe({ state: "ok", list: leaveBalancesOf(d), adp: leaveAdpOf(d) }); }).catch((err) => { if (!gone) setLeaveMe(prev => (err && err.status === 404 ? { state: "none", list: [] } : prev && prev.state === "ok" ? prev : { state: "failed", list: [] })); });
+    api("/api/leave/me", { token }).then((d) => { if (!gone) setLeaveMe({ state: "ok", list: leaveBalancesOf(d), adp: leaveAdpOf(d), cls: leaveClassOf(d), notOffered: leaveNotOfferedOf(d) }); }).catch((err) => { if (!gone) setLeaveMe(prev => (err && err.status === 404 ? { state: "none", list: [] } : prev && prev.state === "ok" ? prev : { state: "failed", list: [] })); });
     return () => { gone = true; };
   }, [compact, token, leaveAsked]);
   const balances = leaveMe && leaveMe.state === "ok" ? leaveMe.list : [];
@@ -6294,6 +6489,18 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
               {leaveMe && leaveMe.adp && <div data-leave-adp="1" style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{leaveMe.adp}</div>}
             </div>
           )}
+          {/* Part 414 (section 4.3): the rules the person follows, and the
+              kinds not offered them, each named as the API names it. */}
+          {leaveMe && leaveMe.state === "ok" && (leaveMe.cls || (leaveMe.notOffered && leaveMe.notOffered.length > 0)) && (
+            <div data-leave-class={leaveMe.cls || ""} style={{ marginBottom: 12 }}>
+              {leaveMe.cls && <div data-leave-class-line="1" style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{tr(LEAVE_CLASS_LINES[leaveMe.cls])}</div>}
+              {(leaveMe.notOffered || []).map(g => (
+                <div key={g.code + g.names.join()} data-leave-notoffered={g.code} style={{ fontSize: 12, color: t.textMut, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" }}>
+                  <span>{tr("Not offered to you: {types}.", { types: g.names.join(", ") })}</span>{g.reason && <span>{" " + g.reason}</span>}
+                </div>
+              ))}
+            </div>
+          )}
           {leaveMe && leaveMe.state === "failed" && <div data-leave-fault="1" style={{ marginBottom: 12 }}><ListFault icon={CalIco} text={tr("Your leave balances did not load.")} onRetry={() => setLeaveAsked(n => n + 1)} t={t} /></div>}
           {myOffFailed && <div data-timeoff-fault="mine"><ListFault icon={CalIco} text={tr("Your time off requests did not load.")} onRetry={loadMyOff} t={t} /></div>}
           {!myOffFailed && myOff.length === 0 && <div style={{ fontSize: 12, color: t.textMut, padding: "10px 0" }}>{tr("No time off requests yet.")}</div>}
@@ -6307,7 +6514,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
                     <div style={{ fontSize: 11, color: t.textSec, marginTop: 3, overflowWrap: "anywhere" }}>{timeOffDates(r.startsOn, r.endsOn)}</div>
                     {r.partDay && r.startTime && r.endTime && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{fmtTm(r.startTime)} - {fmtTm(r.endTime)}</div>}
                     {hrs && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{hrs}</div>}
-                    {r.insideNotice === true && <div data-timeoff-inside="row" style={{ fontSize: 11, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" }}>{tr("Asked with less notice than the policy asks. The office decides it case by case.")}</div>}
+                    {r.insideNotice === true && <div data-timeoff-inside="row" style={{ fontSize: 11, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" }}>{insideNoticeLine(r)}</div>}
                   </div>
                   <span style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px", color: timeOffStatusColor(r.status, t), flexShrink: 0, fontFamily: FONT_HEAD }}>{timeOffStatusWord(r.status)}</span>
                 </div>
@@ -6541,7 +6748,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
             </div>
             {/* Part 399 (API part 395): vacation or a personal day asked
                 inside its notice, which the office decides case by case. */}
-            {offDetail.insideNotice === true && <div data-timeoff-inside="sheet" role="status" style={{ marginBottom: 14, padding: "10px 12px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.borderSolid, fontSize: 13, color: t.text, lineHeight: 1.5, overflowWrap: "anywhere" }}>{tr("Asked with less notice than the policy asks. The office decides it case by case.")}</div>}
+            {offDetail.insideNotice === true && <div data-timeoff-inside="sheet" role="status" style={{ marginBottom: 14, padding: "10px 12px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.borderSolid, fontSize: 13, color: t.text, lineHeight: 1.5, overflowWrap: "anywhere" }}>{insideNoticeLine(offDetail)}</div>}
             <TimeOffLeave leave={offDetail.leave} status={offDetail.status} t={t} />
 
             <div style={{ marginBottom: 14 }}>
@@ -7679,9 +7886,15 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, faultOffline, kept,
   // answered and stay. None is offered, and a tap says why.
   const sessionStart = (() => { const s = clockStatus && ((clockStatus.session && clockStatus.session.startedAt) || (clockStatus.shift && (clockStatus.shift.startedAt || clockStatus.shift.clockInTime))); const ms = s ? Date.parse(s) : NaN; return Number.isFinite(ms) ? ms : null; })();
   const beforeSession = (c) => { if (sessionStart === null || !c || !c.completedAt) return false; const at = Date.parse(c.completedAt); return Number.isFinite(at) && at < sessionStart; };
+  // Part 414 (section 4.1, ocsa-api part 410, 3.7): each checkedToday
+  // entry on clock status, the session answers and the task list carries
+  // thisSession, true when the check is the one the uncheck reaches. The
+  // uncheck is offered only then; an entry with none (an API from before
+  // part 410) is read by its time as before.
   const lockOf = (tk, done) => {
     if (!done || waiting.has(tk.id)) return null;
     const c = checkedOf(tk);
+    if (c && c.byCaller === true && typeof c.thisSession === "boolean") return c.thisSession ? null : "session";
     if (c && c.byCaller === true) return beforeSession(c) ? "session" : null;
     if (c && c.byCaller === false) return "other";
     return isDueToday(tk) ? null : "earlier";
@@ -8170,16 +8383,22 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, message
   // chat.staffLineAdminsOnly), so staff are offered to them alone, as the
   // dashboard does.
   const readsLines = !!user && user.status !== "inactive" && (user.role === "admin" || user.isSuperAdmin === true);
-  const offered = Array.isArray(people) ? people.filter(p => p.kind === "office" || readsLines) : null;
+  // Part 414 (section 5.1, the robot's Round 6): a test office account is
+  // answered the test accounts alone (GET /api/chat/people since ocsa-api
+  // Round 17), and the API opens it a direct chat with any of them and a
+  // test account's line, so staff are offered to it as well: a tap opens
+  // the line, and Direct message the direct chat.
+  const testOffice = office && isTestAccount(user);
+  const offered = Array.isArray(people) ? people.filter(p => p.kind === "office" || readsLines || testOffice) : null;
   const canStart = office && Array.isArray(offered) && offered.length > 0;
   const closeNew = () => { if (opening) return; setNewOpen(false); setNewQuery(""); setOpenFault(null); };
   // An office person opens the direct chat the two of them share, and a
   // staff member their private chat with the office, each made by the
   // API the first time. The chat drawn until the list is read again is
   // named for the person picked.
-  const startChat = async (p) => {
+  const startChat = async (p, how) => {
     if (opening) return;
-    const direct = p.kind === "office";
+    const direct = p.kind === "office" || how === "direct";
     setOpening(p.id); setOpenFault(null);
     try {
       const d = await api(chatPath(direct ? "/api/chat/direct" : "/api/chat/staff-line"), { method: "POST", body: { userId: p.id }, token });
@@ -8451,10 +8670,18 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, message
                   <div id={"ocsa-new-" + kind} style={{ fontSize: 10, fontWeight: 600, color: t.textMut, textTransform: "uppercase", letterSpacing: "1px", margin: "4px 0 6px", fontFamily: FONT_HEAD }}>{title}</div>
                   {rows.map(p => {
                     const busy = opening === p.id;
-                    return (<button key={p.id} type="button" onClick={() => startChat(p)} aria-disabled={!!opening} aria-busy={busy} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", marginBottom: 4, borderRadius: R.md, border: "1px solid " + (busy ? t.goldBorder : t.borderSolid), background: busy ? t.goldBg : t.card, color: t.text, cursor: opening ? "default" : "pointer", opacity: opening && !busy ? 0.5 : 1, textAlign: "left" }}>
+                    const paired = testOffice && kind === "staff";
+                    const row = (<button key={p.id} type="button" data-new-person={p.id} onClick={() => startChat(p)} aria-disabled={!!opening} aria-busy={busy} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", marginBottom: paired ? 0 : 4, borderRadius: R.md, border: "1px solid " + (busy ? t.goldBorder : t.borderSolid), background: busy ? t.goldBg : t.card, color: t.text, cursor: opening ? "default" : "pointer", opacity: opening && !busy ? 0.5 : 1, textAlign: "left" }}>
                       <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{p.name}</span>
                       {p.role && <span style={{ fontSize: 11, color: t.textMut, flexShrink: 0 }}>{roleWord(p.role)}</span>}
                     </button>);
+                    // Part 414: a test office account picks a staff test
+                    // account's line by the row, or a direct chat with them.
+                    if (!paired) return row;
+                    return (<div key={p.id} style={{ display: "flex", alignItems: "stretch", gap: 6, marginBottom: 4 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>{row}</div>
+                      <button type="button" data-new-direct={p.id} onClick={() => startChat(p, "direct")} aria-disabled={!!opening} aria-label={tr("Direct message") + ": " + p.name} style={{ flexShrink: 0, minHeight: TAP, padding: "0 10px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: t.hover, color: t.goldText, fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD, cursor: opening ? "default" : "pointer", opacity: opening && !busy ? 0.5 : 1 }}>{tr("Direct message")}</button>
+                    </div>);
                   })}
                 </div>);
               })}
@@ -14252,6 +14479,10 @@ function notifPlace(subjectType, subjectId, subjectKey) {
   // closed (API-63's hr_case_closed_for, no case words) opens it too.
   if (subjectType === "hr_case_opened_for" || subjectType === "hr_case_closed_for") return { tab: "speakup", myReport: named };
   if (subjectType === "form") return named ? { report: named } : null;
+  // Part 414 (ocsa-api Round 19): the award posted and the winner's count
+  // of congratulations open the award.
+  if (subjectType === "recognition_award" || subjectType === "recognition_reactions") return named ? { award: named } : null;
+  if (subjectType === "recognition_shoutout") return named ? { shoutout: named } : null;
   if (caseSubject(subjectType)) return named ? { hrCase: named } : null;
   if (subjectType === "customer_concern") return named ? { concern: named } : null;
   if (subjectType === "support_ticket") return { tab: "support", ticket: named };
@@ -22169,6 +22400,582 @@ function WalkSectionsSheet({ zones, scoredIds, scored, total, safetyCounts, safe
   );
 }
 
+// ------------------------------------------------------------
+// Employee of the Month (part 414, section 1; ocsa-api Round 19, part
+// 411, "For the staff app")
+//
+// GET /api/me/summary answers recognition { current: { id, seen, isMe }
+// | null, newShoutouts } | null. null, and an answer with no such key (an
+// API from before Round 19), read as null: nothing is shown, and the next
+// open asks again. With current there, the award is read (GET
+// /api/recognition/current answers { award, seen, isMe }), and with seen
+// false the reveal plays once on Home: a short burst of confetti and the
+// card, with the photo (or the initials in a gold circle when photoUrl is
+// null), the name, Employee of the Month, the month name and the reason
+// as the API answers them, and the site when there is one; then POST
+// /api/recognition/awards/:id/seen. It waits for the portal itself: past
+// sign-in, Choose your PIN and the alerts card, with Home on the screen,
+// no sheet open and nothing first-day waiting on Home. It is a card in
+// Home's own column, never drawn over it, so Start Shift is never behind
+// it; its close button, or a swipe across it, closes it. A phone set to
+// reduce motion gets the card with no confetti. The winner (isMe) reads
+// their own version, with their certificate (GET
+// /api/recognition/awards/:id/certificate.pdf). A photo's link lives 60
+// minutes, so a picture that no longer loads reads the award again for a
+// fresh one, as the profile's does (FreshImg).
+// ------------------------------------------------------------
+const AwardIco = (p) => <Ico d="M12 15a6 6 0 1 0 0-12 6 6 0 0 0 0 12zM8.21 13.89L7 23l5-3 5 3-1.21-9.12" {...p} />;
+const XIco = (p) => <Ico d="M18 6L6 18M6 6l12 12" {...p} />;
+const plainOf = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+// The summary's part, or null.
+function recognitionOf(r) {
+  if (!plainOf(r)) return null;
+  const c = r.current;
+  const current = plainOf(c) && c.id !== undefined && c.id !== null && String(c.id) ? { id: String(c.id), seen: c.seen === true, isMe: c.isMe === true } : null;
+  const n = Number(r.newShoutouts);
+  return { current: current, newShoutouts: Number.isFinite(n) && n > 0 ? Math.floor(n) : 0 };
+}
+// The five reactions, in the API's order (helpers/recognition.js
+// REACTIONS), each with its picture and its name.
+const REACTION_KEYS = ["clap", "star", "heart", "fire", "muscle"];
+const REACTION_GLYPHS = { clap: "\uD83D\uDC4F", star: "\u2b50", heart: "\u2764\ufe0f", fire: "\uD83D\uDD25", muscle: "\uD83D\uDCAA" };
+const REACTION_NAMES = { clap: "Clap", star: "Star", heart: "Heart", fire: "Fire", muscle: "Muscle" };
+function reactionsOf(r) {
+  const counts = {};
+  let total = 0;
+  REACTION_KEYS.forEach((k) => { const n = plainOf(r) && plainOf(r.counts) ? Number(r.counts[k]) : 0; counts[k] = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0; total += counts[k]; });
+  const mine = plainOf(r) && REACTION_KEYS.indexOf(r.mine) !== -1 ? r.mine : null;
+  const said = plainOf(r) ? Number(r.total) : NaN;
+  return { counts: counts, total: Number.isFinite(said) && said >= 0 ? Math.floor(said) : total, mine: mine };
+}
+// A person on an award or a shout-out: the name, the initials and the
+// photo's link, null with none.
+function awardPersonOf(p) {
+  if (!plainOf(p)) return null;
+  const first = typeof p.firstName === "string" ? p.firstName.trim() : "";
+  const last = typeof p.lastName === "string" ? p.lastName.trim() : "";
+  const name = [first, last].filter(Boolean).join(" ");
+  const initials = typeof p.initials === "string" && p.initials.trim() ? p.initials.trim().slice(0, 3) : ((first[0] || "") + (last[0] || "")).toUpperCase();
+  return { id: p.id === undefined || p.id === null ? "" : String(p.id), firstName: first, lastName: last, name: name, initials: initials, photoUrl: typeof p.photoUrl === "string" && p.photoUrl ? p.photoUrl : null };
+}
+// An award as the API answers it, or null.
+function awardOf(a) {
+  if (!plainOf(a) || a.id === undefined || a.id === null || !String(a.id)) return null;
+  const person = awardPersonOf(a.person);
+  if (!person || !person.name) return null;
+  const siteName = plainOf(a.site) ? fkText(a.site, ["name"]) : "";
+  return {
+    id: String(a.id), month: typeof a.month === "string" ? a.month : "", monthName: fkText(a, ["monthName"]),
+    person: person, site: siteName ? { id: a.site.id === undefined || a.site.id === null ? "" : String(a.site.id), name: siteName } : null,
+    reason: fkText(a, ["reason"]), postedAt: typeof a.postedAt === "string" ? a.postedAt : null, reactions: reactionsOf(a.reactions),
+  };
+}
+// { award, seen, isMe }, as GET /api/recognition/current and GET
+// /api/recognition/awards/:id answer it; award null when none is shown.
+function awardReadOf(d) {
+  if (!plainOf(d)) return null;
+  return { award: awardOf(d.award), seen: d.seen === true, isMe: d.isMe === true };
+}
+// A phone set to reduce motion.
+const reducesMotion = () => { try { return !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { return false; } };
+
+// A short burst of confetti over the screen. It takes no taps: anything
+// under it, Start Shift among them, is reached through it. It is a canvas
+// and not a div, so it never reads as a sheet that holds off an update.
+const CONFETTI_MS = 2600;
+const CONFETTI_COLORS = [GOLD, GOLD_LIGHT, "#FFFFFF", BLUE_BRIGHT, GREEN];
+function Confetti({ onDone }) {
+  const ref = useRef(null);
+  const ended = useRef(false);
+  useEffect(() => {
+    const end = () => { if (ended.current) return; ended.current = true; if (onDone) onDone(); };
+    const canvas = ref.current;
+    const ctx = canvas && canvas.getContext ? canvas.getContext("2d") : null;
+    const stop = setTimeout(end, CONFETTI_MS + 400);
+    if (!ctx) return () => clearTimeout(stop);
+    const w = window.innerWidth || 390, h = window.innerHeight || 800;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    ctx.scale(dpr, dpr);
+    const pieces = [];
+    for (let i = 0; i < 90; i += 1) pieces.push({ x: w / 2 + (Math.random() - 0.5) * w * 0.4, y: h * 0.28, vx: (Math.random() - 0.5) * 10, vy: -4 - Math.random() * 11, size: 5 + Math.random() * 6, angle: Math.random() * Math.PI, spin: (Math.random() - 0.5) * 0.4, color: CONFETTI_COLORS[i % CONFETTI_COLORS.length] });
+    const start = Date.now();
+    let frame = 0;
+    const draw = () => {
+      const at = Date.now() - start;
+      ctx.clearRect(0, 0, w, h);
+      ctx.globalAlpha = Math.max(0, 1 - at / CONFETTI_MS);
+      pieces.forEach((p) => {
+        p.vy += 0.32; p.vx *= 0.99; p.x += p.vx; p.y += p.vy; p.angle += p.spin;
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.angle); ctx.fillStyle = p.color; ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2); ctx.restore();
+      });
+      if (at < CONFETTI_MS) frame = window.requestAnimationFrame(draw); else end();
+    };
+    frame = window.requestAnimationFrame(draw);
+    return () => { window.cancelAnimationFrame(frame); clearTimeout(stop); };
+  }, []);
+  return <canvas ref={ref} data-confetti="1" aria-hidden="true" style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 2500 }} />;
+}
+
+// The photo in a circle, or the initials in a gold circle when there is
+// no photo or it can no longer be shown. reread reads the record again
+// for a fresh link.
+function AwardFace({ person, size, reread, readKey, t }) {
+  const [gone, setGone] = useState(false);
+  useEffect(() => { setGone(false); }, [person && person.photoUrl]);
+  const box = { width: size, height: size, borderRadius: "50%", border: "2px solid " + GOLD, flexShrink: 0 };
+  if (person && person.photoUrl && !gone) return <FreshImg src={person.photoUrl} reread={reread} readKey={readKey} onGone={() => setGone(true)} data-award-photo="1" alt={person.name} style={{ ...box, objectFit: "cover", display: "block" }} />;
+  return <div data-award-initials={person ? person.initials : ""} role="img" aria-label={person ? person.name : ""} style={{ ...box, background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, display: "flex", alignItems: "center", justifyContent: "center", fontSize: Math.round(size * 0.36), fontWeight: 600, fontFamily: FONT_HEAD, letterSpacing: "1px" }}>{person ? person.initials : ""}</div>;
+}
+
+// The reveal: the card, played with confetti (motion true and the phone
+// not set to reduce motion). Seen once drawn (onSeen). A swipe across it
+// sideways, or its close button, closes it; a swipe up and down scrolls
+// the page as ever. children is what section 2 adds under the card.
+function AwardReveal({ token, read, motion, onSeen, onClose, reread, t, children }) {
+  const a = read.award;
+  const me = read.isMe === true;
+  const [confetti, setConfetti] = useState(() => !!motion && !reducesMotion());
+  const [certFault, setCertFault] = useState(null);
+  useEffect(() => { if (onSeen) onSeen(a.id); }, [a.id]);
+  const swipe = useRef(null);
+  const down = (e) => { swipe.current = { x: e.clientX, y: e.clientY }; };
+  const up = (e) => { const s = swipe.current; swipe.current = null; if (!s) return; const dx = e.clientX - s.x, dy = e.clientY - s.y; if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) onClose(); };
+  const certificate = async () => {
+    setCertFault(null);
+    try { await openApiPdf("/api/recognition/awards/" + encodeURIComponent(a.id) + "/certificate.pdf", "employee-of-the-month-" + (a.month || a.id) + ".pdf", token); }
+    catch (err) { setCertFault(saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC)); }
+  };
+  const quiet = { fontSize: 13, color: t.textSec, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" };
+  return (
+    <div style={{ padding: "16px 16px 0" }}>
+      {confetti && <Confetti onDone={() => setConfetti(false)} />}
+      <section data-recognition-reveal={a.id} data-reveal-me={me ? "1" : undefined} data-reveal-motion={motion && !reducesMotion() ? "1" : "0"} aria-labelledby={"ocsa-award-" + a.id} onPointerDown={down} onPointerUp={up} onPointerCancel={() => { swipe.current = null; }} style={{ position: "relative", touchAction: "pan-y", padding: "22px 16px 16px", borderRadius: R.lg, background: t.card, border: "1.5px solid " + GOLD, boxShadow: "0 0 0 4px " + t.goldBg + ", 0 10px 30px rgba(231,176,23,0.25)", textAlign: "center", animation: "slideUp 0.35s ease-out" }}>
+        <button type="button" data-reveal-close="1" onClick={onClose} aria-label={tr("Close")} style={mkTapFrame({ position: "absolute", top: 2, right: 2 })}><XIco sz={18} c={t.textSec} /></button>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}><AwardFace person={a.person} size={96} reread={reread} readKey={"award:" + a.id} t={t} /></div>
+        <div style={{ ...mkLabel(t), display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 4 }}><AwardIco sz={14} c={t.goldText} /><span data-reveal-title="1">{me ? tr("You're Employee of the Month") : tr("Employee of the Month")}</span></div>
+        <div id={"ocsa-award-" + a.id} role="heading" aria-level={2} data-award-name="1" style={{ fontSize: 22, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.25, overflowWrap: "anywhere" }}>{a.person.name}</div>
+        {a.monthName && <div data-award-month="1" style={{ ...quiet, color: t.goldText, fontWeight: 600, fontFamily: FONT_HEAD }}>{a.monthName}</div>}
+        {a.site && <div data-award-site="1" style={quiet}>{a.site.name}</div>}
+        {a.reason && <div data-award-reason="1" style={{ fontSize: 14, color: t.text, lineHeight: 1.5, marginTop: 12, padding: "10px 12px", borderRadius: R.md, background: t.goldSubtle, border: "1px solid " + t.goldBorder, textAlign: "left", overflowWrap: "anywhere" }}>{a.reason}</div>}
+        {me && <button type="button" data-certificate={a.id} onClick={certificate} style={{ ...wsMainBtn(t, false), width: "100%", marginTop: 12 }}>{tr("See your certificate")}</button>}
+        {certFault && <div role="alert" data-certificate-fault="1" style={{ fontSize: 12, color: ink(t, RED), marginTop: 6, lineHeight: 1.45 }}>{certFault}</div>}
+        {children}
+      </section>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Congratulate, Home's card, the team wall and the bell (part 414,
+// section 2)
+//
+// The five reactions with their counts and the person's own picked: one
+// per person, changeable (PUT .../reaction { key }) and removable (DELETE,
+// a tap on the one picked), each answered { reactions }. The person an
+// award or a shout-out names reads the counts and is offered none, since
+// the API refuses their own (409 recognition.ownAward and
+// recognition.ownShoutout); a refusal is said under the row in the API's
+// words. Who reacted is never answered, so never shown.
+// ------------------------------------------------------------
+function ReactionRow({ token, path, reactions, own, onChange, t }) {
+  const r = reactionsOf(reactions);
+  const [busy, setBusy] = useState(null);
+  const [fault, setFault] = useState(null);
+  useBusy("reaction " + path, !!busy);
+  const pick = async (key) => {
+    if (busy || own) return;
+    setBusy(key); setFault(null);
+    try {
+      const d = await api(path, r.mine === key ? { method: "DELETE", token } : { method: "PUT", body: { key: key }, token });
+      if (d && plainOf(d.reactions)) onChange(reactionsOf(d.reactions));
+    } catch (err) { setFault(saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC)); }
+    setBusy(null);
+  };
+  const chip = (on) => ({ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, minWidth: 52, minHeight: TAP, padding: "0 10px", borderRadius: R.pill, border: "1px solid " + (on ? GOLD : t.borderSolid), background: on ? t.goldBg : t.hover, color: t.text, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" });
+  return (
+    <div data-reactions={r.total} data-reactions-own={own ? "1" : undefined} style={{ marginTop: 12 }}>
+      <div style={{ ...mkLabel(t), textAlign: "left", marginBottom: 6 }}>{own ? tr("Congratulations from your team") : tr("Congratulate")}</div>
+      <div role="group" aria-label={own ? tr("Congratulations from your team") : tr("Congratulate")} style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {REACTION_KEYS.map(k => {
+          const name = tr(REACTION_NAMES[k]);
+          const n = r.counts[k];
+          if (own) return <span key={k} data-reaction={k} data-reaction-count={n} role="img" aria-label={tr("{name}: {count}", { name: name, count: n })} style={chip(false)}><span aria-hidden="true">{REACTION_GLYPHS[k]}</span><span aria-hidden="true">{n}</span></span>;
+          const on = r.mine === k;
+          return <button key={k} type="button" data-reaction={k} data-reaction-count={n} data-reaction-mine={on ? "1" : undefined} aria-pressed={on} aria-label={tr("{name}: {count}", { name: name, count: n })} aria-busy={busy === k} onClick={() => pick(k)} style={{ ...chip(on), cursor: busy ? "default" : "pointer", opacity: busy && busy !== k ? 0.6 : 1 }}><span aria-hidden="true">{REACTION_GLYPHS[k]}</span><span aria-hidden="true">{n}</span></button>;
+        })}
+      </div>
+      {fault && <div role="alert" data-reaction-fault="1" style={{ fontSize: 12, color: ink(t, RED), marginTop: 6, lineHeight: 1.45, textAlign: "left", overflowWrap: "anywhere" }}>{fault}</div>}
+    </div>
+  );
+}
+
+// Home's card for the month: the award GET /api/recognition/current
+// answers, the first 7 days of the next month included while none is
+// posted. A tap on it plays the reveal again; Congratulate and the team
+// wall are under it.
+function AwardCard({ token, read, onOpen, onReactions, onWall, reread, t }) {
+  const a = read.award;
+  const me = read.isMe === true;
+  const line = [a.monthName, a.site ? a.site.name : ""].filter(Boolean).join(" \u00b7 ");
+  return (
+    <div style={{ padding: "16px 16px 0" }}>
+      <div data-award-card={a.id} style={{ ...fkRowSt(t), marginBottom: 0, border: "1px solid " + t.goldBorder }}>
+        <button type="button" data-award-card-open={a.id} onClick={onOpen} aria-label={tr("Employee of the Month") + ": " + a.person.name} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", minHeight: TAP, padding: 0, background: "none", border: "none", color: t.text, textAlign: "left", cursor: "pointer" }}>
+          <AwardFace person={a.person} size={48} reread={reread} readKey={"award:" + a.id} t={t} />
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ ...mkLabel(t), display: "flex", alignItems: "center", gap: 5, marginBottom: 2 }}><AwardIco sz={12} c={t.goldText} />{me ? tr("You're Employee of the Month") : tr("Employee of the Month")}</span>
+            <span style={{ display: "block", fontSize: 15, fontWeight: 600, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{a.person.name}</span>
+            {line && <span style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>{line}</span>}
+          </span>
+          <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0 }} />
+        </button>
+        <ReactionRow token={token} path={"/api/recognition/awards/" + encodeURIComponent(a.id) + "/reaction"} reactions={a.reactions} own={me} onChange={onReactions} t={t} />
+        <button type="button" data-team-wall-open="1" onClick={onWall} style={{ ...mkTapFrame(), marginTop: 6, gap: 6, color: t.goldText, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD }}><AwardIco sz={14} c={t.goldText} />{tr("Team wall")}</button>
+      </div>
+    </div>
+  );
+}
+
+// A sheet over the whole screen, its title on top, Close at the bottom.
+function RecogSheet({ id, title, onClose, children, t }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div onClick={onClose} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 400, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div role="dialog" aria-modal="true" aria-labelledby={id + "-title"} data-sheet={id} onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, maxHeight: "calc(var(--ocsa-dvh, 100dvh) * 0.92)", display: "flex", flexDirection: "column", borderRadius: R.lg + "px " + R.lg + "px 0 0", border: "1px solid " + t.borderSolid, borderBottom: "none" }}>
+        <div id={id + "-title"} role="heading" aria-level={2} style={{ padding: "14px 16px 10px", fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, flexShrink: 0 }}>{title}</div>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px 12px" }}>{children}</div>
+        <div style={{ padding: "10px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0, background: t.bg }}>
+          <button type="button" data-sheet-close={id} onClick={onClose} style={{ width: "100%", minHeight: TAP, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Close")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// The counts alone, for the team wall: no one reacts there.
+function ReactionCounts({ reactions, t }) {
+  const r = reactionsOf(reactions);
+  return (
+    <div data-wall-counts={r.total} style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
+      {REACTION_KEYS.filter(k => r.counts[k] > 0).map(k => <span key={k} role="img" aria-label={tr("{name}: {count}", { name: tr(REACTION_NAMES[k]), count: r.counts[k] })} style={{ fontSize: 12, color: t.textSec, fontVariantNumeric: "tabular-nums" }}><span aria-hidden="true">{REACTION_GLYPHS[k]}</span>{" "}<span aria-hidden="true">{r.counts[k]}</span></span>)}
+    </div>
+  );
+}
+
+// The team wall: every winner, newest month first, read a page at a time
+// (GET /api/recognition/awards, cursor and limit) until nextCursor is
+// null: the photo or the initials, the name, the month, the site, the
+// reason and the counts.
+const WALL_PAGE = 10;
+function TeamWallSheet({ token, onClose, t }) {
+  const [rows, setRows] = useState(null);
+  const [next, setNext] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [fault, setFault] = useState(null);
+  const read = async (cursor) => {
+    if (busy) return;
+    setBusy(true); setFault(null);
+    try {
+      const d = await api("/api/recognition/awards?limit=" + WALL_PAGE + (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""), { token });
+      const got = (d && Array.isArray(d.awards) ? d.awards : []).map(awardOf).filter(Boolean);
+      setRows(prev => (cursor && Array.isArray(prev) ? prev.concat(got.filter(x => !prev.some(y => y.id === x.id))) : got));
+      setNext(d && typeof d.nextCursor === "string" && d.nextCursor ? d.nextCursor : null);
+    } catch (err) { setFault(saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC)); }
+    setBusy(false);
+  };
+  useEffect(() => { read(null); }, []);
+  const reread = () => api("/api/recognition/awards?limit=" + WALL_PAGE, { token });
+  return (
+    <RecogSheet id="ocsa-team-wall" title={tr("Team wall")} onClose={onClose} t={t}>
+      <div data-team-wall={Array.isArray(rows) ? rows.length : "wait"} data-wall-end={Array.isArray(rows) && !next ? "1" : undefined}>
+        {rows === null && !fault && <div style={{ padding: "20px 0", textAlign: "center", fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div>}
+        {Array.isArray(rows) && rows.length === 0 && <div style={{ padding: "20px 0", textAlign: "center", fontSize: 13, color: t.textMut }}>{tr("No Employee of the Month yet.")}</div>}
+        {(rows || []).map(a => (
+          <div key={a.id} data-wall-award={a.id} style={{ display: "flex", gap: 12, padding: "12px 0", borderTop: "1px solid " + t.border }}>
+            <AwardFace person={a.person} size={44} reread={reread} readKey={"wall:" + a.id} t={t} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{a.person.name}</div>
+              <div style={{ fontSize: 12, color: t.goldText, fontWeight: 600, marginTop: 2 }}>{[a.monthName, a.site ? a.site.name : ""].filter(Boolean).join(" \u00b7 ")}</div>
+              {a.reason && <div style={{ fontSize: 13, color: t.textSec, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" }}>{a.reason}</div>}
+              <ReactionCounts reactions={a.reactions} t={t} />
+            </div>
+          </div>
+        ))}
+        {fault && <div style={{ marginTop: 8 }}><ListFault icon={AwardIco} text={fault} onRetry={() => read(Array.isArray(rows) ? next : null)} t={t} /></div>}
+        {next && !fault && <button type="button" data-wall-more="1" onClick={() => read(next)} aria-busy={busy} style={{ ...mkTapFrame(), width: "100%", marginTop: 8, borderRadius: R.md, border: "1px solid " + t.borderSolid, color: t.text, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD }}>{busy ? tr("Loading...") : tr("Show more")}</button>}
+      </div>
+    </RecogSheet>
+  );
+}
+
+// An award the bell opens (recognition_award and recognition_reactions,
+// /?open=recognition_award:<id>): GET /api/recognition/awards/:id, drawn
+// as the reveal is, with confetti when it was not yet seen. A 404 means
+// it was taken down, said in the API's words.
+function AwardSheet({ token, id, onSeen, onRead, onWall, onClose, t }) {
+  const [read, setRead] = useState(null);
+  const [fault, setFault] = useState(null);
+  const load = async () => {
+    setFault(null);
+    try {
+      const d = awardReadOf(await api("/api/recognition/awards/" + encodeURIComponent(id), { token }));
+      if (!d || !d.award) throw new Error(ERR_GENERIC);
+      setRead(d); if (onRead) onRead(d);
+    } catch (err) { setFault({ said: saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC), gone: !!err && err.status === 404 }); }
+  };
+  useEffect(() => { load(); }, [id]);
+  const onReactions = (rx) => { setRead(prev => (prev ? Object.assign({}, prev, { award: Object.assign({}, prev.award, { reactions: rx }) }) : prev)); if (onRead && read) onRead(Object.assign({}, read, { award: Object.assign({}, read.award, { reactions: rx }) })); };
+  return (
+    <RecogSheet id="ocsa-award-sheet" title={tr("Employee of the Month")} onClose={onClose} t={t}>
+      <div data-award-sheet={id}>
+        {!read && !fault && <div style={{ padding: "20px 0", textAlign: "center", fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div>}
+        {fault && (fault.gone
+          ? <div role="status" data-award-gone="1" style={{ padding: "16px 12px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.borderSolid, fontSize: 14, color: t.text, lineHeight: 1.5, overflowWrap: "anywhere" }}>{fault.said}</div>
+          : <ListFault icon={AwardIco} text={fault.said} onRetry={load} t={t} />)}
+        {read && (
+          <div style={{ margin: "0 -16px" }}>
+            <AwardReveal token={token} read={read} motion={!read.seen} onSeen={(x) => { if (!read.seen && onSeen) onSeen(x); }} onClose={onClose} reread={() => api("/api/recognition/awards/" + encodeURIComponent(id), { token })} t={t}>
+              <ReactionRow token={token} path={"/api/recognition/awards/" + encodeURIComponent(read.award.id) + "/reaction"} reactions={read.award.reactions} own={read.isMe} onChange={onReactions} t={t} />
+              <button type="button" data-team-wall-open="1" onClick={onWall} style={{ ...mkTapFrame(), marginTop: 6, gap: 6, color: t.goldText, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD }}><AwardIco sz={14} c={t.goldText} />{tr("Team wall")}</button>
+            </AwardReveal>
+          </div>
+        )}
+      </div>
+    </RecogSheet>
+  );
+}
+
+// ------------------------------------------------------------
+// Shout-outs (part 414, section 3)
+//
+// Home counts the new ones (the summary's newShoutouts) and lists the
+// last 30 days at the person's sites, newest first, a page at a time (GET
+// /api/recognition/shoutouts, cursor and limit). Opening one calls POST
+// /api/recognition/shoutouts/:id/seen. Reactions are as an award's, and
+// the person a shout-out names is offered none (409
+// recognition.ownShoutout). A holder of post_shoutouts (GET
+// /api/users/me/permissions) posts one: a searchable picker of the people
+// who share one of their sites (GET /api/sites/:id's staff, for each site
+// of theirs), the site the two share, and a line of up to 200 characters
+// with a live count. The poster takes one down where canRemove. Every
+// refusal is said in the API's words, a test account's 403 among them.
+// The bell's recognition_shoutout opens it
+// (/?open=recognition_shoutout:<id>).
+// ------------------------------------------------------------
+const SHOUT_PAGE = 5;
+const SHOUT_LINE_MAX = 200;
+function shoutoutOf(x) {
+  if (!plainOf(x) || x.id === undefined || x.id === null || !String(x.id)) return null;
+  const person = awardPersonOf(x.person);
+  if (!person || !person.name) return null;
+  const by = awardPersonOf(x.postedBy);
+  return {
+    id: String(x.id), person: person, line: fkText(x, ["line"]),
+    site: plainOf(x.site) && fkText(x.site, ["name"]) ? { id: x.site.id === undefined || x.site.id === null ? "" : String(x.site.id), name: fkText(x.site, ["name"]) } : null,
+    postedBy: by && by.name ? by : null, postedAt: typeof x.postedAt === "string" ? x.postedAt : null,
+    reactions: reactionsOf(x.reactions), seen: x.seen === true, isMe: x.isMe === true, canRemove: x.canRemove === true,
+  };
+}
+// The day a shout-out was given, on the phone's own clock.
+const shoutWhen = (iso) => { const d = iso ? new Date(iso) : null; return d && !isNaN(d.getTime()) ? d.toLocaleDateString(dateLocale(), { month: "short", day: "numeric" }) : ""; };
+
+// A shout-out over the screen: the whole line, who it names and who gave
+// it, the reactions, and Take down for its poster. Opened from Home with
+// the row it already has, or from the bell by id.
+function ShoutoutSheet({ token, id, initial, onSeen, onChange, onRemoved, onClose, t }) {
+  const [x, setX] = useState(initial || null);
+  const [fault, setFault] = useState(null);
+  const [ask, setAsk] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [removeFault, setRemoveFault] = useState(null);
+  const seenSent = useRef(false);
+  const load = async () => {
+    setFault(null);
+    try {
+      const d = await api("/api/recognition/shoutouts/" + encodeURIComponent(id), { token });
+      const got = shoutoutOf(d && d.shoutout);
+      if (!got) throw new Error(ERR_GENERIC);
+      setX(got);
+    } catch (err) { setFault({ said: saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC), gone: !!err && err.status === 404 }); }
+  };
+  useEffect(() => { if (!initial) load(); }, [id]);
+  useEffect(() => {
+    if (!x || x.seen || seenSent.current) return;
+    seenSent.current = true;
+    api("/api/recognition/shoutouts/" + encodeURIComponent(x.id) + "/seen", { method: "POST", token }).then(() => { setX(prev => (prev && prev.id === x.id ? Object.assign({}, prev, { seen: true }) : prev)); if (onSeen) onSeen(x.id); }).catch(() => { seenSent.current = false; });
+  }, [x && x.id]);
+  const takeDown = async () => {
+    if (busy) return;
+    setBusy(true); setRemoveFault(null);
+    try {
+      await api("/api/recognition/shoutouts/" + encodeURIComponent(x.id) + "/remove", { method: "POST", body: {}, token });
+      if (onRemoved) onRemoved(x.id);
+      onClose();
+    } catch (err) { setRemoveFault(saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC)); }
+    setBusy(false);
+  };
+  useBusy("shout-out remove", busy);
+  const quiet = { fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" };
+  return (
+    <RecogSheet id="ocsa-shoutout-sheet" title={tr("Shout-out")} onClose={onClose} t={t}>
+      <div data-shoutout-sheet={id}>
+        {!x && !fault && <div style={{ padding: "20px 0", textAlign: "center", fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div>}
+        {fault && (fault.gone
+          ? <div role="status" data-shoutout-gone="1" style={{ padding: "16px 12px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.borderSolid, fontSize: 14, color: t.text, lineHeight: 1.5, overflowWrap: "anywhere" }}>{fault.said}</div>
+          : <ListFault icon={AwardIco} text={fault.said} onRetry={load} t={t} />)}
+        {x && (
+          <div data-shoutout={x.id}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <AwardFace person={x.person} size={56} reread={() => api("/api/recognition/shoutouts/" + encodeURIComponent(x.id), { token })} readKey={"shout:" + x.id} t={t} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{x.person.name}</div>
+                <div style={quiet}>{[x.site ? x.site.name : "", shoutWhen(x.postedAt)].filter(Boolean).join(" \u00b7 ")}</div>
+              </div>
+            </div>
+            {x.line && <div data-shoutout-line="1" style={{ fontSize: 14, color: t.text, lineHeight: 1.5, marginTop: 12, padding: "10px 12px", borderRadius: R.md, background: t.goldSubtle, border: "1px solid " + t.goldBorder, overflowWrap: "anywhere" }}>{x.line}</div>}
+            {x.postedBy && <div style={quiet}>{tr("From {name}", { name: x.postedBy.name })}</div>}
+            <ReactionRow token={token} path={"/api/recognition/shoutouts/" + encodeURIComponent(x.id) + "/reaction"} reactions={x.reactions} own={x.isMe} onChange={(rx) => { const next = Object.assign({}, x, { reactions: rx }); setX(next); if (onChange) onChange(next); }} t={t} />
+            {x.canRemove && !ask && <button type="button" data-shoutout-remove={x.id} onClick={() => { setAsk(true); setRemoveFault(null); }} style={{ ...mkTapFrame(), marginTop: 10, color: ink(t, RED), fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Take down")}</button>}
+            {x.canRemove && ask && (
+              <div data-shoutout-remove-ask={x.id} role="group" style={{ marginTop: 10, padding: "10px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder }}>
+                <div style={{ fontSize: 13, color: t.text, lineHeight: 1.45 }}>{tr("Take down this shout-out?")}</div>
+                <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                  <button type="button" onClick={() => setAsk(false)} disabled={busy} style={{ flex: "1 1 120px", minHeight: TAP, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, cursor: "pointer" }}>{tr("Keep the shout-out")}</button>
+                  <button type="button" data-shoutout-remove-yes={x.id} onClick={takeDown} aria-busy={busy} style={{ flex: "1 1 120px", minHeight: TAP, borderRadius: R.md, border: "none", background: RED_FILL, color: "#FFFFFF", fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, cursor: busy ? "default" : "pointer" }}>{tr("Take down")}</button>
+                </div>
+              </div>
+            )}
+            {removeFault && <div role="alert" data-shoutout-remove-fault="1" style={{ fontSize: 12, color: ink(t, RED), marginTop: 6, lineHeight: 1.45 }}>{removeFault}</div>}
+          </div>
+        )}
+      </div>
+    </RecogSheet>
+  );
+}
+
+// The people who share one of the poster's sites, from each site's staff
+// (GET /api/sites/:id), the poster and client contacts left out, each
+// with the sites the two share.
+async function shoutPeopleOf(token, sites, user) {
+  const own = (Array.isArray(sites) ? sites : []).map(s => ({ id: String(s.siteId || s.id || ""), name: String(s.siteName || s.name || "") })).filter(s => s.id);
+  const people = new Map();
+  for (const s of own) {
+    const d = await api("/api/sites/" + encodeURIComponent(s.id), { token });
+    (d && Array.isArray(d.staff) ? d.staff : []).forEach((p) => {
+      if (!p || p.id === undefined || p.id === null || (user && String(p.id) === String(user.id)) || p.role === "client_contact") return;
+      const id = String(p.id);
+      const name = [p.first_name || p.firstName, p.last_name || p.lastName].filter(x => typeof x === "string" && x.trim()).map(x => x.trim()).join(" ");
+      if (!name) return;
+      const had = people.get(id) || { id: id, name: name, sites: [] };
+      if (!had.sites.some(x => x.id === s.id)) had.sites.push(s);
+      people.set(id, had);
+    });
+  }
+  return Array.from(people.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Give a shout-out: the person, the site and the line, POST
+// /api/recognition/shoutouts { userId, line, siteId }.
+function ShoutoutForm({ token, user, sites, onPosted, onClose, t }) {
+  const [people, setPeople] = useState(null);
+  const [peopleFault, setPeopleFault] = useState(false);
+  const [who, setWho] = useState("");
+  const [siteId, setSiteId] = useState("");
+  const [line, setLine] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [fault, setFault] = useState(null);
+  const loadPeople = () => { setPeopleFault(false); shoutPeopleOf(token, sites, user).then(setPeople).catch(() => setPeopleFault(true)); };
+  useEffect(() => { loadPeople(); }, []);
+  useBusy("shout-out form", busy || line.trim().length > 0);
+  const person = Array.isArray(people) ? people.find(p => p.id === who) || null : null;
+  const shared = person ? person.sites : [];
+  useEffect(() => { setSiteId(shared.length === 1 ? shared[0].id : ""); }, [who]);
+  const keysSaid = (k) => (fault && fault.keys.indexOf(k) !== -1 ? fault.said : null);
+  const ready = !!person && !!siteId && line.trim().length > 0 && !busy;
+  const post = async () => {
+    if (!ready) return;
+    setBusy(true); setFault(null);
+    try {
+      const d = await api("/api/recognition/shoutouts", { method: "POST", body: { userId: who, line: line.trim(), siteId: siteId }, token });
+      onPosted(shoutoutOf(d && d.shoutout));
+    } catch (err) {
+      const keys = err && err.body && Array.isArray(err.body.keys) ? err.body.keys.filter(k => ["userId", "siteId", "line"].indexOf(k) !== -1) : [];
+      setFault({ said: saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC), keys: err && err.status === 400 ? keys : [] });
+    }
+    setBusy(false);
+  };
+  const saidSt = { display: "flex", alignItems: "flex-start", gap: 6, marginTop: 6, fontSize: 12, color: ink(t, RED), lineHeight: 1.45, overflowWrap: "anywhere" };
+  const said = (k) => { const v = keysSaid(k); return v ? <div role="alert" data-shoutout-error={k} style={saidSt}><AlertIco sz={14} c={ink(t, RED)} style={{ flexShrink: 0, marginTop: 2 }} /><span>{v}</span></div> : null; };
+  return (
+    <RecogSheet id="ocsa-shoutout-form" title={tr("Give a shout-out")} onClose={() => { if (!busy) onClose(); }} t={t}>
+      <div data-shoutout-form="1">
+        <label style={mkLabel(t)} htmlFor="ocsa-shout-who">{tr("Who")}</label>
+        {people === null && !peopleFault && <div style={{ fontSize: 13, color: t.textMut, padding: "8px 0" }}>{tr("Loading...")}</div>}
+        {peopleFault && <ListFault icon={PersonIco} text={tr("The people at your sites did not load.")} onRetry={loadPeople} t={t} />}
+        {Array.isArray(people) && <SearchPick id="ocsa-shout-who" name="shoutout-person" rows={people} value={who} onPick={(v) => { setWho(v); setFault(null); }} noMatch={tr("No one matches that name.")} empty={tr("No one shares a site with you.")} disabled={busy} invalid={!!keysSaid("userId")} rowAttr={(r) => ({ "data-shout-person": r.id })} t={t} />}
+        {said("userId")}
+        {person && (
+          <div style={{ marginTop: 12 }}>
+            <label style={mkLabel(t)} htmlFor="ocsa-shout-site">{tr("Site")}</label>
+            <select id="ocsa-shout-site" data-shoutout-site={siteId} value={siteId} onChange={e => { setSiteId(e.target.value); setFault(null); }} disabled={busy} style={{ ...mkInput(t), minHeight: 44 }}>
+              {shared.length !== 1 && <option value="">{tr("Choose a site")}</option>}
+              {shared.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            {said("siteId")}
+          </div>
+        )}
+        <div style={{ marginTop: 12 }}>
+          <label style={mkLabel(t)} htmlFor="ocsa-shout-line">{tr("What they did")}</label>
+          <textarea id="ocsa-shout-line" data-shoutout-line-box="1" value={line} maxLength={SHOUT_LINE_MAX} onChange={e => { setLine(e.target.value.slice(0, SHOUT_LINE_MAX)); setFault(null); }} disabled={busy} rows={3} style={{ ...mkInput(t), resize: "vertical", lineHeight: 1.45 }} />
+          <div data-shoutout-count={line.length} aria-live="polite" style={{ fontSize: 11, color: line.length >= SHOUT_LINE_MAX ? ink(t, ORANGE) : t.textMut, marginTop: 4, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{tr("{used} of {max} characters used.", { used: line.length, max: SHOUT_LINE_MAX })}</div>
+          {said("line")}
+        </div>
+        {fault && fault.keys.length === 0 && <div role="alert" data-shoutout-fault="1" style={{ ...saidSt, marginTop: 10, padding: "8px 10px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder, color: t.text }}><AlertIco sz={14} c={ink(t, RED)} style={{ flexShrink: 0, marginTop: 2 }} /><span>{fault.said}</span></div>}
+        <button type="button" data-shoutout-post="1" onClick={post} aria-disabled={!ready} style={{ ...mkPrimaryBtn(t, busy || !ready), marginTop: 14, cursor: ready ? "pointer" : "default" }}>{busy ? tr("Sending...") : tr("Post the shout-out")}</button>
+      </div>
+    </RecogSheet>
+  );
+}
+
+// Home's list: the count of new ones, the last 30 days a page at a time,
+// and Give a shout-out for a holder of post_shoutouts.
+function ShoutoutsCard({ token, rows, next, fault, busy, newCount, poster, onMore, onRetry, onOpen, onGive, t }) {
+  if (!poster && (!Array.isArray(rows) || rows.length === 0) && !fault) return null;
+  return (
+    <div style={{ padding: "16px 16px 0" }}>
+      <div data-shoutouts={Array.isArray(rows) ? rows.length : "wait"} data-shoutouts-new={newCount} style={{ ...fkRowSt(t), marginBottom: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <AwardIco sz={18} c={t.goldText} style={{ flexShrink: 0 }} />
+          <div role="heading" aria-level={2} style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Shout-outs")}</div>
+          {newCount > 0 && <span data-shoutouts-new-badge={newCount} style={{ padding: "2px 8px", borderRadius: R.pill, background: t.goldBg, border: "1px solid " + t.goldBorder, color: t.goldText, fontSize: 11, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("{count} new", { count: newCount })}</span>}
+        </div>
+        {Array.isArray(rows) && rows.length === 0 && <div style={{ fontSize: 12, color: t.textMut, marginTop: 6, lineHeight: 1.45 }}>{tr("No shout-outs at your sites in the last 30 days.")}</div>}
+        {(rows || []).map(x => (
+          <button key={x.id} type="button" data-shoutout-row={x.id} data-shoutout-seen={x.seen ? "1" : "0"} onClick={() => onOpen(x)} style={{ display: "flex", alignItems: "flex-start", gap: 10, width: "100%", minHeight: TAP, padding: "10px 0", marginTop: 4, background: "none", border: "none", borderTop: "1px solid " + t.border, color: t.text, textAlign: "left", cursor: "pointer" }}>
+            <AwardFace person={x.person} size={36} reread={() => api("/api/recognition/shoutouts/" + encodeURIComponent(x.id), { token })} readKey={"shout:" + x.id} t={t} />
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                {!x.seen && <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: "50%", background: GOLD, flexShrink: 0 }} />}
+                <span style={{ fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{x.person.name}</span>
+              </span>
+              <span style={{ display: "block", fontSize: 13, color: t.textSec, marginTop: 2, lineHeight: 1.45, overflowWrap: "anywhere" }}>{x.line}</span>
+              <span style={{ display: "block", fontSize: 11, color: t.textMut, marginTop: 2 }}>{[x.site ? x.site.name : "", shoutWhen(x.postedAt)].filter(Boolean).join(" \u00b7 ")}</span>
+            </span>
+          </button>
+        ))}
+        {fault && <div role="alert" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 8, fontSize: 12, color: t.text }}><span>{fault}</span><button type="button" onClick={onRetry} style={{ ...mkTapFrame(), color: t.goldText, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Try again")}</button></div>}
+        {next && !fault && <button type="button" data-shoutouts-more="1" onClick={onMore} aria-busy={busy} style={{ ...mkTapFrame(), width: "100%", marginTop: 6, borderRadius: R.md, border: "1px solid " + t.borderSolid, color: t.text, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD }}>{busy ? tr("Loading...") : tr("Show more")}</button>}
+        {poster && <button type="button" data-shoutout-give="1" onClick={onGive} style={{ ...wsMainBtn(t, false), width: "100%", marginTop: 10 }}>{tr("Give a shout-out")}</button>}
+      </div>
+    </div>
+  );
+}
+
 function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
   const [profile, setProfile] = useState(null);
   const [editing, setEditing] = useState(false);
@@ -22210,6 +23017,23 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
       setUser(prev => ({ ...prev, profilePhotoUrl: r.url }));
       loadProfile();
     } catch (e) { showToast(tr(e.message), "error"); }
+    setUploading(false);
+  };
+  // Part 414 (section 4.2, ocsa-api part 410, 3.8): Remove photo, asked
+  // first, DELETE /api/users/profile/photo with no body for one's own; the
+  // API's words said, the initials drawn in its place.
+  const [removeAsk, setRemoveAsk] = useState(false);
+  const removePhoto = async () => {
+    if (uploading) return;
+    setUploading(true);
+    try {
+      const d = await api("/api/users/profile/photo", { method: "DELETE", token });
+      setRemoveAsk(false);
+      showToast(d && typeof d.message === "string" && d.message.trim() ? d.message.trim() : tr("Photo removed"));
+      setUser(prev => (prev ? { ...prev, profilePhotoUrl: null } : prev));
+      setProfile(prev => (prev && prev.user ? { ...prev, user: { ...prev.user, profilePhotoUrl: null } } : prev));
+      loadProfile();
+    } catch (e) { showToast(saidOf(e) || tr(e.message), "error"); }
     setUploading(false);
   };
 
@@ -22301,6 +23125,18 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
           </div>}
         </div>
       </div>
+
+      {/* Part 414 (section 4.2): Remove photo, under the photo it removes. */}
+      {u.profilePhotoUrl && !removeAsk && <div style={{ marginTop: -4, marginBottom: 12 }}><button type="button" data-profile-photo-remove="1" onClick={() => setRemoveAsk(true)} disabled={uploading} style={{ ...mkTapFrame(), color: ink(t, RED), fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Remove photo")}</button></div>}
+      {u.profilePhotoUrl && removeAsk && (
+        <div data-profile-photo-remove-ask="1" role="group" style={{ ...cardSt, background: t.redSubtle, border: "1px solid " + t.redBorder }}>
+          <div style={{ fontSize: 13, color: t.text, lineHeight: 1.45 }}>{tr("Remove your photo?")}</div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+            <button type="button" onClick={() => setRemoveAsk(false)} disabled={uploading} style={{ flex: "1 1 120px", minHeight: TAP, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, cursor: "pointer" }}>{tr("Keep it")}</button>
+            <button type="button" data-profile-photo-remove-yes="1" onClick={removePhoto} aria-busy={uploading} style={{ flex: "1 1 120px", minHeight: TAP, borderRadius: R.md, border: "none", background: RED_FILL, color: "#FFFFFF", fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, cursor: uploading ? "default" : "pointer" }}>{tr("Remove photo")}</button>
+          </div>
+        </div>
+      )}
 
       {/* Personal Info */}
       <div style={cardSt}>

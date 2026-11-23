@@ -2268,6 +2268,183 @@ Two journeys, in English and Spanish, each failing on the main of part
   the PATCH sent and said once done, and none offered without the
   capability.
 
+## The Employee of the Month's reveal (part 414, section 1)
+
+ocsa-api Round 19 (part 411, isouadda/ocsa-api#169, merged as 3782f2d)
+answers `recognition { current: { id, seen, isMe } | null, newShoutouts }
+| null` on `GET /api/me/summary`. With `current` there and `seen` false,
+Home plays the reveal once: a short burst of confetti (a canvas that takes
+no taps) and a card with the photo, or the initials in a gold circle when
+`photoUrl` is null, the name, **Employee of the Month**, the month name and
+the reason as the API answers them, and the site when there is one; then
+`POST /api/recognition/awards/:id/seen` (204, which `api()` now reads as
+done with nothing to read). The card is in Home's own column, above
+Start Shift and never over it, and its close button or a swipe across it
+closes it. It plays only on Home, past Choose your PIN and the alerts
+card, with no notice still to open, no sheet open and nothing first-day
+waiting on Home. A phone set to reduce motion gets the card alone. The
+winner reads **You're Employee of the Month** with their reason and
+**See your certificate**, which opens `GET
+/api/recognition/awards/:id/certificate.pdf`. `recognition` null shows
+nothing and reads nothing more. A photo link that ran out is read again
+through `GET /api/recognition/current` (FreshImg).
+
+The stub answers every route of routes/recognition.js as the person reads
+it (`recognition` in its options, see recogStateOf), the summary's part,
+and, behind `staffAt`, `GET /api/sites/:id`'s staff for the shout-out
+picker. `openApp` takes `reducedMotion`. Five journeys, in English and
+Spanish, each failing on the main of part 408:
+
+- `awardreveal`: the reveal plays by itself with confetti and the card's
+  every part, seen is sent once, Close closes it, and a reload never plays
+  it again; `recognition` null reads no award; a stale photo link is read
+  again and the photo shows.
+- `awardrevealme`: the winner's version and the certificate's read.
+- `awardinitials`: no photo, the initials **JE** in a gold circle.
+- `awardmotion`: reduce motion, the card and no confetti at any moment.
+- `awardstartshift`: the card and Start Shift never overlap and a tap at
+  Start Shift reaches it while the confetti falls; a swipe across the card
+  closes it; on Choose your PIN nothing plays and nothing is marked seen.
+
+## Home's card, Congratulate, the team wall and the bell (part 414, section 2)
+
+Once seen, Home keeps a smaller card for the award `GET
+/api/recognition/current` answers all month, the first 7 days of the next
+month included while none is posted, and a tap on it plays the reveal
+again. Under the card and the reveal, **Congratulate**: the five reactions
+(clap, star, heart, fire, muscle) with their counts and the person's own
+picked, one per person, changed with `PUT .../reaction { key }` and
+removed with `DELETE` (a tap on the one picked). The winner reads the
+counts under **Congratulations from your team** and is offered none, since
+the API refuses their own (409 `recognition.ownAward`). Who reacted is
+never shown. **Team wall** reads `GET /api/recognition/awards?limit=10`,
+newest month first, and **Show more** sends `nextCursor` back as `cursor`
+until it is null: the photo or the initials, the name, the month, the
+site, the reason and the counts. The bell's `recognition_award` and
+`recognition_reactions` open the award over the screen (`GET
+/api/recognition/awards/:id`), from a row and from
+`/?open=recognition_award:<id>`; a 404 says it was taken down in the
+API's words. The award, the wall and (section 3) a shout-out share one
+sheet, `RecogSheet#0`, which the sweep opens from the bell's link.
+
+Four journeys, in English and Spanish, each failing on the main of part
+408:
+
+- `awardhomecard`: September's card on October 1, no reveal once seen, a
+  tap plays it again with confetti and marks nothing seen again.
+- `awardreactions`: the five with their counts; clap sent and picked, star
+  changing it, star again removing it; the winner offered none and sending
+  nothing.
+- `teamwall`: thirteen winners read ten and three, by the cursor the first
+  page answered, to the end, each once, with the initials for one with no
+  photo.
+- `awardbell`: both notice types open the award from the bell, the link
+  opens it, and one taken down reads the API's 404 words.
+
+## Shout-outs (part 414, section 3)
+
+Home's **Shout-outs** card counts the new ones (the summary's
+`newShoutouts`, less the ones opened since) and lists `GET
+/api/recognition/shoutouts?limit=5`, the last 30 days at the person's
+sites, newest first, with **Show more** by the cursor. Opening one draws it
+over the screen (the whole line, the site, who gave it) and calls `POST
+/api/recognition/shoutouts/:id/seen` once. Reactions are as an award's;
+the person a shout-out names reads the counts and is offered none (409
+`recognition.ownShoutout`). A holder of `post_shoutouts` (`GET
+/api/users/me/permissions`) reads **Give a shout-out**: a searchable picker
+of the people who share one of their sites (`GET /api/sites/:id`'s staff,
+for each of their sites, themselves and client contacts left out), the
+site the two share (chosen when there is one), and **What they did**, held
+to 200 characters with a live count. `POST /api/recognition/shoutouts {
+userId, line, siteId }` goes once; a 400 is said under the field its keys
+name, and a 403 (`recognition.notYourTeam`, a test account's
+`testCrew.realRecord`) in the API's words under the form. Where
+`canRemove`, **Take down** asks **Take down this shout-out?** first and
+sends `POST .../remove`. The bell's `recognition_shoutout` opens it, from
+a row and from `/?open=recognition_shoutout:<id>`; a 404 reads the API's
+words. The stub's CAPABILITIES carry `post_shoutouts` (admins and
+supervisors) and `manage_recognition` (admins).
+
+Four journeys, in English and Spanish, each failing on the main of part
+408:
+
+- `shoutoutsread`: five of twelve, 2 new; Show more to the end; one opened,
+  seen sent once, a reaction sent, the row opened and the count at 1; one
+  naming the person offers no reaction.
+- `shoutoutspost`: a supervisor searches, picks, gets the shared site,
+  meets the 200 limit and its count, posts once, reads it first on the
+  list, and takes it down asked first; a custodian is offered nothing.
+- `shoutoutsrefused`: 403 `recognition.notYourTeam` and a test account's
+  403 `testCrew.realRecord`, each in the API's words under the form.
+- `shoutoutbell`: the bell's row, the link, and the API's 404 words.
+
+## What API Round 18 gave the staff app (part 414, section 4)
+
+ocsa-api Round 18 (part 410, isouadda/ocsa-api#168, "For the staff app"):
+
+- Unchecking: each `checkedToday` entry, on clock status, the session
+  answers and the task list alike, carries `thisSession`, and the uncheck
+  is offered only when it is true. An entry with none, from an API before
+  part 410, is read by its time as part 408 read it. A check this phone
+  just made reads true. The stub answers `thisSession` (a completion a
+  case names a `session` for is that session's, `sess-1` the one open)
+  and scopes its uncheck the same way.
+- **Remove photo** under the profile's photo, asked first (**Remove your
+  photo?**, Keep it), sends `DELETE /api/users/profile/photo` with no
+  body; the API's `message` is said and the initials take the photo's
+  place. The stub answers it in the person's words.
+- Leave balances (`GET /api/leave/me`): each balance's own `line` is the
+  rule shown (null, none), so a person at a union site reads the union
+  rule whatever class is on file; `person.leaveClass` is said as **Your
+  time off follows the rules for ...** (or the class missing line); and
+  `notOffered` is said by `kindName` with the API's reason, grouped as the
+  request form groups them. An API from before it answers no `line`, and
+  the summary's is found by the class on file as before.
+- Each of a request's `leave.days` names its `holiday` in the request's
+  language beside the date. The stub answers the handbook's nine by key
+  and name (helpers/words.js `holidays.federal.*`).
+- A request asked inside its notice shows its `insideNoticeText` on My
+  time off and on its sheet. The preview's `notice` carries no such text
+  yet, so the form keeps asking for a reason as before. The stub's line
+  adds words of its own to the API's sentence, so the two are told apart;
+  `timeoffnotice` (part 399) now reads the API's line on the filed
+  request.
+
+Five journeys, in English and Spanish, each failing on the main of part
+408: `uncheckthissession`, `photoremove`, `leaveclassline` (a union site
+with full-time on file), `leaveholiday` (Thanksgiving week) and
+`insidenoticetext` (the filed request's sheet and a row of My time off).
+
+## Chat for a test office account, and a reply on a chat opened again (part 414, section 5)
+
+The robot's Round 6 (isouadda/ocsa-journeys#6, "Waiting on the staff
+app"):
+
+- New message offers a test office account (an admin or a supervisor with
+  `isTestAccount`) the test accounts `GET /api/chat/people` answers it,
+  staff among them. A tap on a staff test account opens their line (`POST
+  /api/chat/staff-line`), and **Direct message** beside it a direct chat
+  (`POST /api/chat/direct`), both of which the API opens for a test office
+  account since its Round 17. Real accounts are offered as before (part
+  408's `newmessagestaff`).
+- Chat lists the private chats `GET /api/chat/channels` answers, which for
+  a test office account already hold the active test accounts' lines; a
+  test office account also reads `GET /api/chat/dm-inbox`, and a line the
+  list leaves out (one whose owner has left and wrote there) joins it. A
+  real account never asks for dm-inbox.
+- Journey 22's "the staff app does not draw the answer" (Nov 20 to 23) is
+  not the app's: with a chat open, another opened and this one opened
+  again, the app reads the chat's messages again and draws the other
+  side's reply as soon as `GET /api/chat/channels/:id/messages` answers
+  it, and the 12-second read draws the next with the chat left open. The
+  journey `chatreopen` holds this, and passes on the main of part 408 as
+  here.
+
+The stub answers a test office account its people, its lines and
+dm-inbox (TEST_CHAT_PEOPLE, TEST_CHAT_LINES), and the two open routes.
+Two journeys, in English and Spanish, fail on the main of part 408:
+`chattestoffice` and `chattestlines`; `chatreopen` passes on both.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

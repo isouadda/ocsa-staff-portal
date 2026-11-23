@@ -397,6 +397,9 @@ function shiftsFor(siteId, startMs, lang) {
 // guards), read_hr_records and manage_cases are on the list, which the
 // stub had lagged behind.
 const CAPABILITIES = {
+  // Part 414 (ocsa-api Round 19): the Employee of the Month the office
+  // posts, and shout-outs, given by admins and supervisors by role.
+  manage_recognition: ["admin"], post_shoutouts: ["admin", "supervisor"],
   manage_permissions: ["admin"], manage_settings: ["admin"], manage_lookups: ["admin"], manage_staff: ["admin", "supervisor"],
   manage_employment: ["admin"], read_hr_records: ["admin"], manage_cases: ["admin", "supervisor"],
   manage_sites: ["admin"], manage_integrations: ["admin"], manage_tasks: ["admin", "supervisor"],
@@ -1381,6 +1384,21 @@ const R15_LINES = [
   { kind: "personal", classes: ["full_time"], en: "For full-time staff; Granted in full on the work anniversary each tier is reached, then the current tier each January 1; with years of service: 3 days from 1 years; usable 90 days after the hire date; nothing carries over to the next year.", es: "Para personal de tiempo completo; Se otorga completo en el aniversario de trabajo en que se alcanza cada nivel, y luego el nivel actual cada 1 de enero; seg\u00fan los a\u00f1os de servicio: 3 d\u00edas desde los 1 a\u00f1os; se puede usar 90 d\u00edas despu\u00e9s de la fecha de contrataci\u00f3n; nada pasa al a\u00f1o siguiente." },
 ];
 const R15_HOLIDAYS = ["2026-01-01","2026-01-19","2026-05-25","2026-06-19","2026-07-03","2026-09-07","2026-11-26","2026-11-27","2026-12-25","2027-01-01","2027-01-18","2027-05-31","2027-06-18","2027-07-05","2027-09-06","2027-11-25","2027-11-26","2027-12-24","2027-12-31"];
+// Part 414 (ocsa-api part 410, 3.2): each holiday's key and name, as
+// helpers/words.js holidays.federal.* answers them.
+const R15_HOLIDAY_NAMES = {
+  newYear: ["New Year's Day", "D\u00eda de A\u00f1o Nuevo"], mlk: ["Martin Luther King Jr. Day", "D\u00eda de Martin Luther King Jr."],
+  memorial: ["Memorial Day", "D\u00eda de los Ca\u00eddos"], juneteenth: ["Juneteenth", "Juneteenth"], independence: ["Independence Day", "D\u00eda de la Independencia"],
+  labor: ["Labor Day", "D\u00eda del Trabajo"], thanksgiving: ["Thanksgiving Day", "D\u00eda de Acci\u00f3n de Gracias"],
+  dayAfterThanksgiving: ["Day After Thanksgiving", "D\u00eda despu\u00e9s de Acci\u00f3n de Gracias"], christmas: ["Christmas Day", "D\u00eda de Navidad"],
+};
+const R15_HOLIDAY_KEYS = { "2026-01-01": "newYear", "2026-01-19": "mlk", "2026-05-25": "memorial", "2026-06-19": "juneteenth", "2026-07-03": "independence", "2026-09-07": "labor", "2026-11-26": "thanksgiving", "2026-11-27": "dayAfterThanksgiving", "2026-12-25": "christmas", "2027-01-01": "newYear" };
+// The inside-notice line in the API's words (timeOff.insideNotice, part
+// 410). The API's words are the staff app's own sentence of part 399; the
+// stub's add a few words of their own, so a journey can tell the API's
+// line from the app's.
+const R15_INSIDE_TEXT = { en: "Asked with less notice than the policy asks. The office decides it case by case, as the API says.", es: "Se pidi\u00f3 con menos aviso del que pide la pol\u00edtica. La oficina la decide caso por caso, seg\u00fan la API." };
+const r15HolidayOf = (day, lang) => { const k = R15_HOLIDAY_KEYS[day]; return k ? { key: k, name: R15_HOLIDAY_NAMES[k][lang === "es" ? 1 : 0] } : null; };
 // The day the stub's hours files have posted through.
 const R15_POSTED_THROUGH = "2026-09-26";
 // Each of the five a new request is offered, in the API's order, and how
@@ -1772,6 +1790,59 @@ const BAD_SHIFT_RUN = { status: 400, code: "tasks.badShiftRun", en: "That shift 
 const CLOSED_NOTE = { en: "Closed automatically: nobody tapped End Shift within 4 hours after the shift ended, or within 16 hours of the start with no shift.", es: "Cerrado autom\u00e1ticamente: nadie toc\u00f3 Terminar turno en las 4 horas siguientes al fin del turno, o en las 16 horas desde el inicio sin turno." };
 // A named shift as GET /api/sites/:siteId/shifts answers it (shiftView).
 const namedShiftView = (sh, i, lang) => ({ id: sh.id, label: sh.label, display: shiftNameIn(sh, lang), startTime: sh.start, endTime: sh.end, crossesMidnight: minutesIn(sh.end) <= minutesIn(sh.start), daysOfWeek: null, sortOrder: i, active: true, translations: { es: sh.es || null, fr: sh.fr || null }, updatedAt: "2026-09-30T14:00:00.000Z", updatedBy: null });
+
+// Part 414: the recognition a case starts with. o.recognition (none at
+// all unless a case gives one), all optional:
+//   award        false: no award is shown (summary current null); "me":
+//                the person is the winner; else an invented winner
+//   photo        false: the winner has no photo, so the initials show
+//   site         false: the award names no site
+//   seen         true: the reveal already played for the person
+//   null         true: the summary's part failed (recognition null)
+//   wall         how many earlier winners the team wall holds besides
+//                the current one, 4 unless said, 12 at most
+//   shoutouts    how many shout-outs the person's sites hold, 3 unless
+//                said; the third of every three names the person
+//   unseen       how many of them the person has not opened, 2 unless said
+//   postRefusal  a code POST /api/recognition/shoutouts answers with
+//   staffAt      true: GET /api/sites/:id answers the people at each site
+//                (RECOG_SITE_STAFF), for the shout-out picker
+// A case that names no recognition is answered none: no award shown, no
+// shout-out and an empty team wall, as live answers before December 1.
+function recogStateOf(o) {
+  const r = o.recognition && typeof o.recognition === "object" ? o.recognition : { award: false, wall: 0, shoutouts: 0 };
+  const me = o.person || PERSON;
+  const winner = r.award === "me"
+    ? { id: me.id, firstName: me.firstName, lastName: me.lastName, photo: r.photo === false ? null : "profile-photos/profile-me.jpg" }
+    : Object.assign({}, RECOG_WINNER, r.photo === false ? { photo: null } : {});
+  const awards = [];
+  if (r.award !== false) awards.push({ id: "aw-2026-09", month: "2026-09", person: winner, site: r.site === false ? null : SITES[0], reason: RECOG_REASON, postedAt: iso(NOW.getTime() - 2 * DAY), removed: false });
+  const wall = Math.max(0, Math.min(RECOG_WALL_PEOPLE.length, r.wall === undefined ? 4 : Number(r.wall) || 0));
+  for (let i = 0; i < wall; i += 1) {
+    const back = new Date(Date.UTC(2026, 7 - i, 1));
+    const month = back.getUTCFullYear() + "-" + String(back.getUTCMonth() + 1).padStart(2, "0");
+    const w = RECOG_WALL_PEOPLE[i];
+    awards.push({ id: "aw-" + month, month: month, person: { id: w[0], firstName: w[1], lastName: w[2], photo: i % 2 === 0 ? "profile-photos/profile-" + w[0] + ".jpg" : null }, site: SITES[i % SITES.length], reason: RECOG_WALL_REASON, postedAt: iso(Date.UTC(back.getUTCFullYear(), back.getUTCMonth(), 2, 14)), removed: false });
+  }
+  const reactions = {};
+  awards.forEach((a, i) => { reactions[a.id] = { clap: 3 + i, star: 1, heart: 2, fire: i % 2, muscle: 1 }; });
+  const shouts = [];
+  const n = Math.max(0, Math.min(40, r.shoutouts === undefined ? 3 : Number(r.shoutouts) || 0));
+  for (let i = 0; i < n; i += 1) {
+    const st = STAFF[i % STAFF.length];
+    const about = i % 3 === 2 ? { id: me.id, firstName: me.firstName, lastName: me.lastName, photo: null } : { id: st.id, firstName: st.firstName, lastName: st.lastName, photo: i % 3 === 0 ? "profile-photos/profile-" + st.id + ".jpg" : null };
+    shouts.push({ id: "so-" + (i + 1), person: about, line: RECOG_SHOUT_LINES[i % RECOG_SHOUT_LINES.length], site: SITES[i % 2], postedBy: { id: "u-audit-sup", firstName: "Riley", lastName: "Example" }, postedAt: iso(NOW.getTime() - (i + 1) * 6 * 60 * 60 * 1000), removed: false });
+  }
+  const unseen = Math.max(0, Math.min(n, r.unseen === undefined ? 2 : Number(r.unseen) || 0));
+  const shoutReactions = {};
+  shouts.forEach((x, i) => { shoutReactions[x.id] = { clap: 1 + (i % 3), star: 0, heart: 1, fire: 0, muscle: 0 }; });
+  return {
+    awards: awards, currentId: r.award === false ? null : "aw-2026-09", seen: new Set(r.seen ? ["aw-2026-09"] : []), reactions: reactions, mine: {},
+    shouts: shouts, shoutSeen: new Set(shouts.slice(unseen).map(x => x.id)), shoutReactions: shoutReactions, shoutMine: {},
+    nullSummary: r.null === true, postRefusal: r.postRefusal || null, staffAt: r.staffAt === true, posted: [], removedShouts: [],
+  };
+}
+const RECOG_PDF = pdfWith("Invented certificate");
 
 function makeState(opts) {
   const o = opts || {};
@@ -2235,19 +2306,40 @@ function makeState(opts) {
     // saveThenDrop keeps the next send and then drops its connection;
     // noMessage answers the next send 201 with no message in it.
     chat: chatStateOf(o),
+    // Part 414: Employee of the Month and shout-outs (ocsa-api Round 19),
+    // see recogStateOf.
+    recognition: recogStateOf(o),
   };
 }
 
+// Part 414 (section 5): the robot's test accounts, as GET /api/chat/people
+// answers a test office account since ocsa-api Round 17 (routes/chat.js
+// TEST_MEMBER_BASE), and the test accounts' lines: GET /api/chat/channels
+// lists an active one's, and GET /api/chat/dm-inbox answers them all, the
+// line of one who has left and wrote there among them.
+const TEST_CHAT_PEOPLE = [
+  { userId: "u-test-office", name: "Test Office", role: "admin", kind: "office" },
+  { userId: "u-test-cleaner", name: "Test Cleaner", role: "custodian", kind: "staff" },
+  { userId: "u-test-newcomer", name: "Test Newcomer", role: "custodian", kind: "staff" },
+];
+const TEST_CHAT_LINES = [
+  { channelId: "dm-u-test-cleaner", staffUserId: "u-test-cleaner", staffName: "Test Cleaner", staffRole: "custodian", active: true },
+  { channelId: "dm-u-test-leaver", staffUserId: "u-test-leaver", staffName: "Test Leaver", staffRole: "custodian", active: false },
+];
 function chatStateOf(o) {
   const c = o.chat || {};
   const person = o.person || PERSON;
   const admin = person.role === "admin" || person.role === "supervisor";
+  const testOffice = admin && person.isTestAccount === true;
   const privates = Math.max(0, Math.min(CHAT_STAFF.length, c.privates === undefined ? 6 : c.privates));
   const ownSite = CHAT_SITES.find(s => s.siteId === (o.site || "site-north")) || CHAT_SITES[0];
   const own = { id: "dm-" + person.id, type: "admin_dm", name: OWN_PRIVATE, unreadCount: 1 };
   let channels = admin
     ? CHAT_SITES.concat([CHAT_GENERAL]).sort((a, b) => a.name.localeCompare(b.name)).concat(CHAT_STAFF.slice(0, privates).map(staffPrivate), c.ownPrivate ? [own] : [])
     : [ownSite, CHAT_GENERAL].sort((a, b) => a.name.localeCompare(b.name)).concat([own]);
+  // A test office account lists the test site's chats and the general
+  // chat, and the lines of the active test accounts, no real person's.
+  if (testOffice) channels = CHAT_SITES.concat([CHAT_GENERAL]).sort((a, b) => a.name.localeCompare(b.name)).concat(TEST_CHAT_LINES.filter(l => l.active).map(l => ({ id: l.channelId, type: "admin_dm", name: l.staffName, staffUserId: l.staffUserId })));
   if (c.only) channels = channels.filter(ch => ch.id === c.only);
   if (c.empty) channels = [];
   const messages = {};
@@ -2257,6 +2349,8 @@ function chatStateOf(o) {
   return {
     channels: channels.map(ch => Object.assign({ unreadCount: 0 }, ch, unread[ch.id] !== undefined ? { unreadCount: unread[ch.id] } : {})),
     messages: messages, seq: 0, holdMs: 0, saveThenDrop: false, noMessage: false,
+    // Part 414: a test office account's dm-inbox and the chats it opened.
+    testOffice: testOffice, inbox: testOffice ? TEST_CHAT_LINES.map(l => Object.assign({}, l)) : [], opened: [],
     // membersRoute false is an API from before Step 179, which answers the
     // members route 404; alone is a chat nobody else can read.
     membersRoute: c.membersRoute !== false, alone: !!c.alone,
@@ -3176,6 +3270,62 @@ const PATCH_SCHEDULED = {
 const NOT_THIS_SESSION = { status: 409, code: "tasks.notThisSession", en: "This was checked in an earlier session, so it stays checked.", es: "Esto se marc\u00f3 en una sesi\u00f3n anterior, as\u00ed que sigue marcado." };
 // One refusal's sentence in a language, with what fills it.
 const refusalIn = (r, lang, vars) => String(lang === "es" ? r.es : r.en).replace(/\{(\w+)\}/g, (whole, k) => (vars && k in vars ? String(vars[k]) : whole));
+
+// --- Employee of the Month and shout-outs (part 414) ---------------------
+//
+// ocsa-api Round 19 (part 411), routes/recognition.js and
+// helpers/recognition.js as merged (3782f2d): the award GET /current
+// answers (this month's, else the previous month's in the first 7 days;
+// the suite's clock is October 1, so September's), the team wall paged
+// newest month first, reactions (counts and the reader's own, never who),
+// seen once, the certificate to the winner alone, and shout-outs at the
+// reader's sites from the last 30 days. Every name, line and reason here
+// is invented.
+const RECOG_MONTHS = {
+  en: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+  es: ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"],
+};
+const recogMonthName = (month, lang) => { const m = /^(\d{4})-(\d{2})$/.exec(String(month || "")); if (!m) return ""; const n = RECOG_MONTHS[lang === "es" ? "es" : "en"][Number(m[2]) - 1]; return lang === "es" ? n + " de " + m[1] : n + " " + m[1]; };
+const RECOG_WINNER = { id: "u-eom", firstName: "Jordan", lastName: "Example", photo: "profile-photos/profile-eom.jpg" };
+const RECOG_REASON = {
+  en: "Kept the lobby spotless through the busy season and helped two new teammates learn the routes.",
+  es: "Mantuvo el vest\u00edbulo impecable durante la temporada de m\u00e1s trabajo y ayud\u00f3 a dos compa\u00f1eros nuevos a aprender las rutas.",
+};
+// The earlier winners the team wall holds, newest month first after
+// September's, each invented.
+const RECOG_WALL_PEOPLE = [
+  ["u-w1", "Robin", "Sample"], ["u-w2", "Casey", "Placeholder"], ["u-w3", "Drew", "Fictional"], ["u-w4", "Avery", "Madeup"],
+  ["u-w5", "Quinn", "Invented"], ["u-w6", "Sky", "Notreal"], ["u-w7", "Blake", "Pretend"], ["u-w8", "Reese", "Imaginary"],
+  ["u-w9", "Rowan", "Testcase"], ["u-w10", "Emery", "Stand-in"], ["u-w11", "Sage", "Dummy"], ["u-w12", "Parker", "Example"],
+];
+const RECOG_WALL_REASON = { en: "Always ready to help the team.", es: "Siempre con ganas de ayudar al equipo." };
+const RECOG_SHOUT_LINES = [
+  { en: "Thank you for covering the late shift on short notice.", es: "Gracias por cubrir el turno de la noche con poco aviso." },
+  { en: "The floors in the east wing looked great this week.", es: "Los pisos del ala este se ve\u00edan muy bien esta semana." },
+  { en: "Thanks for training the new team on the supply room.", es: "Gracias por ense\u00f1ar al equipo nuevo el cuarto de suministros." },
+];
+// The refusals routes/recognition.js answers, in the API's words
+// (helpers/words.js, part 411).
+const RECOG_REFUSALS = {
+  "recognition.badDetails": { status: 400, en: "Some details are missing or not valid.", es: "Faltan algunos datos o no son v\u00e1lidos." },
+  "recognition.notFound": { status: 404, en: "Employee of the Month not found", es: "No se encontr\u00f3 el Empleado del Mes" },
+  "recognition.shoutoutNotFound": { status: 404, en: "Shout-out not found", es: "No se encontr\u00f3 el reconocimiento" },
+  "recognition.ownAward": { status: 409, en: "You cannot react to your own recognition.", es: "No puede reaccionar a su propio reconocimiento." },
+  "recognition.ownShoutout": { status: 409, en: "You cannot react to a shout-out about you.", es: "No puede reaccionar a un reconocimiento sobre usted." },
+  "recognition.notYourTeam": { status: 403, en: "You can give a shout-out only to someone who works at one of your sites.", es: "Solo puede dar un reconocimiento a alguien que trabaje en uno de sus sitios." },
+  "recognition.alreadyRemoved": { status: 409, en: "This Employee of the Month was already taken down.", es: "Este Empleado del Mes ya se retir\u00f3." },
+  "recognition.testPerson": { status: 403, en: "This is a test account. Only a test office account can recognize a test account.", es: "Esta es una cuenta de prueba. Solo una cuenta de oficina de prueba puede reconocer a una cuenta de prueba." },
+  "testCrew.realRecord": { status: 403, en: "A test account can only change test records. This one belongs to a real person or site.", es: "Una cuenta de prueba solo puede cambiar registros de prueba. Este pertenece a una persona o un sitio real." },
+  "access.insufficientPermissions": { status: 403, en: "Insufficient permissions", es: "No tiene permiso para hacer esto" },
+};
+// The people at each site a poster shares (GET /api/sites/:id's staff,
+// routes/sites.js): two at North Building, one at South Building, and
+// the person themselves.
+const RECOG_SITE_STAFF = {
+  "site-north": [{ id: "s-01", first_name: "Ana", last_name: "Alvarez", role: "custodian" }, { id: "s-02", first_name: "Ben", last_name: "Brooks", role: "custodian" }],
+  "site-south": [{ id: "s-03", first_name: "Carla", last_name: "Castro", role: "custodial_lead" }],
+  "site-west": [{ id: "s-04", first_name: "Dan", last_name: "Delgado", role: "custodian" }],
+};
 // West Building's shifts, each with its Spanish twin, and the way the
 // invalid shift refusal names them: by their display names, in the
 // request's language.
@@ -3387,6 +3537,12 @@ const TWIN_PAIRS = [
   .concat(HR_CASE_REFUSALS.map(tableTwin))
   .concat(Object.keys(PIN_REFUSALS).map(k => PIN_REFUSALS[k]))
   .concat([LOGIN_REFUSAL])
+  // Part 414: routes/recognition.js's refusals, and the stub's own reasons
+  // and shout-out lines, in each language.
+  .concat(Object.keys(RECOG_REFUSALS).map(k => [RECOG_REFUSALS[k].en, RECOG_REFUSALS[k].es]))
+  .concat([[RECOG_REASON.en, RECOG_REASON.es], [RECOG_WALL_REASON.en, RECOG_WALL_REASON.es]].concat(RECOG_SHOUT_LINES.map(l => [l.en, l.es])))
+  .concat([["Photo removed", "Foto eliminada"]])
+  .concat([[R15_INSIDE_TEXT.en, R15_INSIDE_TEXT.es]])
   .concat([MUST_SET_PIN, NO_EMAIL_FOR_CODE, CODE_EXPIRED, CODE_TOO_MANY, SEND_LIMIT].map(r => [r.en, r.es]))
   .concat([["Your PIN has been changed.", "Su PIN fue cambiado."]])
   .concat(["Session expired", "Request failed",
@@ -3495,14 +3651,14 @@ const ROUTE_WORDS = [
   // Part 369: leave balances. A kind's name, the policy's name and its
   // lines, a note and a warning are the API's words; the person, the site
   // and a code are not.
-  [/^GET \/api\/leave\/me$/, { kindName: "message", text: "message", holidays: "message", message: "message", note: "message", kind: "code", unit: "code", method: "code", source: "code", code: "code", role: "code", status: "code", employmentClass: "code", classes: "code" }],
+  [/^GET \/api\/leave\/me$/, { kindName: "message", text: "message", holidays: "message", message: "message", note: "message", reasonText: "message", label: "leave type", leaveClass: "code", value: "code", reason: "code", kind: "code", unit: "code", method: "code", source: "code", code: "code", role: "code", status: "code", employmentClass: "code", classes: "code" }],
   // Part 399, ahead of the time off routes' line below, which would match
   // it first: a type's name comes in the request's language, as do its
   // unit, its notice and the reason one is not offered; words carry all
   // three; the rest are codes.
   [/^GET \/api\/time-off\/types$/, { label: "leave type", name: "name", unitText: "message", text: "message", reasonText: "message", value: "code", unit: "code", increment: "code", rule: "code", reason: "code", employmentClass: "code" }],
   // Part 399: a request's unit, a day's from and a notice's rule are codes.
-  [/^(POST \/api\/time-off|POST \/api\/time-off\/preview|GET \/api\/time-off\/[^/]+)$/, { kindName: "message", message: "message", kind: "code", hoursFrom: "code", code: "code", source: "code", unit: "code", from: "code", rule: "code" }],
+  [/^(POST \/api\/time-off|POST \/api\/time-off\/preview|GET \/api\/time-off\/[^/]+)$/, { kindName: "message", message: "message", insideNoticeText: "message", kind: "code", hoursFrom: "code", code: "code", source: "code", unit: "code", from: "code", rule: "code" }],
   // Part 369: building maintenance. Its names are the API's words in the
   // request's language; what people typed, the site, a building, a
   // contact and a reference are names; keys are codes.
@@ -3988,7 +4144,7 @@ function createStub(opts) {
         const from = R15_HOLIDAYS.indexOf(d) !== -1 ? "holiday" : shiftsOn(d).length ? "shift" : wd === 0 || wd === 6 ? "dayOff" : "noShift";
         const counts = from === "shift" || from === "noShift";
         if (counts) dayCount += 1;
-        days.push({ date: d, hours: counts ? 8 : 0, from: from });
+        days.push({ date: d, hours: counts ? 8 : 0, from: from, holiday: r15HolidayOf(d, lang) });
       }
       hours = dayCount * 8;
       hoursFrom = "days";
@@ -4145,9 +4301,12 @@ function createStub(opts) {
   const r15Row = (id, took) => {
     const r = took.read;
     const rule = R15_RULES[r.leaveType];
-    return timeOffRow({ id: id, leaveType: r.leaveType, leaveTypeLabel: R15_TYPE_WORDS[r.leaveType].en, leaveTypeWords: Object.assign({}, R15_TYPE_WORDS[r.leaveType]),
+    return timeOffRow(Object.assign({ id: id, leaveType: r.leaveType, leaveTypeLabel: R15_TYPE_WORDS[r.leaveType].en, leaveTypeWords: Object.assign({}, R15_TYPE_WORDS[r.leaveType]),
       startsOn: r.startsOn, endsOn: r.endsOn, partDay: !!r.startTime, startTime: r.startTime, endTime: r.endTime, hours: r.hours, reason: r.reason,
-      insideNotice: took.notice && rule.notice.marksInside ? took.notice.insideNotice === true : null, unit: rule.unit });
+      insideNotice: took.notice && rule.notice.marksInside ? took.notice.insideNotice === true : null, unit: rule.unit },
+      // Part 414 (ocsa-api part 410, 3.3): the inside-notice line in the
+      // API's words, null unless insideNotice is true.
+      took.notice && rule.notice.marksInside && took.notice.insideNotice === true ? { insideNoticeText: R15_INSIDE_TEXT.en, insideNoticeWords: Object.assign({ fr: null }, R15_INSIDE_TEXT) } : { insideNoticeText: null, insideNoticeWords: null }));
   };
   const holdsMaint = () => holds("file_maintenance_requests") || state.person.fileMaintenance === true;
   const nyDay = (ms) => new Date(ms).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
@@ -4340,6 +4499,11 @@ function createStub(opts) {
   const runOfCheck = (c, siteId) => (c.run !== undefined ? c.run : runHolding(namedOf(siteId), atOf(c)));
   // A daily item, as its block makes it (helpers/shiftRuns.js followsRun).
   const followsRun = (row) => row.period === "today" && (row.every || "daily") === "daily" && row.block_kind !== "anytime";
+  // Part 414 (ocsa-api part 410, 3.7): whether a check was made in the
+  // session open now, which the uncheck reaches: a check a case names a
+  // session for is that session's (sess-1 is the one open), any other by
+  // when it was made.
+  const inSessionNow = (c) => (c && c.session ? c.session === "sess-1" : atOf(c) >= state.sessionStartedAt);
   const dayRows = (siteId) => {
     const today = checklistDay(clockNow());
     const run = readRun(siteId);
@@ -4361,7 +4525,7 @@ function createStub(opts) {
       return {
         row: row, period: row.period, shown: shown, due: due,
         done: done ? { completedAt: iso(atOf(done)), firstName: firstNameOf(done.userId) } : null,
-        checked: checked ? { byCaller: checked.userId === state.person.id, firstName: firstNameOf(checked.userId), completedAt: iso(atOf(checked)) } : null,
+        checked: checked ? { byCaller: checked.userId === state.person.id, firstName: firstNameOf(checked.userId), completedAt: iso(atOf(checked)), thisSession: checked.userId === state.person.id && inSessionNow(checked) } : null,
         mine: todays.some(c => c.userId === state.person.id),
         run: run,
         earlier: before ? { at: iso(atOf(before)), shiftLabel: (runOfCheck(before, siteId) || {}).label || null, firstName: firstNameOf(before.userId) } : null,
@@ -4847,6 +5011,138 @@ function createStub(opts) {
   // named in summaryNull answers as one that threw: null counts and a
   // false feature. A list route this stub does not serve (an API from
   // before that list) answers nothing to count, as that list would.
+  // Part 414: ocsa-api Round 19's routes/recognition.js, as the person
+  // reads it, and GET /api/sites/:id's staff for the shout-out picker
+  // when a case asks (staffAt). null for any other route.
+  function recognitionAnswer(method, pathname, key, search, body) {
+    const R = state.recognition;
+    const lang = languageOf(search, state);
+    const q = new URLSearchParams(String(search || ""));
+    const site = R.staffAt && /^GET \/api\/sites\/([^/]+)$/.exec(key);
+    if (site) {
+      const id = decodeURIComponent(site[1]);
+      const found = SITES.find(x => x.siteId === id);
+      if (!found) return null;
+      const self = { id: state.person.id, first_name: state.person.firstName, last_name: state.person.lastName, role: state.person.role };
+      return json(200, { site: { id: found.siteId, name: found.siteName }, staff: (RECOG_SITE_STAFF[id] || []).concat([self]).map(x => Object.assign({ role_at_site: "Staff", shift_name: "Evening" }, x)), zones: [], taskCount: 0 });
+    }
+    if (!/^\/api\/recognition(\/|$)/.test(pathname)) return null;
+    const me = String(state.person.id);
+    const refuse = (code, extra) => { const x = RECOG_REFUSALS[code]; return json(x.status, Object.assign({ error: lang === "es" ? x.es : x.en, code: code }, extra || {})); };
+    const none = () => ({ status: 204, contentType: "application/json", body: "" });
+    const initials = (p) => ((p.firstName || "")[0] + (p.lastName || "")[0]).toUpperCase();
+    // A name the screen draws whole is a name the stub served, as the
+    // check on a Spanish screen reads it.
+    const personOut = (p) => { state.served.add(p.firstName + " " + p.lastName); return { id: p.id, firstName: p.firstName, lastName: p.lastName, initials: initials(p), photoUrl: p.photo || null }; };
+    const reactionsOut = (base, mine) => { const counts = Object.assign({ clap: 0, star: 0, heart: 0, fire: 0, muscle: 0 }, base || {}); if (mine) counts[mine] += 1; return { counts: counts, total: Object.keys(counts).reduce((n, k) => n + counts[k], 0), mine: mine || null }; };
+    const awardOut = (a) => ({ id: a.id, month: a.month, monthName: recogMonthName(a.month, lang), person: personOut(a.person), site: a.site ? { id: a.site.siteId, name: a.site.siteName } : null, reason: a.reason[lang === "es" ? "es" : "en"], postedAt: a.postedAt, reactions: reactionsOut(R.reactions[a.id], R.mine[a.id]) });
+    const readOut = (a) => ({ award: awardOut(a), seen: R.seen.has(a.id), isMe: String(a.person.id) === me });
+    const standing = (id) => R.awards.find(a => a.id === id && !a.removed) || null;
+    const shoutOut = (x) => ({ id: x.id, person: personOut(x.person), line: x.line[lang === "es" ? "es" : "en"], site: { id: x.site.siteId, name: x.site.siteName }, postedBy: x.postedBy && state.served.add(x.postedBy.firstName + " " + x.postedBy.lastName) ? { id: x.postedBy.id, firstName: x.postedBy.firstName, lastName: x.postedBy.lastName, initials: initials(x.postedBy) } : null, postedAt: x.postedAt, reactions: reactionsOut(R.shoutReactions[x.id], R.shoutMine[x.id]), seen: R.shoutSeen.has(x.id), isMe: String(x.person.id) === me, canRemove: !!x.postedBy && String(x.postedBy.id) === me });
+    const shoutStanding = (id) => R.shouts.find(x => x.id === id && !x.removed) || null;
+    // helpers/paging.js, by offset: limit 1 to 200 (50 unless asked), a
+    // cursor this list gave.
+    const page = (rows, list) => {
+      const rawLimit = q.get("limit");
+      const limit = rawLimit === null || rawLimit === "" ? 50 : Number(rawLimit);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 200) return { refusal: json(400, { error: lang === "es" ? "El limite no es valido." : "The limit is not valid.", code: "paging.badLimit", keys: ["limit"] }) };
+      const cursor = q.get("cursor") || "";
+      const from = cursor === "" ? 0 : /^o\d+$/.test(cursor) ? Number(cursor.slice(1)) : -1;
+      if (from < 0) return { refusal: json(400, { error: lang === "es" ? "El cursor no es valido." : "The cursor is not valid.", code: "paging.badCursor", keys: ["cursor"] }) };
+      const out = rows.slice(from, from + limit);
+      return { rows: out, nextCursor: from + limit < rows.length ? "o" + (from + limit) : null, list: list };
+    };
+    const poster = state.person.role === "admin" || state.person.role === "supervisor";
+    if (key === "GET /api/recognition/current") { const a = R.currentId ? standing(R.currentId) : null; return json(200, a ? readOut(a) : { award: null, seen: false, isMe: false }); }
+    if (key === "GET /api/recognition/awards") {
+      const got = page(R.awards.filter(a => !a.removed).sort((x, y) => (x.month < y.month ? 1 : x.month > y.month ? -1 : 0)));
+      if (got.refusal) return got.refusal;
+      return json(200, { awards: got.rows.map(awardOut), nextCursor: got.nextCursor });
+    }
+    const aw = /^\/api\/recognition\/awards\/([^/]+)(\/(seen|reaction|certificate\.pdf))?$/.exec(pathname);
+    if (aw) {
+      const a = standing(decodeURIComponent(aw[1]));
+      const what = aw[3] || "";
+      if (!a) return refuse("recognition.notFound");
+      if (method === "GET" && !what) return json(200, readOut(a));
+      if (method === "POST" && what === "seen") { R.seen.add(a.id); return none(); }
+      if (method === "GET" && what === "certificate.pdf") return String(a.person.id) === me ? image("application/pdf", RECOG_PDF) : refuse("access.insufficientPermissions", { capability: "manage_recognition" });
+      if (what === "reaction" && method === "PUT") {
+        if (String(a.person.id) === me) return refuse("recognition.ownAward");
+        const k = body && typeof body === "object" ? body.key : null;
+        if (["clap", "star", "heart", "fire", "muscle"].indexOf(k) === -1) return refuse("recognition.badDetails", { keys: ["key"] });
+        R.mine[a.id] = k;
+        return json(200, { reactions: reactionsOut(R.reactions[a.id], R.mine[a.id]) });
+      }
+      if (what === "reaction" && method === "DELETE") { delete R.mine[a.id]; return json(200, { reactions: reactionsOut(R.reactions[a.id], null) }); }
+      return null;
+    }
+    const within = (x) => Date.parse(x.postedAt) >= clockNow() - 30 * DAY;
+    if (key === "GET /api/recognition/shoutouts") {
+      const got = page(R.shouts.filter(x => !x.removed && within(x)).sort((x, y) => Date.parse(y.postedAt) - Date.parse(x.postedAt)));
+      if (got.refusal) return got.refusal;
+      return json(200, { shoutouts: got.rows.map(shoutOut), nextCursor: got.nextCursor });
+    }
+    if (key === "POST /api/recognition/shoutouts") {
+      if (!poster) return refuse("access.insufficientPermissions", { capability: "post_shoutouts" });
+      R.posted.push(body);
+      const b = body && typeof body === "object" ? body : {};
+      const keys = [];
+      const everyone = Object.keys(RECOG_SITE_STAFF).reduce((all, k) => all.concat(RECOG_SITE_STAFF[k].map(x => Object.assign({ siteId: k }, x))), []);
+      const who = everyone.find(x => x.id === b.userId);
+      if (!who || String(b.userId) === me) keys.push("userId");
+      const line = typeof b.line === "string" ? b.line.replace(/\s+/g, " ").trim() : "";
+      if (!line || line.length > 200) keys.push("line");
+      const at = SITES.find(x => x.siteId === b.siteId);
+      if (!at) keys.push("siteId");
+      if (keys.length) return refuse("recognition.badDetails", { keys: keys });
+      if (R.postRefusal) return refuse(R.postRefusal, { keys: ["userId"] });
+      const made = { id: "so-new-" + (R.shouts.length + 1), person: { id: who.id, firstName: who.first_name, lastName: who.last_name, photo: null }, line: { en: line, es: line }, site: at, postedBy: { id: state.person.id, firstName: state.person.firstName, lastName: state.person.lastName }, postedAt: iso(clockNow()), removed: false };
+      R.shouts.unshift(made);
+      R.shoutSeen.add(made.id);
+      R.shoutReactions[made.id] = {};
+      return json(201, { shoutout: shoutOut(made) });
+    }
+    const so = /^\/api\/recognition\/shoutouts\/([^/]+)(\/(seen|reaction|remove))?$/.exec(pathname);
+    if (so) {
+      const id = decodeURIComponent(so[1]);
+      const what = so[3] || "";
+      const any = R.shouts.find(x => x.id === id) || null;
+      if (method === "POST" && what === "remove") {
+        if (!any) return refuse("recognition.shoutoutNotFound");
+        if (!(any.postedBy && String(any.postedBy.id) === me)) return refuse("access.insufficientPermissions", { capability: "manage_recognition" });
+        if (any.removed) return refuse("recognition.alreadyRemoved");
+        any.removed = true;
+        R.removedShouts.push(id);
+        return json(200, { shoutout: shoutOut(any) });
+      }
+      const x = shoutStanding(id);
+      if (!x) return refuse("recognition.shoutoutNotFound");
+      if (method === "GET" && !what) return json(200, { shoutout: shoutOut(x) });
+      if (method === "POST" && what === "seen") { R.shoutSeen.add(x.id); return none(); }
+      if (what === "reaction" && method === "PUT") {
+        if (String(x.person.id) === me) return refuse("recognition.ownShoutout");
+        const k = body && typeof body === "object" ? body.key : null;
+        if (["clap", "star", "heart", "fire", "muscle"].indexOf(k) === -1) return refuse("recognition.badDetails", { keys: ["key"] });
+        R.shoutMine[x.id] = k;
+        return json(200, { reactions: reactionsOut(R.shoutReactions[x.id], R.shoutMine[x.id]) });
+      }
+      if (what === "reaction" && method === "DELETE") { delete R.shoutMine[x.id]; return json(200, { reactions: reactionsOut(R.shoutReactions[x.id], null) }); }
+      return null;
+    }
+    return null;
+  }
+  // What GET /api/me/summary's recognition answers (helpers/recognition.js
+  // summaryOf): the award GET /current shows, and the shout-outs of the
+  // last 7 days not opened, the person's own postings left out.
+  function recognitionSummary() {
+    const R = state.recognition;
+    if (R.nullSummary) return null;
+    const me = String(state.person.id);
+    const a = R.currentId ? R.awards.find(x => x.id === R.currentId && !x.removed) : null;
+    const newShoutouts = R.shouts.filter(x => !x.removed && Date.parse(x.postedAt) >= clockNow() - 7 * DAY && !R.shoutSeen.has(x.id) && !(x.postedBy && String(x.postedBy.id) === me)).length;
+    return { current: a ? { id: a.id, seen: R.seen.has(a.id), isMe: String(a.person.id) === me } : null, newShoutouts: newShoutouts };
+  }
   function summaryNow(search, headers) {
     const read = (p) => {
       const r = answerNow("GET", p, search, null, headers, "GET " + p);
@@ -4926,6 +5222,8 @@ function createStub(opts) {
         trainingToDo: t ? t.toDo : null, firstDayTrainings: t ? t.firstDay : null, documentsToSign: t ? t.documents : null,
         trainingToSignOff: signOff, unreadNotices: unread, chatUnread: chat, assigned: assigned,
       },
+      // Part 414 (ocsa-api Round 19): null when its part failed.
+      recognition: failed("recognition") ? null : recognitionSummary(),
     };
   }
 
@@ -4998,6 +5296,9 @@ function createStub(opts) {
       if (method === "POST") { state.acks.push(body); return json(200, { ok: true }); }
       return json(200, ACK_REPORT);
     }
+    // Part 414: Employee of the Month and shout-outs.
+    const recognized = recognitionAnswer(method, pathname, key, search, body);
+    if (recognized) return recognized;
     // --- signing in and getting in
     if (key === "POST /api/auth/login") {
       // A wrong PIN carries its key as its code, the way the API's
@@ -5194,6 +5495,14 @@ function createStub(opts) {
     });
     if (key === "PATCH /api/users/profile/me") return json(200, { ok: true });
     if (key === "POST /api/users/profile/photo") return json(200, { ok: true });
+    // Part 414 (ocsa-api part 410, 3.8): Remove photo, one's own with no
+    // body, answered as the POST answers (messageBody) in the person's
+    // words.
+    if (key === "DELETE /api/users/profile/photo") {
+      state.person = Object.assign({}, state.person, { profilePhotoUrl: null });
+      const es = languageOf(search, state) === "es";
+      return json(200, { message: es ? "Foto eliminada" : "Photo removed", code: "profile.photoRemoved", profilePhotoUrl: null });
+    }
 
     // --- the shift
     if (key === "GET /api/clock/status") return json(200, clockStatus(languageOf(search, state)));
@@ -5267,7 +5576,7 @@ function createStub(opts) {
       // check made before this session started stays, and the route still
       // answers 200 tasks.uncompleted. With notThisSession it is refused
       // 409 tasks.notThisSession, as ocsa-api Round 17 is to answer it.
-      const thisSession = (c) => atOf(c) >= state.sessionStartedAt;
+      const thisSession = (c) => inSessionNow(c);
       const mineHeld = todays.filter(c => c.userId === state.person.id);
       if (state.notThisSession && mineHeld.length > 0 && !mineHeld.some(thisSession)) {
         return json(NOT_THIS_SESSION.status, { error: refusalIn(NOT_THIS_SESSION, languageOf(search, state)), code: NOT_THIS_SESSION.code });
@@ -5526,15 +5835,22 @@ function createStub(opts) {
           startHours: 0, grantedHours: sick ? 40 : hours, usedHours: sick ? Math.max(0, 40 - hours) : 0, givenBackHours: 0, expiredHours: 0, adjustedHours: 0,
           balanceHours: hours, balanceDays: days, usableFrom: L.usableFrom, hoursPostedThrough: sick ? R15_POSTED_THROUGH : null,
           notes: [adp].concat(sick ? [posted] : []).concat(noClass),
-          yearCapHours: sick ? 40 : null, useCapHours: sick && cls !== "full_time" ? 40 : null, appFigure: true };
+          yearCapHours: sick ? 40 : null, useCapHours: sick && cls !== "full_time" ? 40 : null, appFigure: true,
+          // Part 414 (ocsa-api part 410, 3.1): the rule the person follows
+          // of this kind, by the class leave reads, union included.
+          line: (() => { const l = R15_LINES.find(x => x.kind === kind && x.classes.indexOf(cls) !== -1); return l ? { text: l.en, note: null, classes: l.classes.slice() } : null; })() };
       };
+      const offerNow = r15Offer();
       return json(200, {
-        person: Object.assign({}, head, { employmentClass: ["full_time", "part_time", "supplemental"].indexOf(L.employmentClass) !== -1 ? L.employmentClass : null }),
+        person: Object.assign({}, head, { employmentClass: ["full_time", "part_time", "supplemental"].indexOf(L.employmentClass) !== -1 ? L.employmentClass : null, leaveClass: cls }),
         year: 2026, asOf: "2026-10-01", policy: policy,
         summary: L.none
           ? { lines: [{ kind: "paid_sick", kindName: lw("sick"), text: lw("untracked"), note: null, classes: null }], holidays: lw("holidays"), holidayDays: [] }
           : { lines: R15_LINES.map(l => ({ kind: l.kind, kindName: l.kind === "paid_sick" ? lw("sick") : R15_TYPE_WORDS[l.kind].en, text: l.en, note: null, classes: l.classes.slice() })), holidays: lw("holidays"), holidayDays: [] },
         balances: L.none ? [] : (R15_CLASS_KINDS[cls] || []).map(one), policyHistory: [],
+        // Part 414 (ocsa-api part 410, 3.4): the kinds not offered, as GET
+        // /api/time-off/types answers them, with kind and kindName.
+        notOffered: R15_OFFERED.filter(v => offerNow.shut(v)).map((v) => { const t = r15Type(v, "en"); return { kind: v, kindName: t.name, value: v, label: t.label, words: t.words, name: t.name, reason: offerNow.reason, reasonWords: Object.assign({}, R15_WORDS["timeOff.notOffered." + offerNow.reason]), reasonText: r15Say("timeOff.notOffered." + offerNow.reason, "en") }; }),
       });
     }
     // --- time off
@@ -5596,6 +5912,28 @@ function createStub(opts) {
     // --- chat, the three routes as Scout 138 read and ran them, and the
     // refusals as Step 132 writes them; and Step 179's read receipt, the
     // people a message may tag, and the tags on a message
+    // Part 414 (section 5): a test office account's people are the test
+    // accounts (routes/chat.js since Round 17), staff among them.
+    if (state.chatPeopleRoute && key === "GET /api/chat/people" && state.chat.testOffice) return json(200, { people: TEST_CHAT_PEOPLE.map(p => Object.assign({}, p)) });
+    if (key === "GET /api/chat/dm-inbox") {
+      const office = state.person.role === "admin" || state.person.role === "supervisor";
+      if (!office) return chatRefusal("chat.noAccess", search);
+      return json(200, state.chat.inbox.map(l => ({ channelId: l.channelId, staffUserId: l.staffUserId, staffName: l.staffName, staffRole: l.staffRole, lastMessage: null, lastMessageAt: null, lastSenderId: null, unreadCount: l.active ? 0 : 1 })));
+    }
+    // POST /api/chat/direct and /staff-line { userId } for a test office
+    // account: a direct chat with any test account, and a test account's
+    // line (routes/chat.js part 407). A real person's is not answered here.
+    if (state.chat.testOffice && (key === "POST /api/chat/direct" || key === "POST /api/chat/staff-line")) {
+      const p = TEST_CHAT_PEOPLE.find(x => body && x.userId === body.userId);
+      if (!p) return json(404, { error: languageOf(search, state) === "es" ? "No se encontr\u00f3 a la persona." : "User not found", code: "common.userNotFound" });
+      const direct = key === "POST /api/chat/direct";
+      if (!direct && p.kind === "office") return json(400, { error: "That person is office staff.", code: "chat.staffLineStaffOnly" });
+      const ch = direct ? { id: "direct-" + p.userId, type: "direct", name: p.name, otherUserId: p.userId, unreadCount: 0 } : { id: "dm-" + p.userId, type: "admin_dm", name: p.name, staffUserId: p.userId, unreadCount: 0 };
+      const had = state.chat.channels.some(x => x.id === ch.id);
+      if (!had) { state.chat.channels.push(ch); state.chat.messages[ch.id] = state.chat.messages[ch.id] || []; }
+      state.chat.opened.push({ route: key, userId: p.userId });
+      return json(had ? 200 : 201, { channel: Object.assign({}, ch) });
+    }
     if (state.chatPeopleRoute && key === "GET /api/chat/people") return json(200, { people: [{ userId: ADMIN_PERSON.id, name: ADMIN_PERSON.firstName + " " + ADMIN_PERSON.lastName, role: ADMIN_PERSON.role, kind: "office" }]
       .concat(STAFF.slice(0, 8).map(x => ({ userId: x.id, name: x.firstName + " " + x.lastName, role: "custodian", kind: "staff" }))) });
     if (key === "GET /api/chat/channels") return json(200, state.chat.channels.map(ch => Object.assign({}, ch)));
@@ -5604,7 +5942,7 @@ function createStub(opts) {
       const id = decodeURIComponent(chatRoute[1]);
       // An API from before Step 179 has no members route.
       if (chatRoute[2] === "members" && !state.chat.membersRoute) return json(404, { error: "Endpoint not found" });
-      const mine = state.chat.channels.some(ch => ch.id === id);
+      const mine = state.chat.channels.some(ch => ch.id === id) || state.chat.inbox.some(l => l.channelId === id);
       const anywhere = mine || id === CHAT_GENERAL.id || CHAT_SITES.some(s => s.id === id) || /^dm-/.test(id);
       if (!anywhere) return chatRefusal("chat.notFound", search);
       if (!mine) return chatRefusal("chat.noAccess", search);
@@ -7642,7 +7980,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { NOT_THIS_SESSION, R15_WORDS, R15_TYPE_WORDS, R15_LINES, R15_RULES, TEST_SITE, TEST_SITE_REFUSAL, runIdFor: runIdOf, FOLLOW_UP_REFUSALS, FOLLOW_UP_TOPICS, CLOSED_NOTE, BAD_SHIFT_RUN, DROP_REFUSALS, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { R15_INSIDE_TEXT, RECOG_REASON, RECOG_REFUSALS, RECOG_SITE_STAFF, RECOG_SHOUT_LINES, recogMonthName, NOT_THIS_SESSION, R15_WORDS, R15_TYPE_WORDS, R15_LINES, R15_RULES, TEST_SITE, TEST_SITE_REFUSAL, runIdFor: runIdOf, FOLLOW_UP_REFUSALS, FOLLOW_UP_TOPICS, CLOSED_NOTE, BAD_SHIFT_RUN, DROP_REFUSALS, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

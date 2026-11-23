@@ -167,6 +167,9 @@ const SHEET_CASES = [
   { id: "WalkSectionsSheet#0", label: "Inspect, the sections of a walk" },
   // Part 355: the case sheet and the client's concern share one sheet.
   { id: "ReadSheet#0", label: "A case or a client's concern, read only" },
+  // Part 414: the Employee of the Month the bell opens, the team wall and
+  // a shout-out share one sheet.
+  { id: "RecogSheet#0", label: "The Employee of the Month, the team wall or a shout-out" },
 ];
 
 // Every form a person can fill in and send. Required fields are the ones

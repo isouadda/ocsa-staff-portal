@@ -75,6 +75,7 @@ async function launch() {
 // morning. The case gives the stub the same time, as stubOptions.now.
 // userAgent: another phone's, ANDROID for one.
 // serviceWorkers: "block" for a phone with no service worker.
+// reducedMotion: true for a phone set to reduce motion (part 414).
 // iosAlerts: "fresh" for a phone that has not yet told its iPhone browser
 // tab why it gets no alerts (PORT-29); every other case is seeded as told.
 // push: { permission, answer, subscribed, supported }, the phone's push
@@ -99,7 +100,9 @@ async function openApp(browser, base, opts) {
   o.serviceWorkers === "block" ? { serviceWorkers: "block" } : {},
   // A phone set to another zone, for a case about the day a date shows on
   // (part 359, API-96); every other case keeps New York.
-  o.timezoneId ? { timezoneId: o.timezoneId } : {}));
+  o.timezoneId ? { timezoneId: o.timezoneId } : {},
+  // A phone set to reduce motion (part 414: the reveal draws no confetti).
+  o.reducedMotion ? { reducedMotion: "reduce" } : {}));
 
   // Every route under /api, and the API's own index at /api itself, which
   // the supply request form reads (Step 285), so nothing reaches the
