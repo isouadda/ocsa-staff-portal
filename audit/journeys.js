@@ -11135,7 +11135,8 @@ const PART399_S1_JOURNEYS = [
         const sheet = await shows(app.page, '[data-timeoff-inside="sheet"]', 6000);
         const body = (lastSent(app.stub, "POST", "/api/time-off") || {}).body;
         expect("sent with the reason", !!body && body.leaveType === "vacation" && body.reason === "A family visit", JSON.stringify(body));
-        expect("the filed request reads that the office decides it", sheet && has(await offSheet(app.page), say("Asked with less notice than the policy asks. The office decides it case by case.", language)), (await offSheet(app.page)).slice(0, 300));
+        // Part 414 (section 4.5): in the API's words, insideNoticeText.
+        expect("the filed request reads that the office decides it, in the API's words", sheet && has(await offSheet(app.page), require("./stub").R15_INSIDE_TEXT[language === "es" ? "es" : "en"]), (await offSheet(app.page)).slice(0, 300));
         await spokenHere(app, language, expect);
       } finally { await app.context.close(); }
       const per = await open({});
@@ -12274,5 +12275,130 @@ const PART414_S3_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...PART414_S3_JOURNEYS);
+
+// --- Round 17 of the staff app (part 414), section 4 ----------------------
+//
+// What ocsa-api Round 18 (part 410, isouadda/ocsa-api#168, "For the staff
+// app") gave the staff app, each failing on the main of part 408.
+const PART414_S4_JOURNEYS = [
+  {
+    id: "uncheckthissession",
+    label: "Unchecking by thisSession (part 414, 4.1): a check of the person's own that the API answers thisSession false is offered no uncheck, even made after the session began by the phone's clock, and a tap sends nothing; one answered thisSession true is unchecked",
+    run: async (open, language, expect) => {
+      const name = itemName("task-3", language);
+      const app = await open({ stubOptions: { completions: [{ taskId: "task-3", userId: PERSON.id, at: R408_NOW - 30 * 60 * 1000, session: "sess-0" }], sessionStartedAt: new Date(R408_NOW - 3 * 60 * 60 * 1000).toISOString() } });
+      try {
+        await openTab(app.page, "tasks", language);
+        await pause(app.page, 1400);
+        expect("the check reads checked", (await rowOf(app.page, language, name)).done, JSON.stringify(await rowOf(app.page, language, name)));
+        await tapRow(app.page, language, name);
+        await pause(app.page, 1200);
+        const row = await rowOf(app.page, language, name);
+        expect("thisSession false: no uncheck is sent, the row says it stays checked", sent(app.stub, "DELETE", "/api/clock/tasks/task-3/complete").length === 0 && has(row.text, say("You checked this on an earlier shift. It stays checked.", language)) && row.done, row.text.slice(0, 200));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const now = await open({ stubOptions: { completions: [{ taskId: "task-3", userId: PERSON.id, at: R408_NOW - 30 * 60 * 1000, session: "sess-1" }], sessionStartedAt: new Date(R408_NOW - 3 * 60 * 60 * 1000).toISOString() } });
+      try {
+        await openTab(now.page, "tasks", language);
+        await pause(now.page, 1400);
+        await tapRow(now.page, language, name);
+        await pause(now.page, 1500);
+        expect("thisSession true: the uncheck is sent once", sent(now.stub, "DELETE", "/api/clock/tasks/task-3/complete").length === 1, "sent " + sent(now.stub, "DELETE", "/api/clock/tasks/task-3/complete").length);
+      } finally { await now.context.close(); }
+    },
+  },
+  {
+    id: "photoremove",
+    label: "Remove photo (part 414, 4.2): the profile offers Remove photo under a photo, asks first, sends DELETE /api/users/profile/photo with no body, says the API's words and draws the initials",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: Object.assign({}, PERSON, { profilePhotoUrl: "profile-photos/profile-me.jpg" }) } });
+      try {
+        await openTab(app.page, "profile", language);
+        const offered = await shows(app.page, "[data-profile-photo-remove]", 8000);
+        expect("Remove photo is offered under the photo", offered && (await r414Has(app.page, '[data-avatar="profile"]')), "offered " + offered);
+        await r414Click(app.page, "[data-profile-photo-remove]");
+        const asked = await shows(app.page, "[data-profile-photo-remove-ask]", 3000);
+        expect("a tap asks first and sends nothing", asked && sent(app.stub, "DELETE", "/api/users/profile/photo").length === 0, "asked " + asked);
+        await watchToasts(app.page);
+        await r414Click(app.page, "[data-profile-photo-remove-yes]");
+        await pause(app.page, 1500);
+        const del = sent(app.stub, "DELETE", "/api/users/profile/photo");
+        const seen = await toastsSeen(app.page);
+        expect("DELETE /api/users/profile/photo is sent once, with no body", del.length === 1 && del[0].body === null, JSON.stringify(del.map(c => c.body)));
+        expect("the API's words are said and the initials take the photo's place", seen.seen.some(x => x.text === (language === "es" ? "Foto eliminada" : "Photo removed")) && !(await r414Has(app.page, '[data-avatar="profile"]')) && !(await r414Has(app.page, "[data-profile-photo-remove]")), JSON.stringify(seen.seen.map(x => x.text)));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "leaveclassline",
+    label: "Leave balances (part 414, 4.3): each balance shows its own line, the rule the person follows (a person at a union site reads the union rule though full-time is on file), the class it follows, and the kinds not offered with their names and the API's reason",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { unionSite: true, employmentClass: "full_time" } });
+      try {
+        await openTab(app.page, "schedule", language);
+        await shows(app.page, '[data-leave-balance="paid_sick"]', 8000);
+        const line = await app.page.evaluate(() => { const d = document.querySelector('[data-leave-balance="paid_sick"] [data-leave-line]'); return d ? d.innerText.replace(/\s+/g, " ").trim() : ""; });
+        const union = require("./stub").R15_LINES.find(l => l.kind === "paid_sick" && l.classes.indexOf("union") !== -1);
+        expect("the sick balance's line is the union rule's, as the balance answers it", line === (language === "es" ? union.es : union.en), line.slice(0, 160));
+        const cls = await app.page.evaluate(() => { const d = document.querySelector("[data-leave-class-line]"); return d ? d.innerText.trim() : ""; });
+        expect("the class the person's time off follows: staff at a union site", cls === say("Your time off follows the rules for staff at a union site.", language), cls);
+        const not = await app.page.evaluate(() => { const d = document.querySelector('[data-leave-notoffered="unionSite"]'); return d ? d.innerText.replace(/\s+/g, " ").trim() : ""; });
+        expect("the kinds not offered, by name, with the API's reason", has(not, servedIn("Vacation", language)) && has(not, require("./stub").R15_WORDS["timeOff.notOffered.unionSite"][language === "es" ? "es" : "en"]), not);
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "leaveholiday",
+    label: "A holiday by name (part 414, 4.4): the time off preview names each holiday on its days, in the person's language",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openOffForm(app, language);
+        await offPick(app, "vacation");
+        await offDays(app, "2026-11-23", "2026-11-27");
+        await shows(app.page, OFF_SHEET + ' [data-leave-preview="1"]', 6000);
+        const names = await app.page.evaluate(() => Array.from(document.querySelectorAll("[data-leave-day][data-leave-holiday]")).map(d => d.getAttribute("data-leave-day") + "=" + (d.querySelector("[data-leave-holiday-name]") || {}).innerText));
+        const want = language === "es" ? ["2026-11-26=D\u00eda de Acci\u00f3n de Gracias", "2026-11-27=D\u00eda despu\u00e9s de Acci\u00f3n de Gracias"] : ["2026-11-26=Thanksgiving Day", "2026-11-27=Day After Thanksgiving"];
+        expect("Thanksgiving and the day after, each by its name", JSON.stringify(names) === JSON.stringify(want), JSON.stringify(names));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "insidenoticetext",
+    label: "The inside-notice line in the API's words (part 414, 4.5): a request asked inside its notice shows its insideNoticeText on My time off and on its own sheet, never the app's own sentence",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openOffForm(app, language);
+        await offPick(app, "vacation");
+        await offDays(app, "2026-10-05", "2026-10-06");
+        await offErrorShows(app.page, "reason", 6000);
+        await type(app.page, OFF_SHEET + " textarea", "A family visit");
+        await shows(app.page, OFF_SHEET + ' [data-leave-preview="1"]', 6000);
+        await clickText(app.page, say("Send request", language));
+        const sheet = await shows(app.page, '[data-timeoff-inside="sheet"]', 6000);
+        const api = require("./stub").R15_INSIDE_TEXT[language === "es" ? "es" : "en"];
+        const inSheet = sheet ? await app.page.evaluate(() => document.querySelector('[data-timeoff-inside="sheet"]').innerText.trim()) : "";
+        expect("the filed request's sheet shows the API's line", inSheet === api, inSheet);
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      // A request already on My time off, asked inside its notice.
+      const held = timeOffRow({ id: "to-inside", status: "requested", leaveType: "vacation", leaveTypeLabel: "Vacation", startsOn: "2026-10-05", endsOn: "2026-10-06", insideNotice: true, insideNoticeText: require("./stub").R15_INSIDE_TEXT.en, insideNoticeWords: { en: require("./stub").R15_INSIDE_TEXT.en, es: require("./stub").R15_INSIDE_TEXT.es, fr: null } });
+      const mine = await open({ stubOptions: { myTimeOff: [held] } });
+      try {
+        await openTab(mine.page, "schedule", language);
+        await shows(mine.page, '[data-timeoff-inside="row"]', 8000);
+        const api = require("./stub").R15_INSIDE_TEXT[language === "es" ? "es" : "en"];
+        const row = await mine.page.evaluate(() => { const d = document.querySelector('[data-timeoff-inside="row"]'); return d ? d.innerText.trim() : ""; });
+        expect("My time off's row shows the API's line", row === api, row);
+        await spokenHere(mine, language, expect);
+      } finally { await mine.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART414_S4_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };

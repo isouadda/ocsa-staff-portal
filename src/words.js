@@ -1756,6 +1756,13 @@ export const WORDS = {
   "Keep the shout-out": "Conservar el reconocimiento",
   "No one shares a site with you.": "Nadie comparte un sitio con usted.",
   "The people at your sites did not load.": "Las personas de sus sitios no se cargaron.",
+  // Part 414 (section 4): Remove photo, and the rules a person's time off follows.
+  "Remove your photo?": "\u00bfQuitar su foto?",
+  "Photo removed": "Foto eliminada",
+  "Your time off follows the rules for full-time staff.": "Su tiempo libre sigue las reglas del personal de tiempo completo.",
+  "Your time off follows the rules for part-time staff.": "Su tiempo libre sigue las reglas del personal de medio tiempo.",
+  "Your time off follows the rules for supplemental staff.": "Su tiempo libre sigue las reglas del personal suplementario.",
+  "Your time off follows the rules for staff at a union site.": "Su tiempo libre sigue las reglas del personal en un sitio sindicalizado.",
   },
 };
 
@@ -3388,6 +3395,13 @@ WORDS.fr = {
   "Keep the shout-out": "Garder les f\u00e9licitations",
   "No one shares a site with you.": "Personne ne partage un site avec vous.",
   "The people at your sites did not load.": "Les personnes de vos sites ne se sont pas charg\u00e9es.",
+  // Part 414 (section 4): Remove photo, and the rules a person's time off follows.
+  "Remove your photo?": "Retirer votre photo\u00a0?",
+  "Photo removed": "Photo supprim\u00e9e",
+  "Your time off follows the rules for full-time staff.": "Vos cong\u00e9s suivent les r\u00e8gles du personnel \u00e0 temps plein.",
+  "Your time off follows the rules for part-time staff.": "Vos cong\u00e9s suivent les r\u00e8gles du personnel \u00e0 temps partiel.",
+  "Your time off follows the rules for supplemental staff.": "Vos cong\u00e9s suivent les r\u00e8gles du personnel suppl\u00e9mentaire.",
+  "Your time off follows the rules for staff at a union site.": "Vos cong\u00e9s suivent les r\u00e8gles du personnel d'un site syndiqu\u00e9.",
 };
 
 // {name} is replaced after the language is chosen, so the

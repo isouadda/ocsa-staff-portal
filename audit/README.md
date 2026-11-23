@@ -2378,6 +2378,43 @@ Four journeys, in English and Spanish, each failing on the main of part
   403 `testCrew.realRecord`, each in the API's words under the form.
 - `shoutoutbell`: the bell's row, the link, and the API's 404 words.
 
+## What API Round 18 gave the staff app (part 414, section 4)
+
+ocsa-api Round 18 (part 410, isouadda/ocsa-api#168, "For the staff app"):
+
+- Unchecking: each `checkedToday` entry, on clock status, the session
+  answers and the task list alike, carries `thisSession`, and the uncheck
+  is offered only when it is true. An entry with none, from an API before
+  part 410, is read by its time as part 408 read it. A check this phone
+  just made reads true. The stub answers `thisSession` (a completion a
+  case names a `session` for is that session's, `sess-1` the one open)
+  and scopes its uncheck the same way.
+- **Remove photo** under the profile's photo, asked first (**Remove your
+  photo?**, Keep it), sends `DELETE /api/users/profile/photo` with no
+  body; the API's `message` is said and the initials take the photo's
+  place. The stub answers it in the person's words.
+- Leave balances (`GET /api/leave/me`): each balance's own `line` is the
+  rule shown (null, none), so a person at a union site reads the union
+  rule whatever class is on file; `person.leaveClass` is said as **Your
+  time off follows the rules for ...** (or the class missing line); and
+  `notOffered` is said by `kindName` with the API's reason, grouped as the
+  request form groups them. An API from before it answers no `line`, and
+  the summary's is found by the class on file as before.
+- Each of a request's `leave.days` names its `holiday` in the request's
+  language beside the date. The stub answers the handbook's nine by key
+  and name (helpers/words.js `holidays.federal.*`).
+- A request asked inside its notice shows its `insideNoticeText` on My
+  time off and on its sheet. The preview's `notice` carries no such text
+  yet, so the form keeps asking for a reason as before. The stub's line
+  adds words of its own to the API's sentence, so the two are told apart;
+  `timeoffnotice` (part 399) now reads the API's line on the filed
+  request.
+
+Five journeys, in English and Spanish, each failing on the main of part
+408: `uncheckthissession`, `photoremove`, `leaveclassline` (a union site
+with full-time on file), `leaveholiday` (Thanksgiving week) and
+`insidenoticetext` (the filed request's sheet and a row of My time off).
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

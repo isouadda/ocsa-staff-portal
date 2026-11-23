@@ -3640,7 +3640,7 @@ export default function OCSAStaffPortal() {
     const taskId = task.id;
     if (inFlightTaskIds.current.has(taskId)) return;
     const counted = isDueToday(task);
-    const mark = (on) => setTickOverrides(prev => { const n = new Map(prev); n.set(taskId, { done: on, doneThisPeriod: on ? { completedAt: new Date().toISOString(), firstName: user && user.firstName } : null, checkedToday: on ? { byCaller: true, firstName: user && user.firstName, completedAt: new Date().toISOString() } : null, at: Date.now() }); return n; });
+    const mark = (on) => setTickOverrides(prev => { const n = new Map(prev); n.set(taskId, { done: on, doneThisPeriod: on ? { completedAt: new Date().toISOString(), firstName: user && user.firstName } : null, checkedToday: on ? { byCaller: true, firstName: user && user.firstName, completedAt: new Date().toISOString(), thisSession: true } : null, at: Date.now() }); return n; });
     // The box as the person set it.
     if (done) { showRowNote(taskId, null); if (counted) setCompletedTaskIds(prev => { const n = new Set(prev); n.delete(taskId); return n; }); else mark(false); }
     else if (counted) setCompletedTaskIds(prev => new Set(prev).add(taskId)); else mark(true);
@@ -5760,11 +5760,40 @@ function leaveBalancesOf(d) {
     const hours = leaveNum(b.balanceHours);
     const perDay = leaveNum(b.hoursPerDay);
     const days = leaveNum(b.balanceDays) !== null ? leaveNum(b.balanceDays) : hours !== null && perDay ? leaveNum(hours / perDay) : null;
+    // Part 414 (section 4.3, ocsa-api part 410, 3.1): each balance answers
+    // line { text, note, classes } | null, the rule the person follows of
+    // that kind, union included; an API from before it answers none, and
+    // the line is found in the summary's by the class on file, as before.
+    const own = Object.prototype.hasOwnProperty.call(b, "line");
     const mine = lines.filter(l => l && l.kind === b.kind);
-    const line = (cls && mine.find(l => Array.isArray(l.classes) && l.classes.indexOf(cls) !== -1)) || mine.find(l => !Array.isArray(l.classes)) || mine[0];
+    const line = own ? (plainOf(b.line) ? b.line : null) : (cls && mine.find(l => Array.isArray(l.classes) && l.classes.indexOf(cls) !== -1)) || mine.find(l => !Array.isArray(l.classes)) || mine[0];
     const notes = (Array.isArray(b.notes) ? b.notes : []).filter(n => n && typeof n === "object" && n.code !== ADP_NOTE).map(n => fkText(n, ["message"])).filter(Boolean);
     return { kind: b.kind, name: fkText(b, ["kindName"]) || b.kind, unit: b.unit === "days" ? "days" : "hours", hours: hours, days: days, usableFrom: fkText(b, ["usableFrom"]) || null, line: line ? fkText(line, ["text"]) : "", notes: notes };
   }).filter(b => b.hours !== null);
+}
+// Part 414 (section 4.3): the class leave reads for the person's rules
+// (person.leaveClass, union included), and the kinds not offered them
+// (notOffered, as GET /api/time-off/types answers it, each with kindName),
+// grouped by the API's reason.
+const LEAVE_CLASS_LINES = {
+  full_time: "Your time off follows the rules for full-time staff.",
+  part_time: "Your time off follows the rules for part-time staff.",
+  supplemental: "Your time off follows the rules for supplemental staff.",
+  union: "Your time off follows the rules for staff at a union site.",
+  none: "Your employment class is not on file. The office has to set it.",
+};
+const leaveClassOf = (d) => { const c = d && plainOf(d.person) ? d.person.leaveClass : null; return typeof c === "string" && Object.prototype.hasOwnProperty.call(LEAVE_CLASS_LINES, c) ? c : null; };
+function leaveNotOfferedOf(d) {
+  const groups = [];
+  (d && Array.isArray(d.notOffered) ? d.notOffered : []).forEach((x) => {
+    if (!plainOf(x)) return;
+    const name = fkText(x, ["kindName"]) || fkText(x, ["name"]) || fkText(x, ["kind"]) || fkText(x, ["value"]);
+    if (!name) return;
+    const reason = fkText(x, ["reasonText"]);
+    const g = groups.find(y => y.reason === reason);
+    if (g) g.names.push(name); else groups.push({ reason: reason, code: fkText(x, ["reason"]) || "", names: [name] });
+  });
+  return groups;
 }
 // The ADP line, as the first balance that carries it says it.
 function leaveAdpOf(d) {
@@ -5774,6 +5803,10 @@ function leaveAdpOf(d) {
   }
   return "";
 }
+// Part 414 (section 4.5, ocsa-api part 410, 3.3): a request asked inside
+// its notice carries insideNoticeText, in the request's language; an API
+// from before it answers none, and the app's own sentence shows.
+const insideNoticeLine = (r) => fkText(r, ["insideNoticeText"]) || tr("Asked with less notice than the policy asks. The office decides it case by case.");
 const leaveDays = (n) => (n === 1 ? tr("{n} day", { n: String(n) }) : tr("{n} days", { n: String(n) }));
 const leaveUsableLater = (b) => !!b && !!b.usableFrom && b.usableFrom > ymdLocal(todayLocal());
 // A balance's amount as the screen says it: days for a kind kept in days
@@ -5805,7 +5838,10 @@ function TimeOffLeave({ leave, status, before, t }) {
   if (status !== "requested" || (lv.tracked !== true && warnings.length === 0)) return null;
   const would = leaveAmount(unit, lv.wouldLeaveDays, lv.wouldLeaveHours);
   const days = (Array.isArray(lv.days) ? lv.days : []).filter(x => x && typeof x === "object" && typeof x.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(x.date));
-  const marked = days.some(x => x.from === "holiday" || x.from === "dayOff");
+  // Part 414 (section 4.4, ocsa-api part 410, 3.2): each day answers
+  // holiday { key, name } | null, the name in the request's language.
+  const holidayName = (x) => (x && plainOf(x.holiday) ? fkText(x.holiday, ["name"]) : "");
+  const marked = days.some(x => x.from === "holiday" || x.from === "dayOff" || !!holidayName(x));
   const dayWord = (x) => (x.from === "holiday" ? tr("Paid holiday, not taken") : x.from === "dayOff" ? tr("Day off, not taken") : unit === "days" ? leaveDays(1) : timeOffHours(x.hours));
   return (
     <div data-leave-state="pending" data-leave-unit={unit} style={box}>
@@ -5816,8 +5852,8 @@ function TimeOffLeave({ leave, status, before, t }) {
           {days.map(x => {
             const none = x.from === "holiday" || x.from === "dayOff";
             return (
-              <div key={x.date} data-leave-day={x.date} data-leave-from={String(x.from || "")} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap", padding: "4px 0", borderTop: "1px solid " + t.borderSolid, fontSize: 12, lineHeight: 1.45 }}>
-                <span style={{ color: none ? t.textMut : t.text }}>{dueDayText(x.date, { weekday: "short", month: "short", day: "numeric" })}</span>
+              <div key={x.date} data-leave-day={x.date} data-leave-from={String(x.from || "")} data-leave-holiday={holidayName(x) ? "1" : undefined} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap", padding: "4px 0", borderTop: "1px solid " + t.borderSolid, fontSize: 12, lineHeight: 1.45 }}>
+                <span style={{ color: none ? t.textMut : t.text }}><span>{dueDayText(x.date, { weekday: "short", month: "short", day: "numeric" })}</span>{holidayName(x) && <span>{" \u00b7 "}</span>}{holidayName(x) && <span data-leave-holiday-name="1" style={{ fontWeight: 600 }}>{holidayName(x)}</span>}</span>
                 <span style={{ color: none ? ink(t, TIME_OFF_COLOR) : t.textSec, fontWeight: none ? 600 : 400 }}>{dayWord(x)}</span>
               </div>
             );
@@ -5899,7 +5935,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
   useEffect(() => {
     if (compact || !token) return undefined;
     let gone = false;
-    api("/api/leave/me", { token }).then((d) => { if (!gone) setLeaveMe({ state: "ok", list: leaveBalancesOf(d), adp: leaveAdpOf(d) }); }).catch((err) => { if (!gone) setLeaveMe(prev => (err && err.status === 404 ? { state: "none", list: [] } : prev && prev.state === "ok" ? prev : { state: "failed", list: [] })); });
+    api("/api/leave/me", { token }).then((d) => { if (!gone) setLeaveMe({ state: "ok", list: leaveBalancesOf(d), adp: leaveAdpOf(d), cls: leaveClassOf(d), notOffered: leaveNotOfferedOf(d) }); }).catch((err) => { if (!gone) setLeaveMe(prev => (err && err.status === 404 ? { state: "none", list: [] } : prev && prev.state === "ok" ? prev : { state: "failed", list: [] })); });
     return () => { gone = true; };
   }, [compact, token, leaveAsked]);
   const balances = leaveMe && leaveMe.state === "ok" ? leaveMe.list : [];
@@ -6438,6 +6474,18 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
               {leaveMe && leaveMe.adp && <div data-leave-adp="1" style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{leaveMe.adp}</div>}
             </div>
           )}
+          {/* Part 414 (section 4.3): the rules the person follows, and the
+              kinds not offered them, each named as the API names it. */}
+          {leaveMe && leaveMe.state === "ok" && (leaveMe.cls || (leaveMe.notOffered && leaveMe.notOffered.length > 0)) && (
+            <div data-leave-class={leaveMe.cls || ""} style={{ marginBottom: 12 }}>
+              {leaveMe.cls && <div data-leave-class-line="1" style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{tr(LEAVE_CLASS_LINES[leaveMe.cls])}</div>}
+              {(leaveMe.notOffered || []).map(g => (
+                <div key={g.code + g.names.join()} data-leave-notoffered={g.code} style={{ fontSize: 12, color: t.textMut, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" }}>
+                  <span>{tr("Not offered to you: {types}.", { types: g.names.join(", ") })}</span>{g.reason && <span>{" " + g.reason}</span>}
+                </div>
+              ))}
+            </div>
+          )}
           {leaveMe && leaveMe.state === "failed" && <div data-leave-fault="1" style={{ marginBottom: 12 }}><ListFault icon={CalIco} text={tr("Your leave balances did not load.")} onRetry={() => setLeaveAsked(n => n + 1)} t={t} /></div>}
           {myOffFailed && <div data-timeoff-fault="mine"><ListFault icon={CalIco} text={tr("Your time off requests did not load.")} onRetry={loadMyOff} t={t} /></div>}
           {!myOffFailed && myOff.length === 0 && <div style={{ fontSize: 12, color: t.textMut, padding: "10px 0" }}>{tr("No time off requests yet.")}</div>}
@@ -6451,7 +6499,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
                     <div style={{ fontSize: 11, color: t.textSec, marginTop: 3, overflowWrap: "anywhere" }}>{timeOffDates(r.startsOn, r.endsOn)}</div>
                     {r.partDay && r.startTime && r.endTime && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{fmtTm(r.startTime)} - {fmtTm(r.endTime)}</div>}
                     {hrs && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{hrs}</div>}
-                    {r.insideNotice === true && <div data-timeoff-inside="row" style={{ fontSize: 11, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" }}>{tr("Asked with less notice than the policy asks. The office decides it case by case.")}</div>}
+                    {r.insideNotice === true && <div data-timeoff-inside="row" style={{ fontSize: 11, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" }}>{insideNoticeLine(r)}</div>}
                   </div>
                   <span style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px", color: timeOffStatusColor(r.status, t), flexShrink: 0, fontFamily: FONT_HEAD }}>{timeOffStatusWord(r.status)}</span>
                 </div>
@@ -6685,7 +6733,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
             </div>
             {/* Part 399 (API part 395): vacation or a personal day asked
                 inside its notice, which the office decides case by case. */}
-            {offDetail.insideNotice === true && <div data-timeoff-inside="sheet" role="status" style={{ marginBottom: 14, padding: "10px 12px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.borderSolid, fontSize: 13, color: t.text, lineHeight: 1.5, overflowWrap: "anywhere" }}>{tr("Asked with less notice than the policy asks. The office decides it case by case.")}</div>}
+            {offDetail.insideNotice === true && <div data-timeoff-inside="sheet" role="status" style={{ marginBottom: 14, padding: "10px 12px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.borderSolid, fontSize: 13, color: t.text, lineHeight: 1.5, overflowWrap: "anywhere" }}>{insideNoticeLine(offDetail)}</div>}
             <TimeOffLeave leave={offDetail.leave} status={offDetail.status} t={t} />
 
             <div style={{ marginBottom: 14 }}>
@@ -7823,9 +7871,15 @@ function TasksView({ token, clockStatus, tasks, tasksFailed, faultOffline, kept,
   // answered and stay. None is offered, and a tap says why.
   const sessionStart = (() => { const s = clockStatus && ((clockStatus.session && clockStatus.session.startedAt) || (clockStatus.shift && (clockStatus.shift.startedAt || clockStatus.shift.clockInTime))); const ms = s ? Date.parse(s) : NaN; return Number.isFinite(ms) ? ms : null; })();
   const beforeSession = (c) => { if (sessionStart === null || !c || !c.completedAt) return false; const at = Date.parse(c.completedAt); return Number.isFinite(at) && at < sessionStart; };
+  // Part 414 (section 4.1, ocsa-api part 410, 3.7): each checkedToday
+  // entry on clock status, the session answers and the task list carries
+  // thisSession, true when the check is the one the uncheck reaches. The
+  // uncheck is offered only then; an entry with none (an API from before
+  // part 410) is read by its time as before.
   const lockOf = (tk, done) => {
     if (!done || waiting.has(tk.id)) return null;
     const c = checkedOf(tk);
+    if (c && c.byCaller === true && typeof c.thisSession === "boolean") return c.thisSession ? null : "session";
     if (c && c.byCaller === true) return beforeSession(c) ? "session" : null;
     if (c && c.byCaller === false) return "other";
     return isDueToday(tk) ? null : "earlier";
@@ -22936,6 +22990,23 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
     } catch (e) { showToast(tr(e.message), "error"); }
     setUploading(false);
   };
+  // Part 414 (section 4.2, ocsa-api part 410, 3.8): Remove photo, asked
+  // first, DELETE /api/users/profile/photo with no body for one's own; the
+  // API's words said, the initials drawn in its place.
+  const [removeAsk, setRemoveAsk] = useState(false);
+  const removePhoto = async () => {
+    if (uploading) return;
+    setUploading(true);
+    try {
+      const d = await api("/api/users/profile/photo", { method: "DELETE", token });
+      setRemoveAsk(false);
+      showToast(d && typeof d.message === "string" && d.message.trim() ? d.message.trim() : tr("Photo removed"));
+      setUser(prev => (prev ? { ...prev, profilePhotoUrl: null } : prev));
+      setProfile(prev => (prev && prev.user ? { ...prev, user: { ...prev.user, profilePhotoUrl: null } } : prev));
+      loadProfile();
+    } catch (e) { showToast(saidOf(e) || tr(e.message), "error"); }
+    setUploading(false);
+  };
 
   // The boxes as they opened, so Save sends only what the person changed
   // (PORT-18). The PATCH writes only the keys it is sent, so a field the
@@ -23025,6 +23096,18 @@ function MyProfileView({ token, user, showToast, t, setUser, setActiveTab }) {
           </div>}
         </div>
       </div>
+
+      {/* Part 414 (section 4.2): Remove photo, under the photo it removes. */}
+      {u.profilePhotoUrl && !removeAsk && <div style={{ marginTop: -4, marginBottom: 12 }}><button type="button" data-profile-photo-remove="1" onClick={() => setRemoveAsk(true)} disabled={uploading} style={{ ...mkTapFrame(), color: ink(t, RED), fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Remove photo")}</button></div>}
+      {u.profilePhotoUrl && removeAsk && (
+        <div data-profile-photo-remove-ask="1" role="group" style={{ ...cardSt, background: t.redSubtle, border: "1px solid " + t.redBorder }}>
+          <div style={{ fontSize: 13, color: t.text, lineHeight: 1.45 }}>{tr("Remove your photo?")}</div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+            <button type="button" onClick={() => setRemoveAsk(false)} disabled={uploading} style={{ flex: "1 1 120px", minHeight: TAP, borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, cursor: "pointer" }}>{tr("Keep it")}</button>
+            <button type="button" data-profile-photo-remove-yes="1" onClick={removePhoto} aria-busy={uploading} style={{ flex: "1 1 120px", minHeight: TAP, borderRadius: R.md, border: "none", background: RED_FILL, color: "#FFFFFF", fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, cursor: uploading ? "default" : "pointer" }}>{tr("Remove photo")}</button>
+          </div>
+        </div>
+      )}
 
       {/* Personal Info */}
       <div style={cardSt}>

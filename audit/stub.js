@@ -1384,6 +1384,21 @@ const R15_LINES = [
   { kind: "personal", classes: ["full_time"], en: "For full-time staff; Granted in full on the work anniversary each tier is reached, then the current tier each January 1; with years of service: 3 days from 1 years; usable 90 days after the hire date; nothing carries over to the next year.", es: "Para personal de tiempo completo; Se otorga completo en el aniversario de trabajo en que se alcanza cada nivel, y luego el nivel actual cada 1 de enero; seg\u00fan los a\u00f1os de servicio: 3 d\u00edas desde los 1 a\u00f1os; se puede usar 90 d\u00edas despu\u00e9s de la fecha de contrataci\u00f3n; nada pasa al a\u00f1o siguiente." },
 ];
 const R15_HOLIDAYS = ["2026-01-01","2026-01-19","2026-05-25","2026-06-19","2026-07-03","2026-09-07","2026-11-26","2026-11-27","2026-12-25","2027-01-01","2027-01-18","2027-05-31","2027-06-18","2027-07-05","2027-09-06","2027-11-25","2027-11-26","2027-12-24","2027-12-31"];
+// Part 414 (ocsa-api part 410, 3.2): each holiday's key and name, as
+// helpers/words.js holidays.federal.* answers them.
+const R15_HOLIDAY_NAMES = {
+  newYear: ["New Year's Day", "D\u00eda de A\u00f1o Nuevo"], mlk: ["Martin Luther King Jr. Day", "D\u00eda de Martin Luther King Jr."],
+  memorial: ["Memorial Day", "D\u00eda de los Ca\u00eddos"], juneteenth: ["Juneteenth", "Juneteenth"], independence: ["Independence Day", "D\u00eda de la Independencia"],
+  labor: ["Labor Day", "D\u00eda del Trabajo"], thanksgiving: ["Thanksgiving Day", "D\u00eda de Acci\u00f3n de Gracias"],
+  dayAfterThanksgiving: ["Day After Thanksgiving", "D\u00eda despu\u00e9s de Acci\u00f3n de Gracias"], christmas: ["Christmas Day", "D\u00eda de Navidad"],
+};
+const R15_HOLIDAY_KEYS = { "2026-01-01": "newYear", "2026-01-19": "mlk", "2026-05-25": "memorial", "2026-06-19": "juneteenth", "2026-07-03": "independence", "2026-09-07": "labor", "2026-11-26": "thanksgiving", "2026-11-27": "dayAfterThanksgiving", "2026-12-25": "christmas", "2027-01-01": "newYear" };
+// The inside-notice line in the API's words (timeOff.insideNotice, part
+// 410). The API's words are the staff app's own sentence of part 399; the
+// stub's add a few words of their own, so a journey can tell the API's
+// line from the app's.
+const R15_INSIDE_TEXT = { en: "Asked with less notice than the policy asks. The office decides it case by case, as the API says.", es: "Se pidi\u00f3 con menos aviso del que pide la pol\u00edtica. La oficina la decide caso por caso, seg\u00fan la API." };
+const r15HolidayOf = (day, lang) => { const k = R15_HOLIDAY_KEYS[day]; return k ? { key: k, name: R15_HOLIDAY_NAMES[k][lang === "es" ? 1 : 0] } : null; };
 // The day the stub's hours files have posted through.
 const R15_POSTED_THROUGH = "2026-09-26";
 // Each of the five a new request is offered, in the API's order, and how
@@ -3506,6 +3521,8 @@ const TWIN_PAIRS = [
   // and shout-out lines, in each language.
   .concat(Object.keys(RECOG_REFUSALS).map(k => [RECOG_REFUSALS[k].en, RECOG_REFUSALS[k].es]))
   .concat([[RECOG_REASON.en, RECOG_REASON.es], [RECOG_WALL_REASON.en, RECOG_WALL_REASON.es]].concat(RECOG_SHOUT_LINES.map(l => [l.en, l.es])))
+  .concat([["Photo removed", "Foto eliminada"]])
+  .concat([[R15_INSIDE_TEXT.en, R15_INSIDE_TEXT.es]])
   .concat([MUST_SET_PIN, NO_EMAIL_FOR_CODE, CODE_EXPIRED, CODE_TOO_MANY, SEND_LIMIT].map(r => [r.en, r.es]))
   .concat([["Your PIN has been changed.", "Su PIN fue cambiado."]])
   .concat(["Session expired", "Request failed",
@@ -3614,14 +3631,14 @@ const ROUTE_WORDS = [
   // Part 369: leave balances. A kind's name, the policy's name and its
   // lines, a note and a warning are the API's words; the person, the site
   // and a code are not.
-  [/^GET \/api\/leave\/me$/, { kindName: "message", text: "message", holidays: "message", message: "message", note: "message", kind: "code", unit: "code", method: "code", source: "code", code: "code", role: "code", status: "code", employmentClass: "code", classes: "code" }],
+  [/^GET \/api\/leave\/me$/, { kindName: "message", text: "message", holidays: "message", message: "message", note: "message", reasonText: "message", label: "leave type", leaveClass: "code", value: "code", reason: "code", kind: "code", unit: "code", method: "code", source: "code", code: "code", role: "code", status: "code", employmentClass: "code", classes: "code" }],
   // Part 399, ahead of the time off routes' line below, which would match
   // it first: a type's name comes in the request's language, as do its
   // unit, its notice and the reason one is not offered; words carry all
   // three; the rest are codes.
   [/^GET \/api\/time-off\/types$/, { label: "leave type", name: "name", unitText: "message", text: "message", reasonText: "message", value: "code", unit: "code", increment: "code", rule: "code", reason: "code", employmentClass: "code" }],
   // Part 399: a request's unit, a day's from and a notice's rule are codes.
-  [/^(POST \/api\/time-off|POST \/api\/time-off\/preview|GET \/api\/time-off\/[^/]+)$/, { kindName: "message", message: "message", kind: "code", hoursFrom: "code", code: "code", source: "code", unit: "code", from: "code", rule: "code" }],
+  [/^(POST \/api\/time-off|POST \/api\/time-off\/preview|GET \/api\/time-off\/[^/]+)$/, { kindName: "message", message: "message", insideNoticeText: "message", kind: "code", hoursFrom: "code", code: "code", source: "code", unit: "code", from: "code", rule: "code" }],
   // Part 369: building maintenance. Its names are the API's words in the
   // request's language; what people typed, the site, a building, a
   // contact and a reference are names; keys are codes.
@@ -4107,7 +4124,7 @@ function createStub(opts) {
         const from = R15_HOLIDAYS.indexOf(d) !== -1 ? "holiday" : shiftsOn(d).length ? "shift" : wd === 0 || wd === 6 ? "dayOff" : "noShift";
         const counts = from === "shift" || from === "noShift";
         if (counts) dayCount += 1;
-        days.push({ date: d, hours: counts ? 8 : 0, from: from });
+        days.push({ date: d, hours: counts ? 8 : 0, from: from, holiday: r15HolidayOf(d, lang) });
       }
       hours = dayCount * 8;
       hoursFrom = "days";
@@ -4264,9 +4281,12 @@ function createStub(opts) {
   const r15Row = (id, took) => {
     const r = took.read;
     const rule = R15_RULES[r.leaveType];
-    return timeOffRow({ id: id, leaveType: r.leaveType, leaveTypeLabel: R15_TYPE_WORDS[r.leaveType].en, leaveTypeWords: Object.assign({}, R15_TYPE_WORDS[r.leaveType]),
+    return timeOffRow(Object.assign({ id: id, leaveType: r.leaveType, leaveTypeLabel: R15_TYPE_WORDS[r.leaveType].en, leaveTypeWords: Object.assign({}, R15_TYPE_WORDS[r.leaveType]),
       startsOn: r.startsOn, endsOn: r.endsOn, partDay: !!r.startTime, startTime: r.startTime, endTime: r.endTime, hours: r.hours, reason: r.reason,
-      insideNotice: took.notice && rule.notice.marksInside ? took.notice.insideNotice === true : null, unit: rule.unit });
+      insideNotice: took.notice && rule.notice.marksInside ? took.notice.insideNotice === true : null, unit: rule.unit },
+      // Part 414 (ocsa-api part 410, 3.3): the inside-notice line in the
+      // API's words, null unless insideNotice is true.
+      took.notice && rule.notice.marksInside && took.notice.insideNotice === true ? { insideNoticeText: R15_INSIDE_TEXT.en, insideNoticeWords: Object.assign({ fr: null }, R15_INSIDE_TEXT) } : { insideNoticeText: null, insideNoticeWords: null }));
   };
   const holdsMaint = () => holds("file_maintenance_requests") || state.person.fileMaintenance === true;
   const nyDay = (ms) => new Date(ms).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
@@ -4459,6 +4479,11 @@ function createStub(opts) {
   const runOfCheck = (c, siteId) => (c.run !== undefined ? c.run : runHolding(namedOf(siteId), atOf(c)));
   // A daily item, as its block makes it (helpers/shiftRuns.js followsRun).
   const followsRun = (row) => row.period === "today" && (row.every || "daily") === "daily" && row.block_kind !== "anytime";
+  // Part 414 (ocsa-api part 410, 3.7): whether a check was made in the
+  // session open now, which the uncheck reaches: a check a case names a
+  // session for is that session's (sess-1 is the one open), any other by
+  // when it was made.
+  const inSessionNow = (c) => (c && c.session ? c.session === "sess-1" : atOf(c) >= state.sessionStartedAt);
   const dayRows = (siteId) => {
     const today = checklistDay(clockNow());
     const run = readRun(siteId);
@@ -4480,7 +4505,7 @@ function createStub(opts) {
       return {
         row: row, period: row.period, shown: shown, due: due,
         done: done ? { completedAt: iso(atOf(done)), firstName: firstNameOf(done.userId) } : null,
-        checked: checked ? { byCaller: checked.userId === state.person.id, firstName: firstNameOf(checked.userId), completedAt: iso(atOf(checked)) } : null,
+        checked: checked ? { byCaller: checked.userId === state.person.id, firstName: firstNameOf(checked.userId), completedAt: iso(atOf(checked)), thisSession: checked.userId === state.person.id && inSessionNow(checked) } : null,
         mine: todays.some(c => c.userId === state.person.id),
         run: run,
         earlier: before ? { at: iso(atOf(before)), shiftLabel: (runOfCheck(before, siteId) || {}).label || null, firstName: firstNameOf(before.userId) } : null,
@@ -5450,6 +5475,14 @@ function createStub(opts) {
     });
     if (key === "PATCH /api/users/profile/me") return json(200, { ok: true });
     if (key === "POST /api/users/profile/photo") return json(200, { ok: true });
+    // Part 414 (ocsa-api part 410, 3.8): Remove photo, one's own with no
+    // body, answered as the POST answers (messageBody) in the person's
+    // words.
+    if (key === "DELETE /api/users/profile/photo") {
+      state.person = Object.assign({}, state.person, { profilePhotoUrl: null });
+      const es = languageOf(search, state) === "es";
+      return json(200, { message: es ? "Foto eliminada" : "Photo removed", code: "profile.photoRemoved", profilePhotoUrl: null });
+    }
 
     // --- the shift
     if (key === "GET /api/clock/status") return json(200, clockStatus(languageOf(search, state)));
@@ -5523,7 +5556,7 @@ function createStub(opts) {
       // check made before this session started stays, and the route still
       // answers 200 tasks.uncompleted. With notThisSession it is refused
       // 409 tasks.notThisSession, as ocsa-api Round 17 is to answer it.
-      const thisSession = (c) => atOf(c) >= state.sessionStartedAt;
+      const thisSession = (c) => inSessionNow(c);
       const mineHeld = todays.filter(c => c.userId === state.person.id);
       if (state.notThisSession && mineHeld.length > 0 && !mineHeld.some(thisSession)) {
         return json(NOT_THIS_SESSION.status, { error: refusalIn(NOT_THIS_SESSION, languageOf(search, state)), code: NOT_THIS_SESSION.code });
@@ -5782,15 +5815,22 @@ function createStub(opts) {
           startHours: 0, grantedHours: sick ? 40 : hours, usedHours: sick ? Math.max(0, 40 - hours) : 0, givenBackHours: 0, expiredHours: 0, adjustedHours: 0,
           balanceHours: hours, balanceDays: days, usableFrom: L.usableFrom, hoursPostedThrough: sick ? R15_POSTED_THROUGH : null,
           notes: [adp].concat(sick ? [posted] : []).concat(noClass),
-          yearCapHours: sick ? 40 : null, useCapHours: sick && cls !== "full_time" ? 40 : null, appFigure: true };
+          yearCapHours: sick ? 40 : null, useCapHours: sick && cls !== "full_time" ? 40 : null, appFigure: true,
+          // Part 414 (ocsa-api part 410, 3.1): the rule the person follows
+          // of this kind, by the class leave reads, union included.
+          line: (() => { const l = R15_LINES.find(x => x.kind === kind && x.classes.indexOf(cls) !== -1); return l ? { text: l.en, note: null, classes: l.classes.slice() } : null; })() };
       };
+      const offerNow = r15Offer();
       return json(200, {
-        person: Object.assign({}, head, { employmentClass: ["full_time", "part_time", "supplemental"].indexOf(L.employmentClass) !== -1 ? L.employmentClass : null }),
+        person: Object.assign({}, head, { employmentClass: ["full_time", "part_time", "supplemental"].indexOf(L.employmentClass) !== -1 ? L.employmentClass : null, leaveClass: cls }),
         year: 2026, asOf: "2026-10-01", policy: policy,
         summary: L.none
           ? { lines: [{ kind: "paid_sick", kindName: lw("sick"), text: lw("untracked"), note: null, classes: null }], holidays: lw("holidays"), holidayDays: [] }
           : { lines: R15_LINES.map(l => ({ kind: l.kind, kindName: l.kind === "paid_sick" ? lw("sick") : R15_TYPE_WORDS[l.kind].en, text: l.en, note: null, classes: l.classes.slice() })), holidays: lw("holidays"), holidayDays: [] },
         balances: L.none ? [] : (R15_CLASS_KINDS[cls] || []).map(one), policyHistory: [],
+        // Part 414 (ocsa-api part 410, 3.4): the kinds not offered, as GET
+        // /api/time-off/types answers them, with kind and kindName.
+        notOffered: R15_OFFERED.filter(v => offerNow.shut(v)).map((v) => { const t = r15Type(v, "en"); return { kind: v, kindName: t.name, value: v, label: t.label, words: t.words, name: t.name, reason: offerNow.reason, reasonWords: Object.assign({}, R15_WORDS["timeOff.notOffered." + offerNow.reason]), reasonText: r15Say("timeOff.notOffered." + offerNow.reason, "en") }; }),
       });
     }
     // --- time off
@@ -7898,7 +7938,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { RECOG_REASON, RECOG_REFUSALS, RECOG_SITE_STAFF, RECOG_SHOUT_LINES, recogMonthName, NOT_THIS_SESSION, R15_WORDS, R15_TYPE_WORDS, R15_LINES, R15_RULES, TEST_SITE, TEST_SITE_REFUSAL, runIdFor: runIdOf, FOLLOW_UP_REFUSALS, FOLLOW_UP_TOPICS, CLOSED_NOTE, BAD_SHIFT_RUN, DROP_REFUSALS, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { R15_INSIDE_TEXT, RECOG_REASON, RECOG_REFUSALS, RECOG_SITE_STAFF, RECOG_SHOUT_LINES, recogMonthName, NOT_THIS_SESSION, R15_WORDS, R15_TYPE_WORDS, R15_LINES, R15_RULES, TEST_SITE, TEST_SITE_REFUSAL, runIdFor: runIdOf, FOLLOW_UP_REFUSALS, FOLLOW_UP_TOPICS, CLOSED_NOTE, BAD_SHIFT_RUN, DROP_REFUSALS, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,
