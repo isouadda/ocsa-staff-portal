@@ -3944,6 +3944,8 @@ export default function OCSAStaffPortal() {
   const openPlace = (place) => {
     if (!place) return;
     if (place.announcement) { setAnnouncementOpen(place.announcement); return; }
+    // Part 414: the Employee of the Month the bell names, over the screen.
+    if (place.award) { setAwardAt({ id: String(place.award), at: Date.now() }); setShowMore(false); return; }
     // A case, a client's concern or a filed report this person may not
     // read, or one the API already turned away here, opens the bell,
     // where its notice keeps the dashboard's link.
@@ -4721,6 +4723,9 @@ export default function OCSAStaffPortal() {
   const recogId = recog && recog.current ? recog.current.id : null;
   const [award, setAward] = useState(null);
   const [reveal, setReveal] = useState(null);
+  // Part 414 (section 2): the award the bell opened, and the team wall.
+  const [awardAt, setAwardAt] = useState(null);
+  const [wallOpen, setWallOpen] = useState(false);
   const revealPlayed = useRef(new Set());
   const readAward = useCallback(async () => {
     const d = awardReadOf(await api("/api/recognition/current", { token }));
@@ -4744,27 +4749,45 @@ export default function OCSAStaffPortal() {
   const revealWaits = !award || !award.award || award.seen || !recog || !recog.current || recog.current.id !== award.award.id || revealPlayed.current.has(award.award.id);
   useEffect(() => {
     if (revealWaits) return undefined;
-    const ready = () => !booting && screen === "main" && alertsSettled && activeTab === "clock" && !signAt && !openAsk && !notifOpen && !announcementOpen && !showMore && !firstWaiting && !reveal;
+    const ready = () => !booting && screen === "main" && alertsSettled && activeTab === "clock" && !signAt && !openAsk && !notifOpen && !announcementOpen && !showMore && !firstWaiting && !reveal && !awardAt && !wallOpen;
     if (!ready()) return undefined;
     const play = () => { if (anySheetOpen()) return false; revealPlayed.current.add(award.award.id); setReveal({ read: award, motion: true }); return true; };
     if (play()) return undefined;
     const iv = setInterval(() => { if (play()) clearInterval(iv); }, 1500);
     return () => clearInterval(iv);
-  }, [revealWaits, booting, screen, alertsSettled, activeTab, signAt, openAsk, notifOpen, announcementOpen, showMore, firstWaiting, reveal]);
+  }, [revealWaits, booting, screen, alertsSettled, activeTab, signAt, openAsk, notifOpen, announcementOpen, showMore, firstWaiting, reveal, awardAt, wallOpen]);
   // Seen once the reveal is drawn: POST /api/recognition/awards/:id/seen,
   // once per award. A seen that does not go leaves the award unseen, so
   // the next open plays it again.
   const seenSent = useRef(new Set());
-  const awardSeen = (id) => {
-    if (!award || !award.award || award.award.id !== id || award.seen || seenSent.current.has(id)) return;
+  const markAwardSeen = (id) => {
+    if (seenSent.current.has(id)) return;
     seenSent.current.add(id);
+    revealPlayed.current.add(id);
     api("/api/recognition/awards/" + encodeURIComponent(id) + "/seen", { method: "POST", token })
       .then(() => setAward(prev => (prev && prev.award && prev.award.id === id ? Object.assign({}, prev, { seen: true }) : prev)))
       .catch(() => { seenSent.current.delete(id); });
   };
-  const awardBlock = activeTab === "clock" && reveal && reveal.read && reveal.read.award
-    ? <AwardReveal key={reveal.read.award.id + ":" + (reveal.at || 0)} token={token} read={reveal.read} motion={reveal.motion} onSeen={awardSeen} onClose={() => setReveal(null)} reread={() => api("/api/recognition/current", { token })} t={t} />
-    : null;
+  const awardSeen = (id) => { if (award && award.award && award.award.id === id && !award.seen) markAwardSeen(id); };
+  // Part 414 (section 2): a reaction changed on Home, the reveal or the
+  // bell's sheet changes the counts everywhere the award is drawn.
+  const awardReactions = (id, rx) => {
+    const put = (read) => (read && read.award && read.award.id === id ? Object.assign({}, read, { award: Object.assign({}, read.award, { reactions: rx }) }) : read);
+    setAward(put);
+    setReveal(prev => (prev && prev.read ? Object.assign({}, prev, { read: put(prev.read) }) : prev));
+  };
+  const rereadAward = () => api("/api/recognition/current", { token });
+  // Home's part: the reveal while it plays, else the month's card, which
+  // plays it again when tapped.
+  const awardBlock = activeTab !== "clock" ? null
+    : reveal && reveal.read && reveal.read.award
+      ? <AwardReveal key={reveal.read.award.id + ":" + (reveal.at || 0)} token={token} read={reveal.read} motion={reveal.motion} onSeen={awardSeen} onClose={() => setReveal(null)} reread={rereadAward} t={t}>
+          <ReactionRow token={token} path={"/api/recognition/awards/" + encodeURIComponent(reveal.read.award.id) + "/reaction"} reactions={reveal.read.award.reactions} own={reveal.read.isMe} onChange={(rx) => awardReactions(reveal.read.award.id, rx)} t={t} />
+          <button type="button" data-team-wall-open="1" onClick={() => setWallOpen(true)} style={{ ...mkTapFrame(), marginTop: 6, gap: 6, color: t.goldText, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD }}><AwardIco sz={14} c={t.goldText} />{tr("Team wall")}</button>
+        </AwardReveal>
+      : award && award.award
+        ? <AwardCard token={token} read={award} onOpen={() => setReveal({ read: award, motion: true, at: Date.now() })} onReactions={(rx) => awardReactions(award.award.id, rx)} onWall={() => setWallOpen(true)} reread={rereadAward} t={t} />
+        : null;
   // A count that rises while the app is open is said (PORT-29): the bell's
   // own count, as last drawn, against the one just read. The first read
   // after a sign-in only sets it.
@@ -5052,6 +5075,15 @@ export default function OCSAStaffPortal() {
 
       {announcementOpen && (
         <AnnouncementSheet token={token} id={announcementOpen} t={t} onClose={() => setAnnouncementOpen(null)} />
+      )}
+
+      {/* Part 414 (section 2): the award the bell opened, and the team
+          wall over it. */}
+      {!booting && screen === "main" && token && awardAt && (
+        <AwardSheet key={awardAt.id + ":" + awardAt.at} token={token} id={awardAt.id} onSeen={markAwardSeen} onRead={(d) => { if (d && d.award) awardReactions(d.award.id, d.award.reactions); }} onWall={() => setWallOpen(true)} onClose={() => setAwardAt(null)} t={t} />
+      )}
+      {!booting && screen === "main" && token && wallOpen && (
+        <TeamWallSheet token={token} onClose={() => setWallOpen(false)} t={t} />
       )}
 
       {!booting && screen === "main" && issueAt && (
@@ -14313,6 +14345,9 @@ function notifPlace(subjectType, subjectId, subjectKey) {
   // closed (API-63's hr_case_closed_for, no case words) opens it too.
   if (subjectType === "hr_case_opened_for" || subjectType === "hr_case_closed_for") return { tab: "speakup", myReport: named };
   if (subjectType === "form") return named ? { report: named } : null;
+  // Part 414 (ocsa-api Round 19): the award posted and the winner's count
+  // of congratulations open the award.
+  if (subjectType === "recognition_award" || subjectType === "recognition_reactions") return named ? { award: named } : null;
   if (caseSubject(subjectType)) return named ? { hrCase: named } : null;
   if (subjectType === "customer_concern") return named ? { concern: named } : null;
   if (subjectType === "support_ticket") return { tab: "support", ticket: named };
@@ -22393,6 +22428,190 @@ function AwardReveal({ token, read, motion, onSeen, onClose, reread, t, children
         {children}
       </section>
     </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Congratulate, Home's card, the team wall and the bell (part 414,
+// section 2)
+//
+// The five reactions with their counts and the person's own picked: one
+// per person, changeable (PUT .../reaction { key }) and removable (DELETE,
+// a tap on the one picked), each answered { reactions }. The person an
+// award or a shout-out names reads the counts and is offered none, since
+// the API refuses their own (409 recognition.ownAward and
+// recognition.ownShoutout); a refusal is said under the row in the API's
+// words. Who reacted is never answered, so never shown.
+// ------------------------------------------------------------
+function ReactionRow({ token, path, reactions, own, onChange, t }) {
+  const r = reactionsOf(reactions);
+  const [busy, setBusy] = useState(null);
+  const [fault, setFault] = useState(null);
+  useBusy("reaction " + path, !!busy);
+  const pick = async (key) => {
+    if (busy || own) return;
+    setBusy(key); setFault(null);
+    try {
+      const d = await api(path, r.mine === key ? { method: "DELETE", token } : { method: "PUT", body: { key: key }, token });
+      if (d && plainOf(d.reactions)) onChange(reactionsOf(d.reactions));
+    } catch (err) { setFault(saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC)); }
+    setBusy(null);
+  };
+  const chip = (on) => ({ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, minWidth: 52, minHeight: TAP, padding: "0 10px", borderRadius: R.pill, border: "1px solid " + (on ? GOLD : t.borderSolid), background: on ? t.goldBg : t.hover, color: t.text, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" });
+  return (
+    <div data-reactions={r.total} data-reactions-own={own ? "1" : undefined} style={{ marginTop: 12 }}>
+      <div style={{ ...mkLabel(t), textAlign: "left", marginBottom: 6 }}>{own ? tr("Congratulations from your team") : tr("Congratulate")}</div>
+      <div role="group" aria-label={own ? tr("Congratulations from your team") : tr("Congratulate")} style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {REACTION_KEYS.map(k => {
+          const name = tr(REACTION_NAMES[k]);
+          const n = r.counts[k];
+          if (own) return <span key={k} data-reaction={k} data-reaction-count={n} role="img" aria-label={tr("{name}: {count}", { name: name, count: n })} style={chip(false)}><span aria-hidden="true">{REACTION_GLYPHS[k]}</span><span aria-hidden="true">{n}</span></span>;
+          const on = r.mine === k;
+          return <button key={k} type="button" data-reaction={k} data-reaction-count={n} data-reaction-mine={on ? "1" : undefined} aria-pressed={on} aria-label={tr("{name}: {count}", { name: name, count: n })} aria-busy={busy === k} onClick={() => pick(k)} style={{ ...chip(on), cursor: busy ? "default" : "pointer", opacity: busy && busy !== k ? 0.6 : 1 }}><span aria-hidden="true">{REACTION_GLYPHS[k]}</span><span aria-hidden="true">{n}</span></button>;
+        })}
+      </div>
+      {fault && <div role="alert" data-reaction-fault="1" style={{ fontSize: 12, color: ink(t, RED), marginTop: 6, lineHeight: 1.45, textAlign: "left", overflowWrap: "anywhere" }}>{fault}</div>}
+    </div>
+  );
+}
+
+// Home's card for the month: the award GET /api/recognition/current
+// answers, the first 7 days of the next month included while none is
+// posted. A tap on it plays the reveal again; Congratulate and the team
+// wall are under it.
+function AwardCard({ token, read, onOpen, onReactions, onWall, reread, t }) {
+  const a = read.award;
+  const me = read.isMe === true;
+  const line = [a.monthName, a.site ? a.site.name : ""].filter(Boolean).join(" \u00b7 ");
+  return (
+    <div style={{ padding: "16px 16px 0" }}>
+      <div data-award-card={a.id} style={{ ...fkRowSt(t), marginBottom: 0, border: "1px solid " + t.goldBorder }}>
+        <button type="button" data-award-card-open={a.id} onClick={onOpen} aria-label={tr("Employee of the Month") + ": " + a.person.name} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", minHeight: TAP, padding: 0, background: "none", border: "none", color: t.text, textAlign: "left", cursor: "pointer" }}>
+          <AwardFace person={a.person} size={48} reread={reread} readKey={"award:" + a.id} t={t} />
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ ...mkLabel(t), display: "flex", alignItems: "center", gap: 5, marginBottom: 2 }}><AwardIco sz={12} c={t.goldText} />{me ? tr("You're Employee of the Month") : tr("Employee of the Month")}</span>
+            <span style={{ display: "block", fontSize: 15, fontWeight: 600, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{a.person.name}</span>
+            {line && <span style={{ display: "block", fontSize: 12, color: t.textSec, marginTop: 2, lineHeight: 1.4, overflowWrap: "anywhere" }}>{line}</span>}
+          </span>
+          <ChevIco sz={16} c={t.textMut} style={{ flexShrink: 0 }} />
+        </button>
+        <ReactionRow token={token} path={"/api/recognition/awards/" + encodeURIComponent(a.id) + "/reaction"} reactions={a.reactions} own={me} onChange={onReactions} t={t} />
+        <button type="button" data-team-wall-open="1" onClick={onWall} style={{ ...mkTapFrame(), marginTop: 6, gap: 6, color: t.goldText, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD }}><AwardIco sz={14} c={t.goldText} />{tr("Team wall")}</button>
+      </div>
+    </div>
+  );
+}
+
+// A sheet over the whole screen, its title on top, Close at the bottom.
+function RecogSheet({ id, title, onClose, children, t }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div onClick={onClose} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 400, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div role="dialog" aria-modal="true" aria-labelledby={id + "-title"} data-sheet={id} onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, maxHeight: "calc(var(--ocsa-dvh, 100dvh) * 0.92)", display: "flex", flexDirection: "column", borderRadius: R.lg + "px " + R.lg + "px 0 0", border: "1px solid " + t.borderSolid, borderBottom: "none" }}>
+        <div id={id + "-title"} role="heading" aria-level={2} style={{ padding: "14px 16px 10px", fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, flexShrink: 0 }}>{title}</div>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px 12px" }}>{children}</div>
+        <div style={{ padding: "10px 16px calc(12px + env(safe-area-inset-bottom, 0px))", borderTop: "1px solid " + t.borderSolid, flexShrink: 0, background: t.bg }}>
+          <button type="button" data-sheet-close={id} onClick={onClose} style={{ width: "100%", minHeight: TAP, padding: "0 16px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: "transparent", color: t.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD }}>{tr("Close")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// The counts alone, for the team wall: no one reacts there.
+function ReactionCounts({ reactions, t }) {
+  const r = reactionsOf(reactions);
+  return (
+    <div data-wall-counts={r.total} style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
+      {REACTION_KEYS.filter(k => r.counts[k] > 0).map(k => <span key={k} role="img" aria-label={tr("{name}: {count}", { name: tr(REACTION_NAMES[k]), count: r.counts[k] })} style={{ fontSize: 12, color: t.textSec, fontVariantNumeric: "tabular-nums" }}><span aria-hidden="true">{REACTION_GLYPHS[k]}</span>{" "}<span aria-hidden="true">{r.counts[k]}</span></span>)}
+    </div>
+  );
+}
+
+// The team wall: every winner, newest month first, read a page at a time
+// (GET /api/recognition/awards, cursor and limit) until nextCursor is
+// null: the photo or the initials, the name, the month, the site, the
+// reason and the counts.
+const WALL_PAGE = 10;
+function TeamWallSheet({ token, onClose, t }) {
+  const [rows, setRows] = useState(null);
+  const [next, setNext] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [fault, setFault] = useState(null);
+  const read = async (cursor) => {
+    if (busy) return;
+    setBusy(true); setFault(null);
+    try {
+      const d = await api("/api/recognition/awards?limit=" + WALL_PAGE + (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""), { token });
+      const got = (d && Array.isArray(d.awards) ? d.awards : []).map(awardOf).filter(Boolean);
+      setRows(prev => (cursor && Array.isArray(prev) ? prev.concat(got.filter(x => !prev.some(y => y.id === x.id))) : got));
+      setNext(d && typeof d.nextCursor === "string" && d.nextCursor ? d.nextCursor : null);
+    } catch (err) { setFault(saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC)); }
+    setBusy(false);
+  };
+  useEffect(() => { read(null); }, []);
+  const reread = () => api("/api/recognition/awards?limit=" + WALL_PAGE, { token });
+  return (
+    <RecogSheet id="ocsa-team-wall" title={tr("Team wall")} onClose={onClose} t={t}>
+      <div data-team-wall={Array.isArray(rows) ? rows.length : "wait"} data-wall-end={Array.isArray(rows) && !next ? "1" : undefined}>
+        {rows === null && !fault && <div style={{ padding: "20px 0", textAlign: "center", fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div>}
+        {Array.isArray(rows) && rows.length === 0 && <div style={{ padding: "20px 0", textAlign: "center", fontSize: 13, color: t.textMut }}>{tr("No Employee of the Month yet.")}</div>}
+        {(rows || []).map(a => (
+          <div key={a.id} data-wall-award={a.id} style={{ display: "flex", gap: 12, padding: "12px 0", borderTop: "1px solid " + t.border }}>
+            <AwardFace person={a.person} size={44} reread={reread} readKey={"wall:" + a.id} t={t} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{a.person.name}</div>
+              <div style={{ fontSize: 12, color: t.goldText, fontWeight: 600, marginTop: 2 }}>{[a.monthName, a.site ? a.site.name : ""].filter(Boolean).join(" \u00b7 ")}</div>
+              {a.reason && <div style={{ fontSize: 13, color: t.textSec, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" }}>{a.reason}</div>}
+              <ReactionCounts reactions={a.reactions} t={t} />
+            </div>
+          </div>
+        ))}
+        {fault && <div style={{ marginTop: 8 }}><ListFault icon={AwardIco} text={fault} onRetry={() => read(Array.isArray(rows) ? next : null)} t={t} /></div>}
+        {next && !fault && <button type="button" data-wall-more="1" onClick={() => read(next)} aria-busy={busy} style={{ ...mkTapFrame(), width: "100%", marginTop: 8, borderRadius: R.md, border: "1px solid " + t.borderSolid, color: t.text, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD }}>{busy ? tr("Loading...") : tr("Show more")}</button>}
+      </div>
+    </RecogSheet>
+  );
+}
+
+// An award the bell opens (recognition_award and recognition_reactions,
+// /?open=recognition_award:<id>): GET /api/recognition/awards/:id, drawn
+// as the reveal is, with confetti when it was not yet seen. A 404 means
+// it was taken down, said in the API's words.
+function AwardSheet({ token, id, onSeen, onRead, onWall, onClose, t }) {
+  const [read, setRead] = useState(null);
+  const [fault, setFault] = useState(null);
+  const load = async () => {
+    setFault(null);
+    try {
+      const d = awardReadOf(await api("/api/recognition/awards/" + encodeURIComponent(id), { token }));
+      if (!d || !d.award) throw new Error(ERR_GENERIC);
+      setRead(d); if (onRead) onRead(d);
+    } catch (err) { setFault({ said: saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC), gone: !!err && err.status === 404 }); }
+  };
+  useEffect(() => { load(); }, [id]);
+  const onReactions = (rx) => { setRead(prev => (prev ? Object.assign({}, prev, { award: Object.assign({}, prev.award, { reactions: rx }) }) : prev)); if (onRead && read) onRead(Object.assign({}, read, { award: Object.assign({}, read.award, { reactions: rx }) })); };
+  return (
+    <RecogSheet id="ocsa-award-sheet" title={tr("Employee of the Month")} onClose={onClose} t={t}>
+      <div data-award-sheet={id}>
+        {!read && !fault && <div style={{ padding: "20px 0", textAlign: "center", fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div>}
+        {fault && (fault.gone
+          ? <div role="status" data-award-gone="1" style={{ padding: "16px 12px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.borderSolid, fontSize: 14, color: t.text, lineHeight: 1.5, overflowWrap: "anywhere" }}>{fault.said}</div>
+          : <ListFault icon={AwardIco} text={fault.said} onRetry={load} t={t} />)}
+        {read && (
+          <div style={{ margin: "0 -16px" }}>
+            <AwardReveal token={token} read={read} motion={!read.seen} onSeen={(x) => { if (!read.seen && onSeen) onSeen(x); }} onClose={onClose} reread={() => api("/api/recognition/awards/" + encodeURIComponent(id), { token })} t={t}>
+              <ReactionRow token={token} path={"/api/recognition/awards/" + encodeURIComponent(read.award.id) + "/reaction"} reactions={read.award.reactions} own={read.isMe} onChange={onReactions} t={t} />
+              <button type="button" data-team-wall-open="1" onClick={onWall} style={{ ...mkTapFrame(), marginTop: 6, gap: 6, color: t.goldText, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD }}><AwardIco sz={14} c={t.goldText} />{tr("Team wall")}</button>
+            </AwardReveal>
+          </div>
+        )}
+      </div>
+    </RecogSheet>
   );
 }
 

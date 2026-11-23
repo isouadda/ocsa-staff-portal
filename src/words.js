@@ -1728,6 +1728,17 @@ export const WORDS = {
   "Employee of the Month": "Empleado del Mes",
   "You're Employee of the Month": "Usted es el Empleado del Mes",
   "See your certificate": "Ver su certificado",
+  // Part 414 (section 2): congratulate, Home's card and the team wall.
+  "Congratulate": "Felicitar",
+  "Congratulations from your team": "Felicitaciones de su equipo",
+  "{name}: {count}": "{name}: {count}",
+  "Clap": "Aplauso",
+  "Star": "Estrella",
+  "Heart": "Coraz\u00f3n",
+  "Fire": "Fuego",
+  "Muscle": "M\u00fasculo",
+  "Team wall": "Muro del equipo",
+  "No Employee of the Month yet.": "Todav\u00eda no hay Empleado del Mes.",
   },
 };
 
@@ -3332,6 +3343,17 @@ WORDS.fr = {
   "Employee of the Month": "Employ\u00e9 du mois",
   "You're Employee of the Month": "Vous \u00eates l'employ\u00e9 du mois",
   "See your certificate": "Voir votre certificat",
+  // Part 414 (section 2): congratulate, Home's card and the team wall.
+  "Congratulate": "F\u00e9liciter",
+  "Congratulations from your team": "Les f\u00e9licitations de votre \u00e9quipe",
+  "{name}: {count}": "{name}\u00a0: {count}",
+  "Clap": "Applaudissements",
+  "Star": "\u00c9toile",
+  "Heart": "C\u0153ur",
+  "Fire": "Feu",
+  "Muscle": "Muscle",
+  "Team wall": "Mur de l'\u00e9quipe",
+  "No Employee of the Month yet.": "Pas encore d'employ\u00e9 du mois.",
 };
 
 // {name} is replaced after the language is chosen, so the

@@ -12013,4 +12013,124 @@ const PART414_S1_JOURNEYS = [
 ];
 JOURNEYS.push(...PART414_S1_JOURNEYS);
 
+// --- Round 17 of the staff app (part 414), section 2 ----------------------
+//
+// Home's card, Congratulate, the team wall and the bell, each failing on
+// the main of part 408.
+const r414Reacts = (stub, method, id) => sent(stub, method, "/api/recognition/awards/" + (id || R414_AWARD) + "/reaction");
+const r414Chips = (page, scope) => page.evaluate((sc) => Array.from(document.querySelectorAll(sc + " [data-reaction]")).map(b => ({ key: b.getAttribute("data-reaction"), n: Number(b.getAttribute("data-reaction-count")), mine: b.getAttribute("data-reaction-mine") === "1", button: b.tagName === "BUTTON" })), scope);
+const r414Notice = (id, type, subjectId, language) => ({ id: id, subjectType: type, subjectId: subjectId, title: language === "es" ? "Empleado del Mes de septiembre de 2026" : "Employee of the Month for September 2026", body: language === "es" ? "Jordan Example es nuestro Empleado del Mes." : "Jordan Example is our Employee of the Month.", link: "/?open=recognition_award:" + subjectId, createdAt: "2026-10-01T20:10:00.000Z", readAt: null });
+const PART414_S2_JOURNEYS = [
+  {
+    id: "awardhomecard",
+    label: "Home's card (part 414, 2.1): the award GET /api/recognition/current answers, September's on October 1 while October has none, shows on Home for the month once seen, and a tap on it plays the reveal again",
+    run: async (open, language, expect) => {
+      const words = r414Words(language);
+      const app = await open({ stubOptions: { recognition: { seen: true } } });
+      try {
+        const card = await shows(app.page, '[data-award-card="' + R414_AWARD + '"]', 8000);
+        const text = card ? await app.page.evaluate(() => document.querySelector("[data-award-card]").innerText.replace(/\s+/g, " ")) : "";
+        expect("Home draws the month's card, with no reveal of its own once seen", card && !(await r414Has(app.page, "[data-recognition-reveal]")) && has(text, "Jordan Example") && has(text, words.month) && has(text, say("Employee of the Month", language)), text.slice(0, 200));
+        await r414Click(app.page, '[data-award-card-open="' + R414_AWARD + '"]');
+        const again = await shows(app.page, '[data-recognition-reveal="' + R414_AWARD + '"]', 4000);
+        const confetti = await r414ConfettiWithin(app.page, 1500);
+        expect("a tap on the card plays the reveal again, with confetti", again && confetti, JSON.stringify({ again: again, confetti: confetti }));
+        expect("and nothing is marked seen again", r414Seen(app.stub) === 0, "seen " + r414Seen(app.stub));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "awardreactions",
+    label: "Congratulate (part 414, 2.2): the five reactions with their counts, one per person, changed (PUT { key }) and removed (DELETE, a tap on the one picked); the winner reads the counts and is offered none",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { recognition: { seen: true } } });
+      try {
+        await shows(app.page, '[data-award-card="' + R414_AWARD + '"] [data-reaction="clap"]', 8000);
+        const first = await r414Chips(app.page, "[data-award-card]");
+        expect("the five reactions, each with its count, none picked", first.length === 5 && first.map(c => c.key).join() === "clap,star,heart,fire,muscle" && first.every(c => c.button && !c.mine) && first[0].n === 3, JSON.stringify(first));
+        await r414Click(app.page, '[data-award-card] [data-reaction="clap"]');
+        await shows(app.page, '[data-award-card] [data-reaction="clap"][data-reaction-mine="1"]', 4000);
+        const picked = await r414Chips(app.page, "[data-award-card]");
+        const put1 = r414Reacts(app.stub, "PUT");
+        expect("a tap sends PUT { key: clap }, its count goes up and it reads as the person's own", put1.length === 1 && put1[0].body && put1[0].body.key === "clap" && picked[0].n === 4 && picked[0].mine, JSON.stringify({ sent: put1.map(c => c.body), picked: picked }));
+        await r414Click(app.page, '[data-award-card] [data-reaction="star"]');
+        await shows(app.page, '[data-award-card] [data-reaction="star"][data-reaction-mine="1"]', 4000);
+        const changed = await r414Chips(app.page, "[data-award-card]");
+        const put2 = r414Reacts(app.stub, "PUT");
+        expect("another changes it: PUT { key: star }, clap back to its count, star up, one per person", put2.length === 2 && put2[1].body.key === "star" && changed[0].n === 3 && !changed[0].mine && changed[1].n === 2 && changed[1].mine && changed.filter(c => c.mine).length === 1, JSON.stringify(changed));
+        await r414Click(app.page, '[data-award-card] [data-reaction="star"]');
+        await pause(app.page, 1200);
+        const removed = await r414Chips(app.page, "[data-award-card]");
+        expect("a tap on the one picked removes it: DELETE, none picked", r414Reacts(app.stub, "DELETE").length === 1 && removed.every(c => !c.mine) && removed[1].n === 1, JSON.stringify(removed));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const me = await open({ stubOptions: { recognition: { award: "me", seen: true } } });
+      try {
+        await shows(me.page, '[data-award-card="' + R414_AWARD + '"] [data-reaction="clap"]', 8000);
+        const chips = await r414Chips(me.page, "[data-award-card]");
+        expect("the winner reads the counts, with no reaction offered", chips.length === 5 && chips.every(c => !c.button) && (await r414Has(me.page, "[data-award-card] [data-reactions-own]")), JSON.stringify(chips));
+        await r414Click(me.page, '[data-award-card] [data-reaction="clap"]');
+        await pause(me.page, 800);
+        expect("and nothing is sent for their own", r414Reacts(me.stub, "PUT").length === 0, "sent " + r414Reacts(me.stub, "PUT").length);
+      } finally { await me.context.close(); }
+    },
+  },
+  {
+    id: "teamwall",
+    label: "The team wall (part 414, 2.3): every winner, newest first, read a page at a time until nextCursor is null, each with the photo or the initials, the name, the month, the site, the reason and the counts",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { recognition: { seen: true, wall: 12 } } });
+      try {
+        await shows(app.page, "[data-award-card] [data-team-wall-open]", 8000);
+        await r414Click(app.page, "[data-award-card] [data-team-wall-open]");
+        await shows(app.page, "[data-wall-award]", 6000);
+        const firstPage = await app.page.evaluate(() => document.querySelectorAll("[data-wall-award]").length);
+        const top = await app.page.evaluate(() => { const e = document.querySelector("[data-wall-award]"); return e ? { id: e.getAttribute("data-wall-award"), text: e.innerText.replace(/\s+/g, " ") } : null; });
+        expect("the first page, newest month first, with the name, the month, the site, the reason and the counts", firstPage === 10 && !!top && top.id === R414_AWARD && has(top.text, "Jordan Example") && has(top.text, r414Words(language).month) && has(top.text, "North Building") && has(top.text, r414Words(language).reason) && (await r414Has(app.page, '[data-wall-award="' + R414_AWARD + '"] [data-wall-counts]')), JSON.stringify({ firstPage: firstPage, top: top }));
+        expect("a winner with no photo shows the initials", await r414Has(app.page, "[data-wall-award] [data-award-initials]"), "none");
+        for (let i = 0; i < 4 && (await r414Has(app.page, "[data-wall-more]")); i += 1) { await r414Click(app.page, "[data-wall-more]"); await pause(app.page, 900); }
+        const all = await app.page.evaluate(() => Array.from(document.querySelectorAll("[data-wall-award]")).map(e => e.getAttribute("data-wall-award")));
+        const reads = sent(app.stub, "GET", "/api/recognition/awards").filter(c => c.path === "/api/recognition/awards");
+        expect("Show more reads the next page by its cursor until nextCursor is null, every winner once", all.length === 13 && new Set(all).size === 13 && !(await r414Has(app.page, "[data-wall-more]")) && (await r414Has(app.page, '[data-wall-end="1"]')) && reads.length === 2 && /cursor=o10/.test(reads[1].search), JSON.stringify({ all: all.length, reads: reads.map(c => c.search) }));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "awardbell",
+    label: "The bell's links (part 414, 2.4): recognition_award and recognition_reactions open the award (GET /api/recognition/awards/:id), from the bell and from /?open=recognition_award:<id>; one taken down says so in the API's words",
+    run: async (open, language, expect) => {
+      const notices = [r414Notice("n-aw", "recognition_award", R414_AWARD, language), r414Notice("n-rx", "recognition_reactions", R414_AWARD, language)];
+      const app = await open({ stubOptions: { recognition: { seen: true }, notifications: notices } });
+      try {
+        await shows(app.page, "[data-bell]", 8000);
+        for (const n of notices) {
+          await r414Click(app.page, "[data-bell]");
+          await shows(app.page, '[data-notice-id="' + n.id + '"] button', 6000);
+          await r414Click(app.page, '[data-notice-id="' + n.id + '"] button');
+          const opened = await shows(app.page, '[data-award-sheet="' + R414_AWARD + '"] [data-recognition-reveal="' + R414_AWARD + '"]', 6000);
+          expect(n.subjectType + " opens the award from the bell", opened && sent(app.stub, "GET", "/api/recognition/awards/" + R414_AWARD).some(c => c.path === "/api/recognition/awards/" + R414_AWARD), "opened " + opened);
+          await r414Click(app.page, '[data-sheet-close="ocsa-award-sheet"]');
+          await pause(app.page, 500);
+        }
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const linked = await open({ path: "/?open=recognition_award:" + R414_AWARD, stubOptions: { recognition: { seen: true } } });
+      try {
+        expect("/?open=recognition_award:<id> opens the award", await shows(linked.page, '[data-award-sheet="' + R414_AWARD + '"] [data-recognition-reveal]', 8000), "not opened");
+      } finally { await linked.context.close(); }
+      const gone = await open({ path: "/?open=recognition_award:aw-gone", stubOptions: { recognition: { seen: true } } });
+      try {
+        const said = await shows(gone.page, '[data-award-sheet="aw-gone"] [data-award-gone]', 8000);
+        const text = said ? await gone.page.evaluate(() => document.querySelector("[data-award-gone]").innerText) : "";
+        const words = require("./stub").RECOG_REFUSALS["recognition.notFound"];
+        expect("an award taken down says so in the API's words (404 recognition.notFound)", said && has(text, language === "es" ? words.es : words.en), text);
+        await spokenHere(gone, language, expect);
+      } finally { await gone.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART414_S2_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };

@@ -3499,6 +3499,10 @@ const TWIN_PAIRS = [
   .concat(HR_CASE_REFUSALS.map(tableTwin))
   .concat(Object.keys(PIN_REFUSALS).map(k => PIN_REFUSALS[k]))
   .concat([LOGIN_REFUSAL])
+  // Part 414: routes/recognition.js's refusals, and the stub's own reasons
+  // and shout-out lines, in each language.
+  .concat(Object.keys(RECOG_REFUSALS).map(k => [RECOG_REFUSALS[k].en, RECOG_REFUSALS[k].es]))
+  .concat([[RECOG_REASON.en, RECOG_REASON.es], [RECOG_WALL_REASON.en, RECOG_WALL_REASON.es]].concat(RECOG_SHOUT_LINES.map(l => [l.en, l.es])))
   .concat([MUST_SET_PIN, NO_EMAIL_FOR_CODE, CODE_EXPIRED, CODE_TOO_MANY, SEND_LIMIT].map(r => [r.en, r.es]))
   .concat([["Your PIN has been changed.", "Su PIN fue cambiado."]])
   .concat(["Session expired", "Request failed",

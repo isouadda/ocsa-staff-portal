@@ -409,6 +409,11 @@ const SHEET_OPENERS = {
     await page.waitForSelector('[data-case-sheet] [data-case-read="1"]', { timeout: 8000 }).catch(() => {});
     await pause(page, 400);
   },
+  // Part 414: the Employee of the Month, opened from the bell's link.
+  "RecogSheet#0": async (page) => {
+    await page.waitForSelector("[data-award-sheet] [data-recognition-reveal]", { timeout: 8000 }).catch(() => {});
+    await pause(page, 3000);
+  },
 };
 // An inspection long enough for Sections (over INSPECT_INDEX_OVER, 20
 // cards, in src/App.js): the long inspection's five cards five times over,
@@ -435,6 +440,7 @@ const SHEET_PHONES = {
   "InspectSectionsSheet#0": { stubOptions: { inspections: [INSPECTION_INDEXED] } },
   "WalkSectionsSheet#0": { stubOptions: { inspectionWalk: true } },
   "ReadSheet#0": { path: "/?open=hr_case_assigned:case-1", stubOptions: { person: Object.assign({}, SUPERVISOR) } },
+  "RecogSheet#0": { path: "/?open=recognition_award:aw-2026-09", stubOptions: { recognition: { seen: true } } },
 };
 
 // The Forms screen lists more than one form now, so a case says which

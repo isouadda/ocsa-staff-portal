@@ -2306,6 +2306,41 @@ Spanish, each failing on the main of part 408:
   Start Shift reaches it while the confetti falls; a swipe across the card
   closes it; on Choose your PIN nothing plays and nothing is marked seen.
 
+## Home's card, Congratulate, the team wall and the bell (part 414, section 2)
+
+Once seen, Home keeps a smaller card for the award `GET
+/api/recognition/current` answers all month, the first 7 days of the next
+month included while none is posted, and a tap on it plays the reveal
+again. Under the card and the reveal, **Congratulate**: the five reactions
+(clap, star, heart, fire, muscle) with their counts and the person's own
+picked, one per person, changed with `PUT .../reaction { key }` and
+removed with `DELETE` (a tap on the one picked). The winner reads the
+counts under **Congratulations from your team** and is offered none, since
+the API refuses their own (409 `recognition.ownAward`). Who reacted is
+never shown. **Team wall** reads `GET /api/recognition/awards?limit=10`,
+newest month first, and **Show more** sends `nextCursor` back as `cursor`
+until it is null: the photo or the initials, the name, the month, the
+site, the reason and the counts. The bell's `recognition_award` and
+`recognition_reactions` open the award over the screen (`GET
+/api/recognition/awards/:id`), from a row and from
+`/?open=recognition_award:<id>`; a 404 says it was taken down in the
+API's words. The award, the wall and (section 3) a shout-out share one
+sheet, `RecogSheet#0`, which the sweep opens from the bell's link.
+
+Four journeys, in English and Spanish, each failing on the main of part
+408:
+
+- `awardhomecard`: September's card on October 1, no reveal once seen, a
+  tap plays it again with confetti and marks nothing seen again.
+- `awardreactions`: the five with their counts; clap sent and picked, star
+  changing it, star again removing it; the winner offered none and sending
+  nothing.
+- `teamwall`: thirteen winners read ten and three, by the cursor the first
+  page answered, to the end, each once, with the initials for one with no
+  photo.
+- `awardbell`: both notice types open the award from the bell, the link
+  opens it, and one taken down reads the API's 404 words.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names
