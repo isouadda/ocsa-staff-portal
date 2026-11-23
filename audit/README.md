@@ -2415,6 +2415,36 @@ Five journeys, in English and Spanish, each failing on the main of part
 with full-time on file), `leaveholiday` (Thanksgiving week) and
 `insidenoticetext` (the filed request's sheet and a row of My time off).
 
+## Chat for a test office account, and a reply on a chat opened again (part 414, section 5)
+
+The robot's Round 6 (isouadda/ocsa-journeys#6, "Waiting on the staff
+app"):
+
+- New message offers a test office account (an admin or a supervisor with
+  `isTestAccount`) the test accounts `GET /api/chat/people` answers it,
+  staff among them. A tap on a staff test account opens their line (`POST
+  /api/chat/staff-line`), and **Direct message** beside it a direct chat
+  (`POST /api/chat/direct`), both of which the API opens for a test office
+  account since its Round 17. Real accounts are offered as before (part
+  408's `newmessagestaff`).
+- Chat lists the private chats `GET /api/chat/channels` answers, which for
+  a test office account already hold the active test accounts' lines; a
+  test office account also reads `GET /api/chat/dm-inbox`, and a line the
+  list leaves out (one whose owner has left and wrote there) joins it. A
+  real account never asks for dm-inbox.
+- Journey 22's "the staff app does not draw the answer" (Nov 20 to 23) is
+  not the app's: with a chat open, another opened and this one opened
+  again, the app reads the chat's messages again and draws the other
+  side's reply as soon as `GET /api/chat/channels/:id/messages` answers
+  it, and the 12-second read draws the next with the chat left open. The
+  journey `chatreopen` holds this, and passes on the main of part 408 as
+  here.
+
+The stub answers a test office account its people, its lines and
+dm-inbox (TEST_CHAT_PEOPLE, TEST_CHAT_LINES), and the two open routes.
+Two journeys, in English and Spanish, fail on the main of part 408:
+`chattestoffice` and `chattestlines`; `chatreopen` passes on both.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

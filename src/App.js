@@ -3853,7 +3853,22 @@ export default function OCSAStaffPortal() {
   // one with nothing in it, and a list already on the screen stays when a
   // later read of it fails. A reply that is not a list counts as a list
   // that did not load.
-  const loadChannels = async (tkn) => { try { const data = await api(chatPath("/api/chat/channels"), { token: tkn || token }); const list = Array.isArray(data) ? data : (data && Array.isArray(data.channels) ? data.channels : null); if (!list) throw new Error(ERR_GENERIC); setChannels(list.filter(ch => ch && typeof ch === "object" && ch.id)); setChannelsFailed(false); heldNow("chat"); } catch (err) { console.error(err); setChannelsFailed(true); } };
+  // Part 414 (section 5.2, the robot's Round 6): a test office account
+  // also reads the test accounts' lines as GET /api/chat/dm-inbox answers
+  // them, and a line the list of chats leaves out (one whose owner has
+  // left and wrote there) joins the list's private chats. A read that
+  // fails leaves the list as GET /api/chat/channels answered it.
+  const inboxLines = async (tk, list) => {
+    if (!isTestAccount(user) || !isOfficePerson(user)) return list;
+    try {
+      const rows = await api(chatPath("/api/chat/dm-inbox"), { token: tk });
+      const have = new Set(list.map(ch => ch.id));
+      const more = (Array.isArray(rows) ? rows : []).filter(r => r && r.channelId && !have.has(r.channelId) && typeof r.staffName === "string" && r.staffName.trim())
+        .map(r => ({ id: r.channelId, type: "admin_dm", name: r.staffName.trim(), staffUserId: r.staffUserId, unreadCount: Number(r.unreadCount) > 0 ? Number(r.unreadCount) : 0, lastMessageAt: r.lastMessageAt || null }));
+      return more.length ? list.concat(more) : list;
+    } catch (e) { return list; }
+  };
+  const loadChannels = async (tkn) => { try { const data = await api(chatPath("/api/chat/channels"), { token: tkn || token }); const list = Array.isArray(data) ? data : (data && Array.isArray(data.channels) ? data.channels : null); if (!list) throw new Error(ERR_GENERIC); const rows = await inboxLines(tkn || token, list.filter(ch => ch && typeof ch === "object" && ch.id)); setChannels(rows); setChannelsFailed(false); heldNow("chat"); } catch (err) { console.error(err); setChannelsFailed(true); } };
   const retryChannels = () => { setChannelsFailed(false); loadChannels(); };
   // Opening a chat marks it read: its count on the list goes to zero here
   // at once, and the API is told once. An API that does not answer this
@@ -8368,16 +8383,22 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, message
   // chat.staffLineAdminsOnly), so staff are offered to them alone, as the
   // dashboard does.
   const readsLines = !!user && user.status !== "inactive" && (user.role === "admin" || user.isSuperAdmin === true);
-  const offered = Array.isArray(people) ? people.filter(p => p.kind === "office" || readsLines) : null;
+  // Part 414 (section 5.1, the robot's Round 6): a test office account is
+  // answered the test accounts alone (GET /api/chat/people since ocsa-api
+  // Round 17), and the API opens it a direct chat with any of them and a
+  // test account's line, so staff are offered to it as well: a tap opens
+  // the line, and Direct message the direct chat.
+  const testOffice = office && isTestAccount(user);
+  const offered = Array.isArray(people) ? people.filter(p => p.kind === "office" || readsLines || testOffice) : null;
   const canStart = office && Array.isArray(offered) && offered.length > 0;
   const closeNew = () => { if (opening) return; setNewOpen(false); setNewQuery(""); setOpenFault(null); };
   // An office person opens the direct chat the two of them share, and a
   // staff member their private chat with the office, each made by the
   // API the first time. The chat drawn until the list is read again is
   // named for the person picked.
-  const startChat = async (p) => {
+  const startChat = async (p, how) => {
     if (opening) return;
-    const direct = p.kind === "office";
+    const direct = p.kind === "office" || how === "direct";
     setOpening(p.id); setOpenFault(null);
     try {
       const d = await api(chatPath(direct ? "/api/chat/direct" : "/api/chat/staff-line"), { method: "POST", body: { userId: p.id }, token });
@@ -8649,10 +8670,18 @@ function ChatView({ channels, channelsFailed, onRetryChannels, messages, message
                   <div id={"ocsa-new-" + kind} style={{ fontSize: 10, fontWeight: 600, color: t.textMut, textTransform: "uppercase", letterSpacing: "1px", margin: "4px 0 6px", fontFamily: FONT_HEAD }}>{title}</div>
                   {rows.map(p => {
                     const busy = opening === p.id;
-                    return (<button key={p.id} type="button" onClick={() => startChat(p)} aria-disabled={!!opening} aria-busy={busy} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", marginBottom: 4, borderRadius: R.md, border: "1px solid " + (busy ? t.goldBorder : t.borderSolid), background: busy ? t.goldBg : t.card, color: t.text, cursor: opening ? "default" : "pointer", opacity: opening && !busy ? 0.5 : 1, textAlign: "left" }}>
+                    const paired = testOffice && kind === "staff";
+                    const row = (<button key={p.id} type="button" data-new-person={p.id} onClick={() => startChat(p)} aria-disabled={!!opening} aria-busy={busy} style={{ width: "100%", minHeight: TAP, display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", marginBottom: paired ? 0 : 4, borderRadius: R.md, border: "1px solid " + (busy ? t.goldBorder : t.borderSolid), background: busy ? t.goldBg : t.card, color: t.text, cursor: opening ? "default" : "pointer", opacity: opening && !busy ? 0.5 : 1, textAlign: "left" }}>
                       <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500, fontFamily: FONT_HEAD, overflowWrap: "anywhere" }}>{p.name}</span>
                       {p.role && <span style={{ fontSize: 11, color: t.textMut, flexShrink: 0 }}>{roleWord(p.role)}</span>}
                     </button>);
+                    // Part 414: a test office account picks a staff test
+                    // account's line by the row, or a direct chat with them.
+                    if (!paired) return row;
+                    return (<div key={p.id} style={{ display: "flex", alignItems: "stretch", gap: 6, marginBottom: 4 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>{row}</div>
+                      <button type="button" data-new-direct={p.id} onClick={() => startChat(p, "direct")} aria-disabled={!!opening} aria-label={tr("Direct message") + ": " + p.name} style={{ flexShrink: 0, minHeight: TAP, padding: "0 10px", borderRadius: R.md, border: "1px solid " + t.borderSolid, background: t.hover, color: t.goldText, fontSize: 12, fontWeight: 600, fontFamily: FONT_HEAD, cursor: opening ? "default" : "pointer", opacity: opening && !busy ? 0.5 : 1 }}>{tr("Direct message")}</button>
+                    </div>);
                   })}
                 </div>);
               })}

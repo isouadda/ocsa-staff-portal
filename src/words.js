@@ -1763,6 +1763,8 @@ export const WORDS = {
   "Your time off follows the rules for part-time staff.": "Su tiempo libre sigue las reglas del personal de medio tiempo.",
   "Your time off follows the rules for supplemental staff.": "Su tiempo libre sigue las reglas del personal suplementario.",
   "Your time off follows the rules for staff at a union site.": "Su tiempo libre sigue las reglas del personal en un sitio sindicalizado.",
+  // Part 414 (section 5): New message for a test office account.
+  "Direct message": "Mensaje directo",
   },
 };
 
@@ -3402,6 +3404,8 @@ WORDS.fr = {
   "Your time off follows the rules for part-time staff.": "Vos cong\u00e9s suivent les r\u00e8gles du personnel \u00e0 temps partiel.",
   "Your time off follows the rules for supplemental staff.": "Vos cong\u00e9s suivent les r\u00e8gles du personnel suppl\u00e9mentaire.",
   "Your time off follows the rules for staff at a union site.": "Vos cong\u00e9s suivent les r\u00e8gles du personnel d'un site syndiqu\u00e9.",
+  // Part 414 (section 5): New message for a test office account.
+  "Direct message": "Message direct",
 };
 
 // {name} is replaced after the language is chosen, so the

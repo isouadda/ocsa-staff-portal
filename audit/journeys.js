@@ -12401,4 +12401,100 @@ const PART414_S4_JOURNEYS = [
 ];
 JOURNEYS.push(...PART414_S4_JOURNEYS);
 
+// --- Round 17 of the staff app (part 414), section 5 ----------------------
+//
+// Chat, as the robot's Round 6 found it waiting ("Waiting on the staff
+// app"), and journey 22's reply after a chat is opened again.
+const r414Sup414 = (id) => Object.assign({}, PERSON, { id: id, role: "supervisor", firstName: "Test", lastName: "Supervisor", isTestAccount: true });
+const r414ChatOpen = async (page, id) => {
+  await page.evaluate((x) => { const b = document.querySelector('[data-chat-id="' + x + '"]'); if (b) b.click(); }, id);
+  return page.waitForFunction((x) => { const b = document.querySelector('[data-chat-id="' + x + '"]'); return !!b && b.getAttribute("aria-pressed") === "true"; }, id, { timeout: 6000 }).then(() => true).catch(() => false);
+};
+const r414Reply = (stub, id, text) => {
+  const kept = stub.state.chat.messages[id] || (stub.state.chat.messages[id] = []);
+  stub.state.chat.seq += 1;
+  kept.push({ id: "m-r414-" + stub.state.chat.seq, senderId: "u-r414-office", senderName: "Office Example", senderRole: "admin", text: text, sentAt: new Date(require("./stub").NOW.getTime() + stub.state.chat.seq * 60000).toISOString(), isEdited: false, isPinned: false, mentions: [], clientId: null });
+  stub.state.served.add(text); stub.state.served.add("Office Example");
+};
+const r414Drawn = (page, text) => page.evaluate((w) => Array.from(document.querySelectorAll(".sp-content div")).some(d => d.children.length === 0 && d.innerText.trim() === w), text);
+const PART414_S5_JOURNEYS = [
+  {
+    id: "chattestoffice",
+    label: "New message for a test office account (part 414, 5.1): GET /api/chat/people's test accounts are offered, staff among them; a tap on one opens their line (POST /api/chat/staff-line) and Direct message a direct chat (POST /api/chat/direct)",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: r414Sup414("u-414-test-sup"), chatPeopleRoute: true } });
+      try {
+        await openTab(app.page, "chat", language);
+        await pause(app.page, 1400);
+        await clickText(app.page, say("New message", language));
+        const staff = await shows(app.page, '[data-new-person="u-test-cleaner"]', 4000);
+        expect("the test accounts are offered, staff among them, each with Direct message", staff && (await r414Has(app.page, '[data-new-person="u-test-newcomer"]')) && (await r414Has(app.page, '[data-new-direct="u-test-cleaner"]')) && (await r414Has(app.page, '[data-new-person="u-test-office"]')), "staff " + staff);
+        await r414Click(app.page, '[data-new-person="u-test-cleaner"]');
+        await pause(app.page, 1200);
+        const line = app.stub.state.chat.opened.filter(o => o.route === "POST /api/chat/staff-line");
+        const lineOpen = await app.page.evaluate(() => { const b = document.querySelector('[data-chat-id="dm-u-test-cleaner"]'); return !!b && b.getAttribute("aria-pressed") === "true"; });
+        expect("a tap opens the test account's line", line.length === 1 && line[0].userId === "u-test-cleaner" && lineOpen, JSON.stringify(line) + " " + lineOpen);
+        await clickText(app.page, say("New message", language));
+        await shows(app.page, '[data-new-direct="u-test-cleaner"]', 4000);
+        await r414Click(app.page, '[data-new-direct="u-test-cleaner"]');
+        await pause(app.page, 1200);
+        const direct = app.stub.state.chat.opened.filter(o => o.route === "POST /api/chat/direct");
+        const directOpen = await app.page.evaluate(() => { const b = document.querySelector('[data-chat-id="direct-u-test-cleaner"]'); return !!b && b.getAttribute("aria-pressed") === "true"; });
+        expect("Direct message opens a direct chat with them", direct.length === 1 && direct[0].userId === "u-test-cleaner" && directOpen, JSON.stringify(direct) + " " + directOpen);
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "chattestlines",
+    label: "A test office account reads the test accounts' lines (part 414, 5.2): Chat lists the lines GET /api/chat/dm-inbox answers, the one GET /api/chat/channels leaves out among them, and opens it; a real supervisor never asks dm-inbox",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: r414Sup414("u-414-lines") } });
+      try {
+        await openTab(app.page, "chat", language);
+        const both = (await shows(app.page, '[data-chat-id="dm-u-test-cleaner"]', 6000)) && (await shows(app.page, '[data-chat-id="dm-u-test-leaver"]', 4000));
+        expect("the lines of the test accounts are listed, the one only dm-inbox answers among them", both && sent(app.stub, "GET", "/api/chat/dm-inbox").length >= 1, "dm-inbox " + sent(app.stub, "GET", "/api/chat/dm-inbox").length);
+        const opened = await r414ChatOpen(app.page, "dm-u-test-leaver");
+        await pause(app.page, 800);
+        expect("and it opens, its messages read", opened && sent(app.stub, "GET", "/api/chat/channels/dm-u-test-leaver/messages").length >= 1, "opened " + opened);
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const real = await open({ stubOptions: { person: Object.assign({}, PERSON, { id: "u-414-real-sup", role: "supervisor" }) } });
+      try {
+        await openTab(real.page, "chat", language);
+        await pause(real.page, 1800);
+        expect("a real supervisor never asks for dm-inbox", sent(real.stub, "GET", "/api/chat/dm-inbox").length === 0, "asked " + sent(real.stub, "GET", "/api/chat/dm-inbox").length);
+      } finally { await real.context.close(); }
+    },
+  },
+  {
+    id: "chatreopen",
+    label: "A reply drawn on a chat opened again (part 414, 5.3, journey 22's step): with a chat open, another opened and this one opened again, a message the other side sent meanwhile is drawn as soon as the read answers; with the chat open, the 12-second read draws the next",
+    run: async (open, language, expect) => {
+      const app = await open({});
+      try {
+        await openTab(app.page, "chat", language);
+        await pause(app.page, 1200);
+        const first = await r414ChatOpen(app.page, "dm-u-one");
+        await pause(app.page, 600);
+        const reply = language === "es" ? "Respuesta inventada de la oficina." : "Invented answer from the office.";
+        await r414ChatOpen(app.page, "ch-north");
+        r414Reply(app.stub, "dm-u-one", reply);
+        await pause(app.page, 600);
+        const before = sent(app.stub, "GET", "/api/chat/channels/dm-u-one/messages").length;
+        await r414ChatOpen(app.page, "dm-u-one");
+        const drawn = await app.page.waitForFunction((w) => Array.from(document.querySelectorAll(".sp-content div")).some(d => d.children.length === 0 && d.innerText.trim() === w), reply, { timeout: 4000 }).then(() => true).catch(() => false);
+        expect("opened again, the line reads its messages and draws the reply", first && drawn && sent(app.stub, "GET", "/api/chat/channels/dm-u-one/messages").length === before + 1, JSON.stringify({ first: first, drawn: drawn }));
+        const next = language === "es" ? "Otra respuesta inventada." : "Another invented answer.";
+        r414Reply(app.stub, "dm-u-one", next);
+        await app.page.clock.runFor(12500);
+        await pause(app.page, 800);
+        expect("with the chat open, the 12-second read draws the next", await r414Drawn(app.page, next), "not drawn");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART414_S5_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };

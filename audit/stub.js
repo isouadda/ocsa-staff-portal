@@ -2312,16 +2312,34 @@ function makeState(opts) {
   };
 }
 
+// Part 414 (section 5): the robot's test accounts, as GET /api/chat/people
+// answers a test office account since ocsa-api Round 17 (routes/chat.js
+// TEST_MEMBER_BASE), and the test accounts' lines: GET /api/chat/channels
+// lists an active one's, and GET /api/chat/dm-inbox answers them all, the
+// line of one who has left and wrote there among them.
+const TEST_CHAT_PEOPLE = [
+  { userId: "u-test-office", name: "Test Office", role: "admin", kind: "office" },
+  { userId: "u-test-cleaner", name: "Test Cleaner", role: "custodian", kind: "staff" },
+  { userId: "u-test-newcomer", name: "Test Newcomer", role: "custodian", kind: "staff" },
+];
+const TEST_CHAT_LINES = [
+  { channelId: "dm-u-test-cleaner", staffUserId: "u-test-cleaner", staffName: "Test Cleaner", staffRole: "custodian", active: true },
+  { channelId: "dm-u-test-leaver", staffUserId: "u-test-leaver", staffName: "Test Leaver", staffRole: "custodian", active: false },
+];
 function chatStateOf(o) {
   const c = o.chat || {};
   const person = o.person || PERSON;
   const admin = person.role === "admin" || person.role === "supervisor";
+  const testOffice = admin && person.isTestAccount === true;
   const privates = Math.max(0, Math.min(CHAT_STAFF.length, c.privates === undefined ? 6 : c.privates));
   const ownSite = CHAT_SITES.find(s => s.siteId === (o.site || "site-north")) || CHAT_SITES[0];
   const own = { id: "dm-" + person.id, type: "admin_dm", name: OWN_PRIVATE, unreadCount: 1 };
   let channels = admin
     ? CHAT_SITES.concat([CHAT_GENERAL]).sort((a, b) => a.name.localeCompare(b.name)).concat(CHAT_STAFF.slice(0, privates).map(staffPrivate), c.ownPrivate ? [own] : [])
     : [ownSite, CHAT_GENERAL].sort((a, b) => a.name.localeCompare(b.name)).concat([own]);
+  // A test office account lists the test site's chats and the general
+  // chat, and the lines of the active test accounts, no real person's.
+  if (testOffice) channels = CHAT_SITES.concat([CHAT_GENERAL]).sort((a, b) => a.name.localeCompare(b.name)).concat(TEST_CHAT_LINES.filter(l => l.active).map(l => ({ id: l.channelId, type: "admin_dm", name: l.staffName, staffUserId: l.staffUserId })));
   if (c.only) channels = channels.filter(ch => ch.id === c.only);
   if (c.empty) channels = [];
   const messages = {};
@@ -2331,6 +2349,8 @@ function chatStateOf(o) {
   return {
     channels: channels.map(ch => Object.assign({ unreadCount: 0 }, ch, unread[ch.id] !== undefined ? { unreadCount: unread[ch.id] } : {})),
     messages: messages, seq: 0, holdMs: 0, saveThenDrop: false, noMessage: false,
+    // Part 414: a test office account's dm-inbox and the chats it opened.
+    testOffice: testOffice, inbox: testOffice ? TEST_CHAT_LINES.map(l => Object.assign({}, l)) : [], opened: [],
     // membersRoute false is an API from before Step 179, which answers the
     // members route 404; alone is a chat nobody else can read.
     membersRoute: c.membersRoute !== false, alone: !!c.alone,
@@ -5892,6 +5912,28 @@ function createStub(opts) {
     // --- chat, the three routes as Scout 138 read and ran them, and the
     // refusals as Step 132 writes them; and Step 179's read receipt, the
     // people a message may tag, and the tags on a message
+    // Part 414 (section 5): a test office account's people are the test
+    // accounts (routes/chat.js since Round 17), staff among them.
+    if (state.chatPeopleRoute && key === "GET /api/chat/people" && state.chat.testOffice) return json(200, { people: TEST_CHAT_PEOPLE.map(p => Object.assign({}, p)) });
+    if (key === "GET /api/chat/dm-inbox") {
+      const office = state.person.role === "admin" || state.person.role === "supervisor";
+      if (!office) return chatRefusal("chat.noAccess", search);
+      return json(200, state.chat.inbox.map(l => ({ channelId: l.channelId, staffUserId: l.staffUserId, staffName: l.staffName, staffRole: l.staffRole, lastMessage: null, lastMessageAt: null, lastSenderId: null, unreadCount: l.active ? 0 : 1 })));
+    }
+    // POST /api/chat/direct and /staff-line { userId } for a test office
+    // account: a direct chat with any test account, and a test account's
+    // line (routes/chat.js part 407). A real person's is not answered here.
+    if (state.chat.testOffice && (key === "POST /api/chat/direct" || key === "POST /api/chat/staff-line")) {
+      const p = TEST_CHAT_PEOPLE.find(x => body && x.userId === body.userId);
+      if (!p) return json(404, { error: languageOf(search, state) === "es" ? "No se encontr\u00f3 a la persona." : "User not found", code: "common.userNotFound" });
+      const direct = key === "POST /api/chat/direct";
+      if (!direct && p.kind === "office") return json(400, { error: "That person is office staff.", code: "chat.staffLineStaffOnly" });
+      const ch = direct ? { id: "direct-" + p.userId, type: "direct", name: p.name, otherUserId: p.userId, unreadCount: 0 } : { id: "dm-" + p.userId, type: "admin_dm", name: p.name, staffUserId: p.userId, unreadCount: 0 };
+      const had = state.chat.channels.some(x => x.id === ch.id);
+      if (!had) { state.chat.channels.push(ch); state.chat.messages[ch.id] = state.chat.messages[ch.id] || []; }
+      state.chat.opened.push({ route: key, userId: p.userId });
+      return json(had ? 200 : 201, { channel: Object.assign({}, ch) });
+    }
     if (state.chatPeopleRoute && key === "GET /api/chat/people") return json(200, { people: [{ userId: ADMIN_PERSON.id, name: ADMIN_PERSON.firstName + " " + ADMIN_PERSON.lastName, role: ADMIN_PERSON.role, kind: "office" }]
       .concat(STAFF.slice(0, 8).map(x => ({ userId: x.id, name: x.firstName + " " + x.lastName, role: "custodian", kind: "staff" }))) });
     if (key === "GET /api/chat/channels") return json(200, state.chat.channels.map(ch => Object.assign({}, ch)));
@@ -5900,7 +5942,7 @@ function createStub(opts) {
       const id = decodeURIComponent(chatRoute[1]);
       // An API from before Step 179 has no members route.
       if (chatRoute[2] === "members" && !state.chat.membersRoute) return json(404, { error: "Endpoint not found" });
-      const mine = state.chat.channels.some(ch => ch.id === id);
+      const mine = state.chat.channels.some(ch => ch.id === id) || state.chat.inbox.some(l => l.channelId === id);
       const anywhere = mine || id === CHAT_GENERAL.id || CHAT_SITES.some(s => s.id === id) || /^dm-/.test(id);
       if (!anywhere) return chatRefusal("chat.notFound", search);
       if (!mine) return chatRefusal("chat.noAccess", search);
