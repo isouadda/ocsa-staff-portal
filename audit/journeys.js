@@ -12525,7 +12525,7 @@ const PART418_S1_JOURNEYS = [
         await shows(app.page, "[data-course-pickup-bar]", 4000);
         const pick = await r418Text(app.page, "[data-course-pickup]");
         const bar = Number(await r418Attr(app.page, "[data-course-pickup-bar]", "data-course-pickup-bar"));
-        expect("Pick up where you left off names the chapter in progress, its course and place, and the share done (2 of 3 screens, 0 of 1 check)", has(pick, r418Name("Clean a Restroom", "Limpie un Baño", language)) && has(pick, fill(say("{course}, chapter {n} of {total}", language), { course: r418Name("Cleaning Skills", "Habilidades de Limpieza", language), n: 1, total: 3 })) && bar === 50 && sent(app.stub, "GET", "/api/training/attempts/pa-restroom").length === 1, pick + " " + bar);
+        expect("Pick up where you left off names the chapter in progress, its course and place, and the share done (2 of 3 screens, 0 of 1 check)", has(pick, r418Name("Clean a Restroom", "Limpie un Ba\u00f1o", language)) && has(pick, fill(say("{course}, chapter {n} of {total}", language), { course: r418Name("Cleaning Skills", "Habilidades de Limpieza", language), n: 1, total: 3 })) && bar === 50 && sent(app.stub, "GET", "/api/training/attempts/pa-restroom").length === 1, pick + " " + bar);
         const cards = await app.page.evaluate(() => Array.from(document.querySelectorAll("[data-course]")).map(b => ({ id: b.getAttribute("data-course"), isNew: b.getAttribute("data-course-new") === "1", mark: !!b.querySelector("[data-course-new-mark]"), ring: (b.querySelector("[data-course-ring]") || {}).getAttribute ? b.querySelector("[data-course-ring]").getAttribute("data-course-ring") : null, text: b.innerText.replace(/\s+/g, " ") })));
         expect("Your courses: the promoted course first, marked New, then the other, each with its ring", cards.length === 2 && cards[0].id === "co-app" && cards[0].isNew && cards[0].mark && cards[1].id === "co-clean" && !cards[1].mark && cards[0].ring === "0/2" && cards[1].ring === "1/3", JSON.stringify(cards));
         expect("the names are drawn exactly as the API stores them", has(cards[0].text, r418Name("The Staff App", "La App del Personal", language)) && has(cards[1].text, r418Name("Cleaning Skills", "Habilidades de Limpieza", language)) && has(cards[1].text, fill(say("{done} of {total} chapters done", language), { done: 1, total: 3 })), cards.map(c => c.text).join(" | "));
@@ -12553,13 +12553,13 @@ const PART418_S1_JOURNEYS = [
         await shows(app.page, '[data-chapter="tc-mop"][data-chapter-action="watch"]', 6000);
         expect("the course opens, read again (GET /api/training/courses/:id) with the library (GET /api/training/courses/library)", up && sent(app.stub, "GET", "/api/training/courses/co-clean").length === 1 && sent(app.stub, "GET", "/api/training/courses/library").length === 1, "up " + up);
         const head = await r418Text(app.page, '[data-course-page="co-clean"]');
-        expect("its name, summary, n of m and the certificate line", has(head, r418Name("Cleaning Skills", "Habilidades de Limpieza", language)) && has(head, r418Name("How we clean, step by step.", "Cómo limpiamos, paso a paso.", language)) && has(head, fill(say("{done} of {total} chapters done", language), { done: 1, total: 3 })) && has(head, fill(say("You get a certificate when you finish all {n}.", language), { n: 3 })), head.slice(0, 260));
+        expect("its name, summary, n of m and the certificate line", has(head, r418Name("Cleaning Skills", "Habilidades de Limpieza", language)) && has(head, r418Name("How we clean, step by step.", "C\u00f3mo limpiamos, paso a paso.", language)) && has(head, fill(say("{done} of {total} chapters done", language), { done: 1, total: 3 })) && has(head, fill(say("You get a certificate when you finish all {n}.", language), { n: 3 })), head.slice(0, 260));
         const rows = await app.page.evaluate(() => Array.from(document.querySelectorAll("[data-chapter]")).map(e => ({ id: e.getAttribute("data-chapter"), state: e.getAttribute("data-chapter-state"), action: e.getAttribute("data-chapter-action"), tag: e.tagName, text: e.innerText.replace(/\s+/g, " ") })));
         const rest = rows.find(r => r.id === "tc-restroom"), mop = rows.find(r => r.id === "tc-mop"), chem = rows.find(r => r.id === "tc-chem");
         expect("the next chapter is marked next with Continue; a done one offers Watch again", !!rest && rest.state === "next" && has(rest.text, say("Continue", language)) && !!mop && mop.state === "done" && mop.action === "watch" && has(mop.text, say("Watch again", language)), JSON.stringify(rows));
         expect("a required chapter shows its due state in words, and one for a trainer says so and offers nothing", !!chem && chem.tag === "DIV" && has(chem.text, say("Required", language)) && has(chem.text, say("Not done yet", language)) && has(chem.text, say("Your trainer goes over this one with you.", language)), chem ? chem.text : "none");
         const next = await r418Text(app.page, "[data-course-next]");
-        expect("the button at the bottom continues the next chapter", has(next, fill(say("Continue: {name}", language), { name: r418Name("Clean a Restroom", "Limpie un Baño", language) })), next);
+        expect("the button at the bottom continues the next chapter", has(next, fill(say("Continue: {name}", language), { name: r418Name("Clean a Restroom", "Limpie un Ba\u00f1o", language) })), next);
         await spokenHere(app, language, expect);
         await app.page.goBack();
         await pause(app.page, 900);
@@ -12620,7 +12620,7 @@ const PART418_S2_JOURNEYS = [
         await pause(app.page, 800);
         const video = await app.page.evaluate(() => { const v = document.querySelector('[data-player-video="s2"]'); return v ? { muted: v.muted, loop: v.loop, inline: v.playsInline, poster: !!v.getAttribute("poster"), auto: v.autoplay } : null; });
         expect("a video screen: muted, looping, inline, with its poster", !!video && video.muted && video.loop && video.inline && video.poster && video.auto && app.stub.state.r418.media.some(m => m.name === "clip.webm"), JSON.stringify(video));
-        expect("its caption shows in place of the words read", has(await r418Text(app.page, '[data-player-words="s2"]'), language === "es" ? "Toque el botón. La app se abre." : "Tap the button. The app opens."), await r418Text(app.page, '[data-player-words="s2"]'));
+        expect("its caption shows in place of the words read", has(await r418Text(app.page, '[data-player-words="s2"]'), language === "es" ? "Toque el bot\u00f3n. La app se abre." : "Tap the button. The app opens."), await r418Text(app.page, '[data-player-words="s2"]'));
         await r418Next(app.page);
         await r418Pick(app.page, "phone");
         const picture = await app.page.evaluate(() => Array.from(document.querySelectorAll('[data-player-check="picture"] [data-player-option]')).map(b => ({ v: b.getAttribute("data-player-option"), label: b.getAttribute("aria-label"), img: !!b.querySelector("img") })));
@@ -12637,7 +12637,7 @@ const PART418_S2_JOURNEYS = [
         expect("a tap check: a ring where the finger landed, and { x, y } as fractions of the picture", !!ring && c3.length === 1 && Math.abs(c3[0].body.x - 0.5) < 0.05 && Math.abs(c3[0].body.y - 0.5) < 0.05, ring + " " + JSON.stringify(c3.map(c => c.body)));
         const signUp = await shows(app.page, '[data-player="sign"]', 5000);
         const text = await bodyText(app.page);
-        expect("the last right answer passes it: You got every answer right, the acknowledgement and the signature, and no score anywhere", signUp && has(text, say("You got every answer right.", language)) && has(text, language === "es" ? "Vi cómo configurar mi cuenta" : "I watched how to set up my account") && !/\d+\s?%/.test(text), text.slice(0, 200));
+        expect("the last right answer passes it: You got every answer right, the acknowledgement and the signature, and no score anywhere", signUp && has(text, say("You got every answer right.", language)) && has(text, language === "es" ? "Vi c\u00f3mo configurar mi cuenta" : "I watched how to set up my account") && !/\d+\s?%/.test(text), text.slice(0, 200));
         await app.page.clock.runFor(5000);
         await pause(app.page, 600);
         const batches = r418Watched(app.stub);
@@ -12780,11 +12780,11 @@ const PART418_S2_JOURNEYS = [
         await gone.page.click('[data-chapter="tc-setup"]', { timeout: 4000 }).catch(() => {});
         await shows(gone.page, '[data-player-step="s1"]', 8000);
         await r418Next(gone.page);
-        await gone.page.route(/\/api\/training\/attempts\/[^/]+\/checks\/c1/, (route) => route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ error: language === "es" ? "Esa pregunta no está en esta lección." : "That question is not in this lesson.", code: "training.checkNotFound" }) }));
+        await gone.page.route(/\/api\/training\/attempts\/[^/]+\/checks\/c1/, (route) => route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ error: language === "es" ? "Esa pregunta no est\u00e1 en esta lecci\u00f3n." : "That question is not in this lesson.", code: "training.checkNotFound" }) }));
         await r418Pick(gone.page, "email");
         await r418Answer(gone.page);
         const said = await bodyText(gone.page);
-        expect("a 404 reads the API's words and the question stays", has(said, language === "es" ? "Esa pregunta no está en esta lección." : "That question is not in this lesson.") && (await r418Step(gone.page)) === "c1", said.slice(0, 200));
+        expect("a 404 reads the API's words and the question stays", has(said, language === "es" ? "Esa pregunta no est\u00e1 en esta lecci\u00f3n." : "That question is not in this lesson.") && (await r418Step(gone.page)) === "c1", said.slice(0, 200));
       } finally { await gone.context.close(); }
     },
   },
@@ -12862,7 +12862,7 @@ const PART418_S3_JOURNEYS = [
         await app.page.click('[data-cert="cert-old-1"] [data-cert-resend]', { timeout: 4000 }).catch(() => {});
         await pause(app.page, 900);
         const said = await r418Text(app.page, '[data-cert="cert-old-1"]');
-        expect("409 training.certificateSending is said in the API's words", has(said, language === "es" ? "Este certificado se está enviando ahora." : "This certificate is being emailed right now."), said.slice(0, 260));
+        expect("409 training.certificateSending is said in the API's words", has(said, language === "es" ? "Este certificado se est\u00e1 enviando ahora." : "This certificate is being emailed right now."), said.slice(0, 260));
         await app.page.click('[data-cert="cert-old-1"] [data-cert-resend]', { timeout: 4000 }).catch(() => {});
         const went = await shows(app.page, '[data-cert="cert-old-1"][data-cert-mail="sent"]', 5000);
         expect("Send it again then sends it", went && sent(app.stub, "POST", "/api/training/certificates/cert-old-1/resend").length === 2, String(went));
@@ -12947,7 +12947,7 @@ const PART418_S4_JOURNEYS = [
     id: "setupnone",
     label: "The setup page with no chapter, and at the limit (part 418, 4.1): 404 training.noSetupChapter and 429 customer.tooManyRequests each say the API's words with Sign in, and nothing plays",
     run: async (open, language, expect) => {
-      for (const which of [{ code: "training.noSetupChapter", opt: { setup: false }, phase: "none", en: "The account setup video is not ready yet.", es: "El video para configurar la cuenta todavía no está listo." }, { code: "customer.tooManyRequests", opt: { setupLimit: true }, phase: "limit", en: "Too many tries from this connection.", es: "Demasiados intentos desde esta conexión." }]) {
+      for (const which of [{ code: "training.noSetupChapter", opt: { setup: false }, phase: "none", en: "The account setup video is not ready yet.", es: "El video para configurar la cuenta todav\u00eda no est\u00e1 listo." }, { code: "customer.tooManyRequests", opt: { setupLimit: true }, phase: "limit", en: "Too many tries from this connection.", es: "Demasiados intentos desde esta conexi\u00f3n." }]) {
         const app = await r418Open(open, { signedIn: false, path: "/setup", stubOptions: { courses: which.opt } });
         try {
           const up = await shows(app.page, '[data-setup="' + which.phase + '"]', 10000);
@@ -12978,5 +12978,118 @@ const PART418_S4_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...PART418_S4_JOURNEYS);
+
+// --- Round 18 of the staff app (part 418), section 5 ----------------------
+//
+// The training site (ocsa-api Round 20, part 415, section 7), opened with
+// ?site=training as on a preview, each failing on the main of part 414,
+// which has no training site.
+const r418SignIn = async (page, language) => {
+  await shows(page, 'input[type="password"]', 8000);
+  await type(page, 'input[autocomplete="username"]', "4821");
+  await type(page, 'input[type="password"]', "4907");
+  await clickText(page, say("Sign In", language));
+  await pause(page, 1200);
+};
+const r418Stored = (page) => page.evaluate(() => ({ local: Object.keys(window.localStorage).filter(k => /auth|badge|identifier|token/i.test(k)), session: !!window.sessionStorage.getItem("ocsa-training-auth") }));
+const r418Bar = (page) => page.evaluate(() => Array.from(document.querySelectorAll("div")).some((el) => { const s = getComputedStyle(el); return s.position === "fixed" && s.bottom === "0px" && el.querySelectorAll(":scope > button").length >= 5; }));
+const PART418_S5_JOURNEYS = [
+  {
+    id: "trainingsite",
+    label: "The training site's sign-in (part 418, 5.1, 5.2): ?site=training signs in with app: \"training\" (and on the second step, never remembering the computer), shows only training (no bottom bar, no other place), keeps the token in the tab alone, and after sign-out nothing of the person stays on the computer",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { signedIn: false, path: "/?site=training" });
+      try {
+        await r418SignIn(app.page, language);
+        const login = sent(app.stub, "POST", "/api/auth/login");
+        expect("the sign-in carries app: \"training\"", login.length === 1 && login[0].body && login[0].body.app === "training", JSON.stringify(login.map(c => c.body && c.body.app)));
+        const main = await shows(app.page, '[data-training-site="main"] [data-courses]', 10000);
+        expect("signed in, My Training with the courses, under a header that says Training, with no bottom bar", main && has(await bodyText(app.page), say("Training", language)) && !(await r418Bar(app.page)) && (await r418Has(app.page, "[data-training-site-languages]")), String(main));
+        const kept = await r418Stored(app.page);
+        expect("the token lives in the tab alone, nothing in the computer's storage", kept.session && kept.local.length === 0, JSON.stringify(kept));
+        await spokenWithin(app, language, expect, "[data-courses]");
+        await app.page.click("[data-training-site-sign-out]", { timeout: 4000 }).catch(() => {});
+        await shows(app.page, 'input[type="password"]', 5000);
+        const after = await r418Stored(app.page);
+        const typed = await boxText(app.page, 'input[autocomplete="username"]');
+        expect("after sign-out nothing of the person stays: no token, no badge in the box", !after.session && after.local.length === 0 && !typed, JSON.stringify(after) + " " + typed);
+      } finally { await app.context.close(); }
+      const office = await r418Open(open, { signedIn: false, path: "/?site=training", stubOptions: { secondStep: true } });
+      try {
+        await r418SignIn(office.page, language);
+        await shows(office.page, "#ocsa-code", 6000);
+        expect("an office account's code screen offers no remember this computer", !(await r418Has(office.page, '[role="checkbox"]')), "offered");
+        await type(office.page, "#ocsa-code", require("./stub").SECOND_STEP_CODE);
+        await pause(office.page, 1500);
+        const step = sent(office.stub, "POST", "/api/auth/second-step");
+        expect("the second step carries app: \"training\" and rememberDevice false", step.length >= 1 && step[0].body.app === "training" && step[0].body.rememberDevice === false, JSON.stringify(step.map(c => c.body && { app: c.body.app, remember: c.body.rememberDevice })));
+      } finally { await office.context.close(); }
+    },
+  },
+  {
+    id: "trainingidle",
+    label: "The training site signs out when idle (part 418, 5.1): a warning a minute before, Keep working starting over, sign-out after 10 idle minutes on the computer's own clock with the reason said, and renewal (POST /api/auth/renew) while the person is active",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { signedIn: false, path: "/?site=training" });
+      try {
+        await r418SignIn(app.page, language);
+        await shows(app.page, '[data-training-site="main"]', 10000);
+        await app.page.clock.fastForward(9 * 60 * 1000 + 5000);
+        await pause(app.page, 1500);
+        const warned = await shows(app.page, "[data-training-site-idle]", 4000);
+        expect("a minute before, Are you still here? with the seconds left", warned && has(await bodyText(app.page), say("Are you still here?", language)), String(warned));
+        await spokenWithin(app, language, expect, "[data-training-site-idle]");
+        await app.page.click("[data-training-site-keep]", { timeout: 4000 }).catch(() => {});
+        await pause(app.page, 600);
+        // Active from here: a tap every four minutes for sixteen minutes.
+        let calm = true;
+        for (let i = 0; i < 4; i += 1) {
+          await app.page.clock.fastForward(4 * 60 * 1000);
+          await pause(app.page, 400);
+          if (!(await r418Has(app.page, '[data-training-site="main"]')) || (await r418Has(app.page, "[data-training-site-idle]"))) calm = false;
+          await app.page.mouse.click(5, 300);
+          await pause(app.page, 200);
+        }
+        await app.page.clock.fastForward(2000);
+        await pause(app.page, 1200);
+        expect("Keep working starts the clock over, and activity keeps the person signed in with no warning", calm && (await r418Has(app.page, '[data-training-site="main"]')), String(calm));
+        expect("active past 15 minutes, the token is renewed (POST /api/auth/renew)", sent(app.stub, "POST", "/api/auth/renew").length >= 1, String(sent(app.stub, "POST", "/api/auth/renew").length));
+        await app.page.clock.fastForward(10 * 60 * 1000 + 2000);
+        await pause(app.page, 1500);
+        const out = await shows(app.page, "[data-training-site-note]", 4000);
+        const left = await r418Stored(app.page);
+        expect("after 10 idle minutes it signs out, says why, and keeps nothing", out && (await r418Has(app.page, 'input[type="password"]')) && !left.session && has(await bodyText(app.page), say("You were signed out after 10 minutes with nothing done. Sign in again to go on.", language)), JSON.stringify(left));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "trainingdesktop",
+    label: "The training site on a computer (part 418, 5.2): at 1280 wide a course's chapters sit on the left and the player on the right; below 900 the phone's layout",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { signedIn: false, path: "/?site=training" });
+      try {
+        await app.page.setViewportSize({ width: 1280, height: 900 });
+        await r418SignIn(app.page, language);
+        await shows(app.page, "[data-courses]", 10000);
+        await r418Click(app.page, '[data-course="co-app"]');
+        await shows(app.page, '[data-course-wide="1"] [data-course-panel]', 6000);
+        await app.page.click('[data-course-panel] [data-course-next]', { timeout: 4000 }).catch(() => {});
+        await shows(app.page, '[data-course-player-side] [data-player="screen"]', 8000);
+        const sides = await app.page.evaluate(() => {
+          const list = document.querySelector("[data-course-chapters]"), player = document.querySelector('[data-course-player-side] [data-player]');
+          if (!list || !player) return null;
+          const a = list.getBoundingClientRect(), b = player.getBoundingClientRect();
+          return { listRight: Math.round(a.right), playerLeft: Math.round(b.left), playerWidth: Math.round(b.width), wide: document.documentElement.scrollWidth <= window.innerWidth + 1 };
+        });
+        expect("the chapters on the left and the player on the right, no sideways scroll", !!sides && sides.listRight <= sides.playerLeft && sides.playerWidth > 500 && sides.wide, JSON.stringify(sides));
+        await spokenHere(app, language, expect);
+        await app.page.setViewportSize({ width: 390, height: 844 });
+        await pause(app.page, 800);
+        expect("below 900 wide, the phone's layout", !(await r418Has(app.page, '[data-course-wide="1"]')) && (await r418Has(app.page, '[data-player="screen"]')), "");
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART418_S5_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };

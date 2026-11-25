@@ -1842,6 +1842,13 @@ export const WORDS = {
   "Watch this before you sign in. It shows the welcome email, your PIN and your first sign-in.": "Vea esto antes de iniciar sesi\u00f3n. Muestra el correo de bienvenida, su PIN y su primer inicio de sesi\u00f3n.",
   "Pick your language": "Elija su idioma",
   "The setup video did not load. Try again.": "El video de configuraci\u00f3n no se carg\u00f3. Intente de nuevo.",
+  // Part 418 (section 5): the training site.
+  "{brand} Training": "Capacitaci\u00f3n {brand}",
+  "You were signed out after 10 minutes with nothing done. Sign in again to go on.": "Se cerr\u00f3 su sesi\u00f3n despu\u00e9s de 10 minutos sin actividad. Inicie sesi\u00f3n de nuevo para continuar.",
+  "Are you still here?": "\u00bfSigue aqu\u00ed?",
+  "For your safety on a shared computer, you will be signed out in {n} seconds.": "Por su seguridad en una computadora compartida, su sesi\u00f3n se cerrar\u00e1 en {n} segundos.",
+  "Keep working": "Seguir trabajando",
+  "You finished every chapter.": "Termin\u00f3 todos los cap\u00edtulos.",
   },
 };
 
@@ -3560,6 +3567,13 @@ WORDS.fr = {
   "Watch this before you sign in. It shows the welcome email, your PIN and your first sign-in.": "Regardez ceci avant de vous connecter. On y voit le courriel de bienvenue, votre code PIN et votre premi\u00e8re connexion.",
   "Pick your language": "Choisissez votre langue",
   "The setup video did not load. Try again.": "La vid\u00e9o de configuration ne s'est pas charg\u00e9e. R\u00e9essayez.",
+  // Part 418 (section 5): the training site.
+  "{brand} Training": "Formation {brand}",
+  "You were signed out after 10 minutes with nothing done. Sign in again to go on.": "Vous avez \u00e9t\u00e9 d\u00e9connect\u00e9 apr\u00e8s 10 minutes sans activit\u00e9. Reconnectez-vous pour continuer.",
+  "Are you still here?": "\u00cates-vous toujours l\u00e0\u00a0?",
+  "For your safety on a shared computer, you will be signed out in {n} seconds.": "Pour votre s\u00e9curit\u00e9 sur un ordinateur partag\u00e9, vous serez d\u00e9connect\u00e9 dans {n} secondes.",
+  "Keep working": "Continuer \u00e0 travailler",
+  "You finished every chapter.": "Vous avez termin\u00e9 tous les chapitres.",
 };
 
 // {name} is replaced after the language is chosen, so the

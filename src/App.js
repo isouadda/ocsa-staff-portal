@@ -2727,7 +2727,235 @@ export class LastResort extends Component {
   }
 }
 
-export default function OCSAStaffPortal() {
+// ------------------------------------------------------------
+// The training site (part 418, section 5; ocsa-api Round 20, part 415,
+// section 7): training.ocsaco.com is this same build on a second
+// address, for new hires on an office computer. It is chosen by the host
+// name starting with training., or by ?site=training for local work and
+// previews (kept for the tab; ?site=staff leaves it). Sign-in carries
+// app: "training" on POST /api/auth/login and on the second step, for a
+// token of 2 hours, renewed with POST /api/auth/renew while the person
+// is active; after 10 idle minutes on this computer's own clock, with a
+// warning a minute before, it signs out. The token lives in this tab
+// alone and nothing about the person stays on the computer after
+// sign-out: no stay signed in, no badge kept, no device remembered for
+// the code. Only training shows: My Training, courses, the player,
+// certificates and the language; no bottom bar, no other place. At 900
+// pixels and wider a course and its chapters sit on the left and the
+// player on the right. Links in training mails and notices stay the
+// staff app's (the API writes them).
+// ------------------------------------------------------------
+const TRAINING_SITE_KEY = "ocsa-site";
+const TRAINING_AUTH_KEY = "ocsa-training-auth";
+function readTrainingSite() {
+  try {
+    if (String(window.location.hostname || "").toLowerCase().indexOf("training.") === 0) return true;
+    const asked = new URLSearchParams(window.location.search || "").get("site");
+    if (asked === "training") { sessionSet(TRAINING_SITE_KEY, "training"); return true; }
+    if (asked === "staff") { sessionDrop(TRAINING_SITE_KEY); return false; }
+    return sessionGet(TRAINING_SITE_KEY) === "training";
+  } catch (e) { return false; }
+}
+const TRAINING_SITE = readTrainingSite();
+const TRAINING_IDLE_MS = 10 * 60 * 1000;
+const TRAINING_WARN_MS = 60 * 1000;
+const TRAINING_RENEW_MS = 15 * 60 * 1000;
+const TRAINING_WIDE_PX = 900;
+const TRAINING_ACTIVITY = ["pointerdown", "keydown", "wheel", "touchstart", "scroll"];
+const trainingAuthRead = () => { try { const p = JSON.parse(sessionGet(TRAINING_AUTH_KEY) || "null"); return p && typeof p.token === "string" && p.token ? p : null; } catch (e) { return null; } };
+const trainingAuthSave = (tok) => sessionSet(TRAINING_AUTH_KEY, JSON.stringify({ token: tok, savedAt: Date.now() }));
+const trainingAuthDrop = () => sessionDrop(TRAINING_AUTH_KEY);
+const isWide = () => { try { return window.innerWidth >= TRAINING_WIDE_PX; } catch (e) { return false; } };
+
+function TrainingSiteApp() {
+  const [themeMode, setThemeMode] = useState(firstTheme);
+  const t = themeMode === "light" ? LIGHT : DARK;
+  // The language and the text size are this visit's own: nothing is kept.
+  const [language, setLanguage] = useState(firstLanguage);
+  const [languages, setLanguages] = useState(offeredLanguages);
+  useEffect(() => {
+    let alive = true;
+    askLanguages().then((list) => { if (!alive || list === undefined) return; setLanguages(offeredLanguages()); setLanguage(prev => (isOffered(prev) ? prev : firstLanguage())); });
+    return () => { alive = false; };
+  }, []);
+  setWordsLanguage(language);
+  const [textSize, setTextSize] = useState(readTextSize);
+  const zoom = zoomOf(textSize);
+  const [token, setToken] = useState(() => { const a = trainingAuthRead(); return a ? a.token : null; });
+  const [user, setUser] = useState(null);
+  const [stage, setStage] = useState(() => (trainingAuthRead() ? "boot" : "login"));
+  const [loading, setLoading] = useState(false);
+  const [fault, setFault] = useState(null);
+  const [step, setStep] = useState(null);
+  const [codeFault, setCodeFault] = useState(null);
+  const [note, setNote] = useState(null);
+  const [training, setTraining] = useState(null);
+  const [trainingAt, setTrainingAt] = useState(null);
+  const [warnLeft, setWarnLeft] = useState(null);
+  const [wide, setWide] = useState(isWide);
+  const lastActive = useRef(Date.now());
+  const renewing = useRef(false);
+  const busy = useRef(false);
+  useEffect(() => {
+    try { document.documentElement.lang = language; document.title = tr("{brand} Training", { brand: clientConfig.company.brandTag }); } catch (e) {}
+  }, [language]);
+  useEffect(() => {
+    try { const meta = document.querySelector('meta[name="theme-color"]'); if (meta) meta.setAttribute("content", t.headerBg); document.body.style.background = t.bg; } catch (e) {}
+  }, [t]);
+  useEffect(() => {
+    const onSize = () => setWide(isWide());
+    window.addEventListener("resize", onSize);
+    return () => window.removeEventListener("resize", onSize);
+  }, []);
+  // Signing out forgets everything of the person on this computer.
+  const signOut = useCallback((why) => {
+    trainingAuthDrop();
+    setToken(null); setUser(null); setTraining(null); setTrainingAt(null); setStep(null); setCodeFault(null); setFault(null); setWarnLeft(null);
+    setNote(why || null); setStage("login");
+    try { const a = playerVoice(); if (a) a.pause(); } catch (e) {}
+    try { window.history.replaceState({}, "", window.location.pathname === "/" ? "/" : "/"); } catch (e) {}
+  }, []);
+  const enter = async (tok) => {
+    const me = await api("/api/auth/me", { token: tok });
+    setUser(me.user);
+    lastActive.current = Date.now();
+    setStage(me.mustSetPin === true ? "setpin" : "main");
+  };
+  useEffect(() => {
+    if (stage !== "boot" || !token) return;
+    renewToken(token).then((r) => {
+      if (r && r.expired) { signOut(); return null; }
+      if (r && r.mustSetPin) { setStage("setpin"); return null; }
+      const use = r && r.token ? r.token : token;
+      if (use !== token) { trainingAuthSave(use); setToken(use); }
+      return enter(use);
+    }).catch(() => signOut());
+  }, [stage]);
+  useEffect(() => {
+    const expired = () => signOut();
+    window.addEventListener("ocsa-session-expired", expired);
+    return () => window.removeEventListener("ocsa-session-expired", expired);
+  }, [signOut]);
+  const refused = (err) => {
+    const said = err && err.body && err.body.error ? String(err.body.error) : "";
+    const code = err && err.code ? String(err.code) : "";
+    const own = ownRefusal(code, err && err.body);
+    return { text: own ? tr(own) : !said && wentNowhere(err) ? tr(ERR_OFFLINE) : said ? tr(said) : tr("That sign-in did not match. Check your badge, phone or email and your PIN."), lock: code === "auth.locked" };
+  };
+  const handleLogin = async (phone, pin) => {
+    if (busy.current) return;
+    busy.current = true; setLoading(true); setFault(null); setNote(null);
+    try {
+      const data = await api(signedOut("/api/auth/login", language), { method: "POST", body: { phone, pin, deviceId: deviceId(), app: "training" }, noAuthEvent: true });
+      if (data && data.secondStep === true && data.challengeId) { setCodeFault(null); setStep({ challengeId: String(data.challengeId), emailHint: typeof data.emailHint === "string" ? data.emailHint : "", sentAt: Date.now() }); return; }
+      trainingAuthSave(data.token); setToken(data.token);
+      await enter(data.token);
+    } catch (err) { setFault(refused(err)); }
+    finally { busy.current = false; setLoading(false); }
+  };
+  // The code screen: this computer is never remembered.
+  const handleCode = async (code) => {
+    if (!step || busy.current) return;
+    busy.current = true; setLoading(true); setCodeFault(null);
+    try {
+      const data = await api(signedOut("/api/auth/second-step", language), { method: "POST", body: { challengeId: step.challengeId, code: code, deviceId: deviceId(), rememberDevice: false, app: "training" }, noAuthEvent: true });
+      setStep(null); trainingAuthSave(data.token); setToken(data.token);
+      await enter(data.token);
+    } catch (err) {
+      const c = err && err.code ? String(err.code) : "";
+      if (c === "auth.codeExpired" || c === "auth.codeTooMany" || c === "auth.sendLimit") { setStep(null); setFault(refused(err)); }
+      else { const left = c === "auth.codeWrong" && err.body ? Number(err.body.attemptsLeft) : NaN; setCodeFault({ text: refused(err).text, left: Number.isFinite(left) ? left : null }); }
+    } finally { busy.current = false; setLoading(false); }
+  };
+  const handleResend = async () => {
+    if (!step || busy.current) return;
+    try { await api(signedOut("/api/auth/second-step/resend", language), { method: "POST", body: { challengeId: step.challengeId }, noAuthEvent: true }); setStep(prev => (prev ? { ...prev, sentAt: Date.now() } : prev)); }
+    catch (err) { setCodeFault({ text: refused(err).text, left: null }); }
+  };
+  // Activity keeps the session: the idle clock starts over, the warning
+  // closes, and a token older than 15 minutes is renewed.
+  useEffect(() => {
+    if (stage !== "main") return undefined;
+    const seen = () => { lastActive.current = Date.now(); };
+    TRAINING_ACTIVITY.forEach(ev => window.addEventListener(ev, seen, { passive: true, capture: true }));
+    const tick = setInterval(() => {
+      const idle = Date.now() - lastActive.current;
+      if (idle >= TRAINING_IDLE_MS) { signOut(tr("You were signed out after 10 minutes with nothing done. Sign in again to go on.")); return; }
+      setWarnLeft(idle >= TRAINING_IDLE_MS - TRAINING_WARN_MS ? Math.max(1, Math.ceil((TRAINING_IDLE_MS - idle) / 1000)) : null);
+      const held = trainingAuthRead();
+      if (held && idle < TRAINING_WARN_MS && Date.now() - Number(held.savedAt || 0) >= TRAINING_RENEW_MS && !renewing.current) {
+        renewing.current = true;
+        renewToken(held.token).then((r) => {
+          renewing.current = false;
+          if (r && r.token) { trainingAuthSave(r.token); setToken(r.token); }
+          else if (r && r.expired) signOut();
+        });
+      }
+    }, 1000);
+    return () => { clearInterval(tick); TRAINING_ACTIVITY.forEach(ev => window.removeEventListener(ev, seen, { capture: true })); };
+  }, [stage, signOut]);
+  const showToast = (msg) => setNote(msg);
+  const pick = (code) => { setLanguage(code); };
+  let body = null;
+  if (stage === "boot") body = <BootSplash t={t} themeMode={themeMode} fault={null} onRetry={() => {}} />;
+  else if (stage === "login") body = (
+    <div data-training-site="signin">
+      {note && <div role="status" data-training-site-note="1" style={{ maxWidth: 420, margin: "16px auto 0", padding: "10px 14px", borderRadius: R.md, background: t.goldBg, border: "1px solid " + t.goldBorder, color: t.text, fontSize: 14, lineHeight: 1.45 }}>{note}</div>}
+      <LoginScreen site="training" onLogin={handleLogin} onGoForgot={() => setStage("forgot")} loading={loading} fault={fault} onTyped={() => { if (fault) setFault(null); }} step={step} codeFault={codeFault} onCode={handleCode} onResend={handleResend} onBackToPin={() => { setStep(null); setCodeFault(null); }} showToast={showToast} t={t} toggleTheme={() => setThemeMode(m => (m === "dark" ? "light" : "dark"))} themeMode={themeMode} />
+    </div>
+  );
+  else if (stage === "forgot") body = <ForgotScreen onGoLogin={() => setStage("login")} showToast={showToast} t={t} />;
+  else if (stage === "setpin") body = <SetPinScreen token={token} user={user} onDone={(d) => { const fresh = d && typeof d.token === "string" && d.token ? d.token : null; if (fresh) { trainingAuthSave(fresh); setToken(fresh); } enter(fresh || token).catch(() => signOut()); }} onSignOut={() => signOut()} showToast={showToast} t={t} />;
+  else if (stage === "main") body = (
+    <div data-training-site="main" data-training-site-wide={wide ? "1" : "0"} style={{ minHeight: "var(--ocsa-vh)", display: "flex", flexDirection: "column" }}>
+      <div style={{ background: NAVY, borderBottom: "3px solid " + GOLD, padding: "10px 16px" }}>
+        <div style={{ maxWidth: 1280, margin: "0 auto", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ flexShrink: 0, padding: "6px 10px", background: "rgba(255,255,255,0.95)", borderRadius: R.md }}><img src={LOGO_SM} alt={clientConfig.company.shortName} style={{ display: "block", height: 28, maxWidth: 140, objectFit: "contain" }} /></div>
+          <div role="heading" aria-level={1} style={{ flex: "1 1 auto", minWidth: 0, fontSize: 18, fontWeight: 700, color: "#FFFFFF", fontFamily: FONT_HEAD }}>{tr("Training")}</div>
+          <div role="group" aria-label={tr("Language")} data-training-site-languages="1" style={{ display: "inline-flex", padding: 3, gap: 3, borderRadius: R.md, background: "rgba(255,255,255,0.12)" }}>
+            {languages.map(code => <button key={code} type="button" lang={code} aria-pressed={language === code} data-training-site-language={code} onClick={() => pick(code)} style={{ minHeight: 36, minWidth: TAP, padding: "0 12px", borderRadius: R.sm, border: "none", cursor: "pointer", fontSize: 14, fontWeight: 700, fontFamily: FONT_HEAD, background: language === code ? "#FFFFFF" : "transparent", color: language === code ? NAVY : "#FFFFFF" }}>{LANGUAGE_NAMES[code]}</button>)}
+          </div>
+          <div aria-hidden="true" style={{ width: 38, height: 38, borderRadius: "50%", background: "#FFFFFF", color: NAVY, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, fontFamily: FONT_HEAD, flexShrink: 0 }}>{user && user.firstName ? user.firstName[0] : ""}{user && user.lastName ? user.lastName[0] : ""}</div>
+          <button type="button" data-training-site-sign-out="1" onClick={() => signOut()} aria-label={tr("Sign out")} style={mkTapFrame({ background: "rgba(255,255,255,0.12)", borderRadius: R.sm })}><LogOutIco sz={18} c="#FFFFFF" /></button>
+        </div>
+      </div>
+      <div className="sp-content" style={{ width: "100%", maxWidth: wide ? 1280 : 960, margin: "0 auto", flex: 1 }}>
+        <TrainingView token={token} data={training} onData={setTraining} at={trainingAt} onAt={setTrainingAt} shiftSiteId={null} wide={wide} t={t} />
+      </div>
+      {warnLeft !== null && (
+        // The training site's own dialog, outside the staff app's sweep of
+        // sheets; the trainingidle journey drives it.
+        <div role="alertdialog" aria-modal="true" aria-labelledby="ocsa-idle-title" data-training-site-idle={warnLeft} style={{ position: "fixed", inset: 0, zIndex: 2000, background: t.modalOverlay, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div style={{ width: "100%", maxWidth: 420, background: t.card, borderRadius: R.lg, padding: "22px 20px", boxShadow: t.popShadow, border: "1px solid " + t.border }}>
+            <div id="ocsa-idle-title" role="heading" aria-level={2} style={{ fontSize: 18, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{tr("Are you still here?")}</div>
+            <div style={{ fontSize: 15, color: t.textSec, marginTop: 8, lineHeight: 1.5 }}>{tr("For your safety on a shared computer, you will be signed out in {n} seconds.", { n: warnLeft })}</div>
+            <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
+              <button type="button" data-training-site-keep="1" onClick={() => { lastActive.current = Date.now(); setWarnLeft(null); }} style={wsMainBtn(t, false)}>{tr("Keep working")}</button>
+              <button type="button" onClick={() => signOut()} style={wsPlainBtn(t)}>{tr("Sign out")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+  return (
+    <TextSizeCtx.Provider value={{ textSize, setTextSize }}>
+    <LanguageCtx.Provider value={{ language, setLanguage, languages }}>
+    <div data-training-site-root="1" style={{ width: "100%", minHeight: "var(--ocsa-vh)", background: t.bg, fontFamily: FONT_BODY, color: t.text, zoom: zoom, ...viewportVars(zoom), "--ocsa-bar": "0px" }}>
+      <style>{"* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; } html { -webkit-text-size-adjust: 100%; } input::placeholder { color: " + t.textMut + "; }"}</style>
+      {body}
+    </div>
+    </LanguageCtx.Provider>
+    </TextSizeCtx.Provider>
+  );
+}
+
+// The staff app, or the training site on its own address.
+export default function PortalRoot() {
+  return TRAINING_SITE ? <TrainingSiteApp /> : <OCSAStaffPortal />;
+}
+
+function OCSAStaffPortal() {
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
   const [sites, setSites] = useState([]);
@@ -5263,7 +5491,7 @@ function LoginScreen({ onSetup, site, onLogin, onGoRegister, onGoForgot, loading
     const iv = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(iv);
   }, [step ? step.sentAt : null]);
-  const verify = (v) => { const c = String(v || "").replace(/\D/g, "").slice(0, 6); if (c.length === 6 && !loading) onCode(c, remember); };
+  const verify = (v) => { const c = String(v || "").replace(/\D/g, "").slice(0, 6); if (c.length === 6 && !loading) onCode(c, site === "training" ? false : remember); };
   // App support's contact (Step 290), read with no token from GET
   // /api/support/contact; the line under Sign In shows only once it
   // answers an email.
@@ -5281,7 +5509,7 @@ function LoginScreen({ onSetup, site, onLogin, onGoRegister, onGoForgot, loading
   const logo = (
     <div style={{ textAlign: "center", marginBottom: step ? 24 : 40 }}>
       <div style={{ display: "inline-block", maxWidth: "100%", boxSizing: "border-box", padding: themeMode === "dark" ? "12px 20px" : "0", background: themeMode === "dark" ? "rgba(255,255,255,0.95)" : "transparent", borderRadius: 12 }}><img src={LOGO_LG} alt={clientConfig.company.shortName} style={{ height: 70, maxWidth: "100%", objectFit: "contain" }} /></div>
-      <div style={{ fontSize: 11, color: t.textMut, marginTop: 16, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD, fontWeight: 600 }}>{tr("Staff Operations Portal")}</div>
+      <div style={{ fontSize: 11, color: t.textMut, marginTop: 16, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD, fontWeight: 600 }}>{site === "training" ? tr("Training") : tr("Staff Operations Portal")}</div>
     </div>
   );
   if (step) return (
@@ -5294,10 +5522,10 @@ function LoginScreen({ onSetup, site, onLogin, onGoRegister, onGoForgot, loading
           {codeFault && <div role="alert" style={errSt}>{codeFault.text}</div>}
           {codeFault && codeFault.left !== null && <div style={errSt}>{codeFault.left === 1 ? tr("1 try left") : tr("{n} tries left", { n: codeFault.left })}</div>}
         </div>
-        <button type="button" role="checkbox" aria-checked={remember} onClick={() => setRemember(v => !v)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: TAP, marginBottom: 16, padding: "0 2px", background: "none", border: "none", cursor: "pointer", fontSize: 13, color: t.text, lineHeight: 1.4, textAlign: "left", fontFamily: FONT_BODY }}>
+        {site !== "training" && <button type="button" role="checkbox" aria-checked={remember} onClick={() => setRemember(v => !v)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: TAP, marginBottom: 16, padding: "0 2px", background: "none", border: "none", cursor: "pointer", fontSize: 13, color: t.text, lineHeight: 1.4, textAlign: "left", fontFamily: FONT_BODY }}>
           <span aria-hidden="true" style={{ width: 20, height: 20, flexShrink: 0, borderRadius: R.sm, border: "2px solid " + (remember ? GOLD : t.textMut), background: remember ? GOLD : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{remember && <CheckIco sz={12} c={NAVY} />}</span>
           <span style={{ minWidth: 0 }}>{tr("Remember this device for 30 days")}</span>
-        </button>
+        </button>}
         <button onClick={() => verify(code)} disabled={loading || code.length !== 6} style={{ width: "100%", minHeight: TAP, padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", opacity: loading || code.length !== 6 ? 0.6 : 1, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Signing in...") : tr("Verify")}</button>
         <button onClick={onResend} disabled={wait > 0 || loading} style={{ ...mkGhostBtn(t), opacity: wait > 0 ? 0.6 : 1, cursor: wait > 0 ? "default" : "pointer", fontVariantNumeric: "tabular-nums" }}>{tr("Send a new code")}{wait > 0 ? " (" + wait + ")" : ""}</button>
         <button onClick={onBackToPin} disabled={loading} style={mkGhostBtn(t)}>{tr("Back")}</button>
@@ -5310,7 +5538,7 @@ function LoginScreen({ onSetup, site, onLogin, onGoRegister, onGoForgot, loading
         <div style={{ textAlign: "center", marginBottom: 40 }}>
           <div style={{ display: "inline-block", maxWidth: "100%", boxSizing: "border-box", padding: themeMode === "dark" ? "12px 20px" : "0", background: themeMode === "dark" ? "rgba(255,255,255,0.95)" : "transparent", borderRadius: 12 }}><img src={LOGO_LG} alt={clientConfig.company.shortName} style={{ height: 70, maxWidth: "100%", objectFit: "contain" }} /></div>
           
-          <div style={{ fontSize: 11, color: t.textMut, marginTop: 16, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD, fontWeight: 600 }}>{tr("Staff Operations Portal")}</div>
+          <div style={{ fontSize: 11, color: t.textMut, marginTop: 16, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD, fontWeight: 600 }}>{site === "training" ? tr("Training") : tr("Staff Operations Portal")}</div>
         </div>
         <div style={{ marginBottom: 16 }}><label style={labelSt}>{tr("Badge Number, Phone or Email")}</label><input value={phone} onChange={e => { setPhone(e.target.value); onTyped(); }} placeholder={tr("9001, 2155550101 or name@email.com")} autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} style={inputSt} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} /></div>
         {/* The refusal sits under the PIN box until the person types again:
@@ -5319,7 +5547,7 @@ function LoginScreen({ onSetup, site, onLogin, onGoRegister, onGoForgot, loading
         <div style={{ marginBottom: 8 }}><label style={labelSt}>{tr("PIN")}</label><input value={pin} onChange={e => { setPin(e.target.value); onTyped(); }} placeholder={tr("4-digit PIN")} type="password" inputMode="numeric" pattern="[0-9]*" autoComplete="off" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} />{fault && <div role="alert" style={errSt}>{fault.text}</div>}{fault && fault.lock && <div style={errSt}>{tr("After too many wrong tries, sign-in stops for a while. Ask your supervisor for help.")}</div>}</div>
         <div style={{ textAlign: "right", marginBottom: 24 }}><button onClick={onGoForgot} style={{ background: "none", border: "none", minHeight: TAP, padding: "4px 0", color: t.textSec, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>{tr("Forgot your PIN?")}</button></div>
         <button onClick={() => onLogin(phone, pin)} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", opacity: loading ? 0.6 : 1, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Signing in...") : tr("Sign In")}</button>
-        <button onClick={onGoRegister} style={mkGhostBtn(t)}>{tr("New Employee? Register Here")}</button>
+        {onGoRegister && <button onClick={onGoRegister} style={mkGhostBtn(t)}>{tr("New Employee? Register Here")}</button>}
         {onSetup && <button type="button" data-setup-link="1" onClick={onSetup} style={{ ...mkGhostBtn(t), display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><PlayIco sz={14} c={t.goldText} />{tr("New here? Watch how to set up your account")}</button>}
         {cantSignIn}
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 20 }}><button onClick={toggleTheme} style={mkTapFrame()}><span style={mkSmallPill(t)}>{themeMode === "dark" ? <SunIco sz={14} c={t.textMut} /> : <MoonIco sz={14} c={t.textMut} />}{themeMode === "dark" ? tr("Light Mode") : tr("Dark Mode")}</span></button><TextSizeButton t={t} /><LanguageButton t={t} /></div>
@@ -12186,11 +12414,22 @@ function CoursePage({ token, course: first, onBack, onPlay, onCertificate, playi
       <button type="button" data-course-next={next.topicId} onClick={() => go(next)} style={{ ...trainingGoldBtn, width: "100%", minHeight: 52, fontSize: 16, gap: 10 }}><PlayIco sz={14} c={NAVY} /><span style={{ overflowWrap: "anywhere" }}>{next.status === "inProgress" || next.attemptId ? tr("Continue: {name}", { name: next.name }) : tr("Start: {name}", { name: next.name })}</span></button>
     </div>
   );
-  if (wide && playing) {
+  if (wide) {
+    const panel = playing ? playing.node : (
+      <div data-course-panel="1" style={{ ...fkRowSt(t), padding: "28px 24px", borderRadius: R.lg, textAlign: "center" }}>
+        {next && playable(next) ? (
+          <div>
+            <div style={mkLabel(t)}>{tr("Up next")}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{next.name}</div>
+            <button type="button" data-course-next={next.topicId} onClick={() => go(next)} style={{ ...trainingGoldBtn, minHeight: 52, fontSize: 16, gap: 10, margin: "18px auto 0" }}><PlayIco sz={14} c={NAVY} />{next.status === "inProgress" || next.attemptId ? tr("Continue: {name}", { name: next.name }) : tr("Start: {name}", { name: next.name })}</button>
+          </div>
+        ) : <div style={{ fontSize: 16, color: t.textSec }}>{course.status === "complete" ? tr("You finished every chapter.") : tr("Your trainer goes over this one with you.")}</div>}
+      </div>
+    );
     return (
-      <div data-course-page={course.id} data-course-wide="1" style={{ padding: "20px 24px 40px", display: "grid", gridTemplateColumns: "minmax(260px, 320px) 1fr", gap: 24, alignItems: "start" }}>
+      <div data-course-page={course.id} data-course-wide="1" style={{ padding: "20px 24px 40px", display: "grid", gridTemplateColumns: "minmax(260px, 340px) minmax(0, 1fr)", gap: 24, alignItems: "start" }}>
         <div style={{ ...fkRowSt(t), padding: "16px 16px 8px", borderRadius: R.lg }}>{headPart}{list}</div>
-        <div style={{ minWidth: 0 }}>{playing.node}</div>
+        <div data-course-player-side="1" style={{ minWidth: 0, background: t.card, borderRadius: R.lg, border: "1px solid " + t.border }}>{panel}</div>
       </div>
     );
   }
@@ -12841,7 +13080,7 @@ function CoursePlayer({ token, versionId, review: askedReview, publicSetup, cour
   );
 }
 
-function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
+function TrainingView({ token, data, onData, at, onAt, shiftSiteId, wide, t }) {
   // Read again each time the screen opens, and each time a lesson is
   // left; a read that fails keeps what is on the screen and says so,
   // with Try again.
@@ -12971,7 +13210,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
     const closePlayer = () => { try { if (window.history.state && window.history.state.trainingPlayer) { window.history.back(); return; } } catch (e) {} setPlaying(null); setCourseReread(n => n + 1); };
     const playerNode = playing ? <CoursePlayer key={playing.versionId + ":" + playing.opened} token={token} versionId={playing.versionId} review={playing.review} course={playing.course} chapter={playing.ch} backLabel={coursePage.name} onBack={closePlayer} onNext={(c, ch) => playChapter(c, ch, false)} t={t} /> : null;
     const openCert = (id) => { openApiPdf(certPdfPath(id), "certificate.pdf", token).catch(() => openCerts(id)); };
-    return <CoursePage key={coursePage.id} token={token} course={coursePage} onBack={() => { closeCourse(); setAsked(n => n + 1); }} onPlay={playChapter} onCertificate={openCert} playing={playing ? { topicId: playing.ch.topicId, node: playerNode } : null} reread={courseReread} t={t} />;
+    return <CoursePage key={coursePage.id} token={token} course={coursePage} onBack={() => { closeCourse(); setAsked(n => n + 1); }} onPlay={playChapter} onCertificate={openCert} playing={playing ? { topicId: playing.ch.topicId, node: playerNode } : null} reread={courseReread} wide={!!wide} t={t} />;
   }
   if (certsPage) return <CertificatesPage token={token} focus={certsPage.focus} onBack={() => { closeCerts(); setAsked(n => n + 1); }} t={t} />;
   const coursesPart = <CoursesPart courses={courses} certs={certs} pickup={pickup ? { ...pickup, share: pickupShare } : null} onCourse={openCourse} onChapter={(c, ch) => { openCourse(c); playChapter(c, ch, false); }} onCertificates={() => openCerts("")} t={t} />;

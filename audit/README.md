@@ -2551,7 +2551,7 @@ Three journeys, in English and Spanish, each failing on the main of part
 `/setup`, from the welcome email and from the sign-in screen's **New here?
 Watch how to set up your account**, needs no sign-in. It reads `GET
 /api/public/training/setup?locale=en|es` and draws the chapter's name as
-the API stores it, its steps, one line, **English** and **Español**,
+the API stores it, its steps, one line, **English** and **Espanol**,
 **Start the video** and **I already have an account. Sign in.**; the
 chapter plays in the player as a review, its checks through `POST
 /api/public/training/setup/checks/:key` with no token, and ends on **Sign
@@ -2563,6 +2563,28 @@ Three journeys, in English and Spanish, each failing on the main of part
 played through with a wrong answer watched again, no token and nothing
 written, Sign in at the end), `setupnone` (the 404 and the 429), and
 `setuplink` (the sign-in screen's link and the phone's back).
+
+## The training site (part 418, section 5)
+
+The same build serves training.ocsaco.com: a host name starting with
+`training.`, or `?site=training` for local work and previews (kept for
+the tab; `?site=staff` leaves it). Sign-in sends `app: "training"` on
+`POST /api/auth/login` and on the second step, whose code screen never
+remembers the computer; the token lives in the tab's own storage and is
+renewed with `POST /api/auth/renew` while the person is active; after 10
+idle minutes on the computer's own clock, warned a minute before, it signs
+out and says why. Only training shows: a header with Training, the
+language and Sign out, then My Training, courses, the player and
+certificates, with no bottom bar. At 900 pixels and wider a course's
+chapters sit on the left and the player, or the next chapter's button,
+on the right. The idle warning is the training site's own dialog, drawn
+with `inset: 0`, outside the staff app's sweep of sheets.
+
+Three journeys, in English and Spanish, each failing on the main of part
+414: `trainingsite` (the two sign-ins, only training, the token in the tab
+alone and nothing kept after sign-out), `trainingidle` (the warning, Keep
+working, renewal while active, and the idle sign-out) and
+`trainingdesktop` (1280 wide, then 390).
 
 ## Known failures
 
