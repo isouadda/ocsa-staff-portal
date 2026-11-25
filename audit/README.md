@@ -2586,6 +2586,28 @@ alone and nothing kept after sign-out), `trainingidle` (the warning, Keep
 working, renewal while active, and the idle sign-out) and
 `trainingdesktop` (1280 wide, then 390).
 
+## What API Round 21 gave the staff app (part 418, section 6)
+
+From ocsa-api Round 21 (part 416, isouadda/ocsa-api#171, "For the staff
+app"): the time off form shows the preview's `notice.insideNoticeText`
+before the request is sent, and the refusal's notice keeps it, with no
+sentence of the app's own anywhere; the shout-out picker reads `GET
+/api/recognition/shoutouts/people` page by page in place of each site's
+staff and posts with one of the person's `sites[].id`; leave shows
+`person.leaveClassText`; a shout-out taken down twice reads 409
+`recognition.shoutoutAlreadyRemoved` in the API's words and leaves the
+list; and the Employee of the Month certificate names `?locale=` in its
+path. The stub answers each (`R418_CLASS_TEXT`, `peoplePage`,
+`removedElsewhere`, the notice's words on the preview and the refusal).
+Part 414's `leaveclassline` and `shoutoutspost` now read the API's line and
+the people route.
+
+Five journeys, in English and Spanish: `insidenoticeform`,
+`shoutoutpeople`, `shoutoutgone` and `leaveclasstext` fail on the main of
+part 414. `awardcertlocale` passes there too: every request already asks
+in the screen's language (`inScreenLanguage`), so the certificate was
+already drawn in it; the journey holds it.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

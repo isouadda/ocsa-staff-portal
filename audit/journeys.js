@@ -12190,7 +12190,9 @@ const PART414_S3_JOURNEYS = [
       const sup = await open({ stubOptions: { person: r414Sup("u-414-sup"), recognition: { award: false, shoutouts: 2, staffAt: true } } });
       try {
         const formUp = await r414Give(sup.page);
-        expect("Give a shout-out opens the form with the people at the supervisor's sites", formUp && sent(sup.stub, "GET", "/api/sites/").length >= 3, "reads " + sent(sup.stub, "GET", "/api/sites/").length);
+        // Part 418 (section 6.2): the people come from GET
+        // /api/recognition/shoutouts/people in place of each site's staff.
+        expect("Give a shout-out opens the form with the people at the supervisor's sites", formUp && sent(sup.stub, "GET", "/api/recognition/shoutouts/people").length >= 1, "reads " + sent(sup.stub, "GET", "/api/recognition/shoutouts/people").length);
         await r414PickAna(sup.page);
         const site = await sup.page.evaluate(() => { const e = document.querySelector("#ocsa-shout-site"); return e ? e.value : null; });
         expect("the one site the two share is chosen", site === "site-north", String(site));
@@ -12342,7 +12344,8 @@ const PART414_S4_JOURNEYS = [
         const union = require("./stub").R15_LINES.find(l => l.kind === "paid_sick" && l.classes.indexOf("union") !== -1);
         expect("the sick balance's line is the union rule's, as the balance answers it", line === (language === "es" ? union.es : union.en), line.slice(0, 160));
         const cls = await app.page.evaluate(() => { const d = document.querySelector("[data-leave-class-line]"); return d ? d.innerText.trim() : ""; });
-        expect("the class the person's time off follows: staff at a union site", cls === say("Your time off follows the rules for staff at a union site.", language), cls);
+        // Part 418 (section 6.3): the line is the API's (leaveClassText).
+        expect("the class the person's time off follows: staff at a union site", cls === require("./stub").R418_CLASS_TEXT.union[language === "es" ? "es" : "en"], cls);
         const not = await app.page.evaluate(() => { const d = document.querySelector('[data-leave-notoffered="unionSite"]'); return d ? d.innerText.replace(/\s+/g, " ").trim() : ""; });
         expect("the kinds not offered, by name, with the API's reason", has(not, servedIn("Vacation", language)) && has(not, require("./stub").R15_WORDS["timeOff.notOffered.unionSite"][language === "es" ? "es" : "en"]), not);
         await spokenHere(app, language, expect);
@@ -13091,5 +13094,122 @@ const PART418_S5_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...PART418_S5_JOURNEYS);
+
+// --- Round 18 of the staff app (part 418), section 6 ----------------------
+//
+// What ocsa-api Round 21 (part 416, #171) gave the staff app.
+// A site's own read, GET /api/sites/:id, which the picker read before.
+const r418SiteReads = (stub) => stub.state.calls.filter(c => c.method === "GET" && /^\/api\/sites\/[^/]+$/.test(c.path)).length;
+const PART418_S6_JOURNEYS = [
+  {
+    id: "insidenoticeform",
+    label: "The notice line before sending (part 418, 6.1): the preview's notice.insideNoticeText shows on the form before the request is sent, and the 400 refusal's notice keeps it; a request with no line from the API shows none, never the app's own sentence",
+    run: async (open, language, expect) => {
+      const api = require("./stub").R15_INSIDE_TEXT[language === "es" ? "es" : "en"];
+      const app = await open({});
+      try {
+        await openOffForm(app, language);
+        await offPick(app, "vacation");
+        await offDays(app, "2026-10-05", "2026-10-06");
+        const up = await shows(app.page, '[data-timeoff-inside="form"]', 6000);
+        const line = up ? await r418Text(app.page, '[data-timeoff-inside="form"]') : "";
+        expect("before Send, the preview's line in the API's words", line === api && sent(app.stub, "POST", "/api/time-off/preview").length >= 1, line);
+        await clickText(app.page, say("Send request", language));
+        await offErrorShows(app.page, "reason", 6000);
+        const still = await r418Text(app.page, '[data-timeoff-inside="form"]');
+        expect("the refusal asking for a reason keeps the line from its notice", still === api, still);
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const held = timeOffRow({ id: "to-inside-none", status: "requested", leaveType: "vacation", leaveTypeLabel: "Vacation", startsOn: "2026-10-05", endsOn: "2026-10-06", insideNotice: true, insideNoticeText: null, insideNoticeWords: null });
+      const mine = await open({ stubOptions: { myTimeOff: [held] } });
+      try {
+        await openTab(mine.page, "schedule", language);
+        await pause(mine.page, 2500);
+        expect("with no line from the API, none shows: the app's own sentence is gone", !(await r418Has(mine.page, '[data-timeoff-inside="row"]')) && !has(await bodyText(mine.page), say("Asked with less notice than the policy asks. The office decides it case by case.", "en")), "drawn");
+      } finally { await mine.context.close(); }
+    },
+  },
+  {
+    id: "shoutoutpeople",
+    label: "The shout-out picker (part 418, 6.2): GET /api/recognition/shoutouts/people read page by page in place of the per-site reads, searchable, and the post sent with one of the person's sites",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: Object.assign({}, PERSON, { id: "u-418-sup", role: "supervisor" }), recognition: { award: false, shoutouts: 1, peoplePage: 2 } } });
+      try {
+        const up = await r414Give(app.page);
+        await pause(app.page, 800);
+        expect("the picker reads the people route page by page and no site's staff", up && sent(app.stub, "GET", "/api/recognition/shoutouts/people").length === 2 && r418SiteReads(app.stub) === 0, JSON.stringify({ people: sent(app.stub, "GET", "/api/recognition/shoutouts/people").map(c => c.search), sites: r418SiteReads(app.stub) }));
+        await r414PickAna(app.page);
+        const site = await app.page.evaluate(() => { const e = document.querySelector("#ocsa-shout-site"); return e ? e.value : null; });
+        TYPED.add("Invented thanks for the clean lobby.");
+        await app.page.fill("#ocsa-shout-line", "Invented thanks for the clean lobby.", { timeout: 4000 }).catch(() => {});
+        await r414Click(app.page, "[data-shoutout-post]");
+        await pause(app.page, 1500);
+        const posts = sent(app.stub, "POST", "/api/recognition/shoutouts").filter(c => c.path === "/api/recognition/shoutouts");
+        expect("searched and picked, the shared site is chosen and the post names it", site === "site-north" && posts.length === 1 && posts[0].body.userId === "s-01" && posts[0].body.siteId === "site-north", JSON.stringify(posts.map(c => c.body)));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "shoutoutgone",
+    label: "A shout-out taken down twice (part 418, 6.4): 409 recognition.shoutoutAlreadyRemoved reads in the API's words and the shout-out leaves the list once the sheet closes",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: Object.assign({}, PERSON, { id: "u-418-gone", role: "supervisor" }), recognition: { award: false, shoutouts: 2 } } });
+      try {
+        await r414Give(app.page);
+        await r414PickAna(app.page);
+        TYPED.add("Invented thanks for the spotless windows.");
+        await app.page.fill("#ocsa-shout-line", "Invented thanks for the spotless windows.", { timeout: 4000 }).catch(() => {});
+        await r414Click(app.page, "[data-shoutout-post]");
+        await pause(app.page, 1500);
+        const rows = await r414Rows(app.page);
+        const mineId = rows.length ? rows[0].id : "";
+        app.stub.state.recognition.removedElsewhere = mineId;
+        await r414Click(app.page, '[data-shoutout-row="' + mineId + '"]');
+        await shows(app.page, "[data-shoutout-remove]", 6000);
+        await r414Click(app.page, "[data-shoutout-remove]");
+        await shows(app.page, "[data-shoutout-remove-ask]", 3000);
+        await r414Click(app.page, "[data-shoutout-remove-yes]");
+        const said = await shows(app.page, "[data-shoutout-remove-fault]", 4000);
+        const words = require("./stub").RECOG_REFUSALS["recognition.shoutoutAlreadyRemoved"];
+        const text = said ? await r418Text(app.page, "[data-shoutout-remove-fault]") : "";
+        expect("the API's words for a shout-out already taken down", text === (language === "es" ? words.es : words.en), text);
+        await spokenHere(app, language, expect);
+        await r414Click(app.page, '[data-sheet-close="ocsa-shoutout-sheet"]');
+        await pause(app.page, 800);
+        expect("closed, it leaves the list", !(await r414Rows(app.page)).some(r => r.id === mineId), JSON.stringify((await r414Rows(app.page)).map(r => r.id)));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "leaveclasstext",
+    label: "The leave class in the API's words (part 418, 6.3): My time off shows person.leaveClassText from GET /api/leave/me in place of the app's own sentences",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { employmentClass: "part_time" } });
+      try {
+        await openTab(app.page, "schedule", language);
+        const up = await shows(app.page, "[data-leave-class-line]", 8000);
+        const line = up ? await r418Text(app.page, "[data-leave-class-line]") : "";
+        expect("the class line is the API's", line === require("./stub").R418_CLASS_TEXT.part_time[language === "es" ? "es" : "en"], line);
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "awardcertlocale",
+    label: "The Employee of the Month certificate in the person's language (part 418, 6.5): See your certificate asks GET /api/recognition/awards/:id/certificate.pdf with ?locale= of the app's language",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { recognition: { award: "me" } } });
+      try {
+        await shows(app.page, '[data-certificate="' + R414_AWARD + '"]', 8000);
+        await r414Click(app.page, '[data-certificate="' + R414_AWARD + '"]');
+        await pause(app.page, 1200);
+        const reads = sent(app.stub, "GET", "/api/recognition/awards/" + R414_AWARD + "/certificate.pdf");
+        expect("the certificate is asked for in the app's language", reads.length === 1 && new RegExp("[?&]locale=" + language + "(&|$)").test(reads[0].search), JSON.stringify(reads.map(c => c.search)));
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART418_S6_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };

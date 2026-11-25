@@ -1397,6 +1397,16 @@ const R15_HOLIDAY_KEYS = { "2026-01-01": "newYear", "2026-01-19": "mlk", "2026-0
 // 410). The API's words are the staff app's own sentence of part 399; the
 // stub's add a few words of their own, so a journey can tell the API's
 // line from the app's.
+// Part 418 (ocsa-api Round 21, part 416, 4.3): the class's line in the
+// API's words (leave.classText.<class>), which the app draws in place of
+// its own; a few words of the stub's own tell it from the app's old line.
+const R418_CLASS_TEXT = {
+  full_time: { en: "Your time off follows the rules for full-time staff, the API says.", es: "Su tiempo libre sigue las reglas del personal de tiempo completo, dice la API." },
+  part_time: { en: "Your time off follows the rules for part-time staff, the API says.", es: "Su tiempo libre sigue las reglas del personal de medio tiempo, dice la API." },
+  supplemental: { en: "Your time off follows the rules for supplemental staff, the API says.", es: "Su tiempo libre sigue las reglas del personal suplementario, dice la API." },
+  union: { en: "Your time off follows the rules for staff at a union site, the API says.", es: "Su tiempo libre sigue las reglas del personal en un sitio sindicalizado, dice la API." },
+  none: { en: "Your employment class is not on file, the API says. The office has to set it.", es: "Su clase de empleo no est\u00e1 archivada, dice la API. La oficina tiene que fijarla." },
+};
 const R15_INSIDE_TEXT = { en: "Asked with less notice than the policy asks. The office decides it case by case, as the API says.", es: "Se pidi\u00f3 con menos aviso del que pide la pol\u00edtica. La oficina la decide caso por caso, seg\u00fan la API." };
 const r15HolidayOf = (day, lang) => { const k = R15_HOLIDAY_KEYS[day]; return k ? { key: k, name: R15_HOLIDAY_NAMES[k][lang === "es" ? 1 : 0] } : null; };
 // The day the stub's hours files have posted through.
@@ -1881,6 +1891,10 @@ function recogStateOf(o) {
     awards: awards, currentId: r.award === false ? null : "aw-2026-09", seen: new Set(r.seen ? ["aw-2026-09"] : []), reactions: reactions, mine: {},
     shouts: shouts, shoutSeen: new Set(shouts.slice(unseen).map(x => x.id)), shoutReactions: shoutReactions, shoutMine: {},
     nullSummary: r.null === true, postRefusal: r.postRefusal || null, staffAt: r.staffAt === true, posted: [], removedShouts: [],
+    // Part 418 (ocsa-api Round 21, part 416, 4.2 and 4.4): the people
+    // route's page size (peoplePage, 50 by default), and a shout-out the
+    // office took down while it was open (removedElsewhere, its id).
+    peoplePage: Number(r.peoplePage) || 50, removedElsewhere: r.removedElsewhere || null,
   };
 }
 const RECOG_PDF = pdfWith("Invented certificate");
@@ -3358,6 +3372,7 @@ const RECOG_REFUSALS = {
   "recognition.ownShoutout": { status: 409, en: "You cannot react to a shout-out about you.", es: "No puede reaccionar a un reconocimiento sobre usted." },
   "recognition.notYourTeam": { status: 403, en: "You can give a shout-out only to someone who works at one of your sites.", es: "Solo puede dar un reconocimiento a alguien que trabaje en uno de sus sitios." },
   "recognition.alreadyRemoved": { status: 409, en: "This Employee of the Month was already taken down.", es: "Este Empleado del Mes ya se retir\u00f3." },
+  "recognition.shoutoutAlreadyRemoved": { status: 409, en: "This shout-out was already taken down.", es: "Este reconocimiento ya se retir\u00f3." },
   "recognition.testPerson": { status: 403, en: "This is a test account. Only a test office account can recognize a test account.", es: "Esta es una cuenta de prueba. Solo una cuenta de oficina de prueba puede reconocer a una cuenta de prueba." },
   "testCrew.realRecord": { status: 403, en: "A test account can only change test records. This one belongs to a real person or site.", es: "Una cuenta de prueba solo puede cambiar registros de prueba. Este pertenece a una persona o un sitio real." },
   "access.insufficientPermissions": { status: 403, en: "Insufficient permissions", es: "No tiene permiso para hacer esto" },
@@ -3680,6 +3695,8 @@ const TWIN_PAIRS = [
   .concat([[RECOG_REASON.en, RECOG_REASON.es], [RECOG_WALL_REASON.en, RECOG_WALL_REASON.es]].concat(RECOG_SHOUT_LINES.map(l => [l.en, l.es])))
   .concat([["Photo removed", "Foto eliminada"]])
   .concat([[R15_INSIDE_TEXT.en, R15_INSIDE_TEXT.es]])
+  // Part 418: the class lines of GET /api/leave/me (Round 21).
+  .concat(Object.keys(R418_CLASS_TEXT).map(k => [R418_CLASS_TEXT[k].en, R418_CLASS_TEXT[k].es]))
   .concat([MUST_SET_PIN, NO_EMAIL_FOR_CODE, CODE_EXPIRED, CODE_TOO_MANY, SEND_LIMIT].map(r => [r.en, r.es]))
   .concat([["Your PIN has been changed.", "Su PIN fue cambiado."]])
   .concat(["Session expired", "Request failed",
@@ -3791,7 +3808,7 @@ const ROUTE_WORDS = [
   // Part 369: leave balances. A kind's name, the policy's name and its
   // lines, a note and a warning are the API's words; the person, the site
   // and a code are not.
-  [/^GET \/api\/leave\/me$/, { kindName: "message", text: "message", holidays: "message", message: "message", note: "message", reasonText: "message", label: "leave type", leaveClass: "code", value: "code", reason: "code", kind: "code", unit: "code", method: "code", source: "code", code: "code", role: "code", status: "code", employmentClass: "code", classes: "code" }],
+  [/^GET \/api\/leave\/me$/, { leaveClassText: "message", kindName: "message", text: "message", holidays: "message", message: "message", note: "message", reasonText: "message", label: "leave type", leaveClass: "code", value: "code", reason: "code", kind: "code", unit: "code", method: "code", source: "code", code: "code", role: "code", status: "code", employmentClass: "code", classes: "code" }],
   // Part 399, ahead of the time off routes' line below, which would match
   // it first: a type's name comes in the request's language, as do its
   // unit, its notice and the reason one is not offered; words carry all
@@ -4387,7 +4404,9 @@ function createStub(opts) {
     let inside = null;
     if (rule.notice.marksInside && rule.notice.aheadDays) inside = startsOn < r15AddDays(nyDay(now), rule.notice.aheadDays);
     else if (rule.notice.marksInside && rule.notice.aheadHours) inside = startsAt - now < rule.notice.aheadHours * 3600000;
-    return { rule: rule.notice.rule, insideNotice: inside, startsAt: iso(startsAt), noticeHours: Math.floor((startsAt - now) / 3600000) };
+    // Part 418 (ocsa-api Round 21, part 416, 4.1): the notice carries the
+    // line in the API's words, null unless the request is inside it.
+    return { rule: rule.notice.rule, insideNotice: inside, startsAt: iso(startsAt), noticeHours: Math.floor((startsAt - now) / 3600000), insideNoticeText: inside === true ? R15_INSIDE_TEXT.en : null, insideNoticeWords: inside === true ? Object.assign({ fr: null }, R15_INSIDE_TEXT) : null };
   };
   // The filing's body read as takeRequest reads it since part 395, its
   // checks in readRequestBody's order: the type, a type no longer offered,
@@ -5444,6 +5463,30 @@ function createStub(opts) {
       R.shoutReactions[made.id] = {};
       return json(201, { shoutout: shoutOut(made) });
     }
+    // GET /api/recognition/shoutouts/people (Round 21, 4.2): the people
+    // sharing a site with the poster, the sites they share, name order,
+    // paged by an index as the cursor; q folds case and accents.
+    if (key === "GET /api/recognition/shoutouts/people") {
+      if (!poster) return refuse("access.insufficientPermissions", { capability: "post_shoutouts" });
+      const fold = (v) => String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      const want = fold(q.get("q") || "").trim();
+      const byId = new Map();
+      Object.keys(RECOG_SITE_STAFF).forEach((siteId) => {
+        const at = SITES.find(x => x.siteId === siteId);
+        RECOG_SITE_STAFF[siteId].forEach((x) => {
+          if (String(x.id) === me) return;
+          const had = byId.get(x.id) || { id: x.id, firstName: x.first_name, lastName: x.last_name, initials: (x.first_name[0] || "") + (x.last_name[0] || ""), photoUrl: null, sites: [] };
+          if (at) had.sites.push({ id: at.siteId, name: at.siteName });
+          byId.set(x.id, had);
+        });
+      });
+      const all = Array.from(byId.values()).filter(p => !want || fold(p.firstName + " " + p.lastName).indexOf(want) !== -1).sort((a, b) => (a.lastName + a.firstName).localeCompare(b.lastName + b.firstName));
+      const from = Number(q.get("cursor") || 0) || 0;
+      const size = Math.min(R.peoplePage, Number(q.get("limit")) || 50);
+      const page = all.slice(from, from + size);
+      R.peopleReads = (R.peopleReads || 0) + 1;
+      return json(200, { people: page, nextCursor: from + size < all.length ? String(from + size) : null });
+    }
     const so = /^\/api\/recognition\/shoutouts\/([^/]+)(\/(seen|reaction|remove))?$/.exec(pathname);
     if (so) {
       const id = decodeURIComponent(so[1]);
@@ -5452,7 +5495,8 @@ function createStub(opts) {
       if (method === "POST" && what === "remove") {
         if (!any) return refuse("recognition.shoutoutNotFound");
         if (!(any.postedBy && String(any.postedBy.id) === me)) return refuse("access.insufficientPermissions", { capability: "manage_recognition" });
-        if (any.removed) return refuse("recognition.alreadyRemoved");
+        // Round 21 (4.4): taken down twice, 409 in the API's words.
+        if (any.removed || R.removedElsewhere === id) { any.removed = true; return refuse("recognition.shoutoutAlreadyRemoved"); }
         any.removed = true;
         R.removedShouts.push(id);
         return json(200, { shoutout: shoutOut(any) });
@@ -6186,7 +6230,7 @@ function createStub(opts) {
       };
       const offerNow = r15Offer();
       return json(200, {
-        person: Object.assign({}, head, { employmentClass: ["full_time", "part_time", "supplemental"].indexOf(L.employmentClass) !== -1 ? L.employmentClass : null, leaveClass: cls }),
+        person: Object.assign({}, head, { employmentClass: ["full_time", "part_time", "supplemental"].indexOf(L.employmentClass) !== -1 ? L.employmentClass : null, leaveClass: cls, leaveClassText: cls && R418_CLASS_TEXT[cls] ? R418_CLASS_TEXT[cls].en : null }),
         year: 2026, asOf: "2026-10-01", policy: policy,
         summary: L.none
           ? { lines: [{ kind: "paid_sick", kindName: lw("sick"), text: lw("untracked"), note: null, classes: null }], holidays: lw("holidays"), holidayDays: [] }
@@ -8324,7 +8368,7 @@ function draftOf(state) {
   };
 }
 
-module.exports = { R15_INSIDE_TEXT, RECOG_REASON, RECOG_REFUSALS, RECOG_SITE_STAFF, RECOG_SHOUT_LINES, recogMonthName, NOT_THIS_SESSION, R15_WORDS, R15_TYPE_WORDS, R15_LINES, R15_RULES, TEST_SITE, TEST_SITE_REFUSAL, runIdFor: runIdOf, FOLLOW_UP_REFUSALS, FOLLOW_UP_TOPICS, CLOSED_NOTE, BAD_SHIFT_RUN, DROP_REFUSALS, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
+module.exports = { R418_CLASS_TEXT, R418_REFUSALS, R15_INSIDE_TEXT, RECOG_REASON, RECOG_REFUSALS, RECOG_SITE_STAFF, RECOG_SHOUT_LINES, recogMonthName, NOT_THIS_SESSION, R15_WORDS, R15_TYPE_WORDS, R15_LINES, R15_RULES, TEST_SITE, TEST_SITE_REFUSAL, runIdFor: runIdOf, FOLLOW_UP_REFUSALS, FOLLOW_UP_TOPICS, CLOSED_NOTE, BAD_SHIFT_RUN, DROP_REFUSALS, PHOTO_HOST, MAINT_NAMES, MAINT_REFUSALS, SECOND_STEP_CODE, ACK_TOKEN, EVERY_NOTICE, API_R2, apiR2Body, API_R3, API_R4, apiR4Body, MY_CASES, FILED_WORDS, payRows, CAPABILITIES, START_TEMPLATES, START_SITES, NOT_TRACKED, EAST_BLOCKS, EAST_COMPLETIONS, INSPECTION_W, INSPECTION_PLAIN, WALK_WORDS, ORDER_HOLDER, ORDER_VENDORS, ORDER_NOTICE, ORDER_REFUSALS, LIBRARY_DOCS, LIBRARY_SEARCH_WORD, LIBRARY_FOLDER_NAMES, SCHED_INSPECTIONS, SCHED_NOTICE, SHEET_ISSUES, SHEET_TASKS, SHEET_NOTICE, DRAFT_MINE, DRAFT_NOTICE, createStub, servedFor, replyPieces, HELP_ANSWERS, HELP_REFUSALS, helpReply, NOW, PERSON, SECOND_PERSON, SITES, STAFF, LEAVE_TYPES, LOOKUPS, INSPECTION, INSPECTION_LONG, INSPECTION_GONE, INSPECTION_NOT_FOUND, INSPECTION_F, FINDING_REFUSALS, TRAINING_ME, TRAINING_LESSONS, TRAINING_AWAITING, TRAINING_REFUSALS, TRAINING_SESSION_SEED, TRAINING_OBSERVATION, TRAINING_DOCUMENT, TRAINING_FIRST_DAY, TRAINING_CATEGORIES, TRAINING_TOPIC_PLACE, LESSON_IMAGE_HOST, SIGN_SEED, SIGN_WORDS, PROPERTY_SEED, PROPERTY_KIND_WORDS, SIGN_REFUSALS, SESSION_REFUSALS, LOGIN_REFUSAL, BADGE_MISMATCH, SIGNED_OUT, TIME_OFF_REFUSALS, HR_CASE_REFUSALS, PIN_REFUSALS, FORM, FORM_P_CODE, FORM_P_WORDS, TWIN_ES, LIVE_KINDS, SITE_TASKS, SHIFT_ORDER, LINKS, taskWords, lookupsIn, formP, formS, timeOffRow, ymd, iso, DAY,
   SHIFT_REFUSALS, NOT_YOUR_CHECK, westShiftNames, CATEGORY_CODES, PERIODS, FIRST_NAMES, refusalIn, shiftsFor,
   SECOND_STEP_CODE, SECOND_STEP_HINT, SDS_SHEETS, WS_PROJECT, WS_TODO, FORM_A_WORDS, FORM_W_WORDS, EQ_CODE, EQ_ITEM, FORM_N_WORDS, CONCERN_REF,
   ADMIN_PERSON, CHAT_SITES, CHAT_GENERAL, CHAT_STAFF, CHAT_SEND_REFUSALS, CHAT_UNCODED_REFUSALS, CHAT_TEXT_MAX, OWN_PRIVATE, staffPrivate, chatSeed,

@@ -6032,14 +6032,10 @@ function leaveBalancesOf(d) {
 // (person.leaveClass, union included), and the kinds not offered them
 // (notOffered, as GET /api/time-off/types answers it, each with kindName),
 // grouped by the API's reason.
-const LEAVE_CLASS_LINES = {
-  full_time: "Your time off follows the rules for full-time staff.",
-  part_time: "Your time off follows the rules for part-time staff.",
-  supplemental: "Your time off follows the rules for supplemental staff.",
-  union: "Your time off follows the rules for staff at a union site.",
-  none: "Your employment class is not on file. The office has to set it.",
-};
-const leaveClassOf = (d) => { const c = d && plainOf(d.person) ? d.person.leaveClass : null; return typeof c === "string" && Object.prototype.hasOwnProperty.call(LEAVE_CLASS_LINES, c) ? c : null; };
+// Part 418 (section 6.3, ocsa-api Round 21, part 416, 4.3): the line is
+// person.leaveClassText, in the API's words and the request's language;
+// the app's own five sentences are gone, and none shows with no line.
+const leaveClassOf = (d) => (d && plainOf(d.person) ? fkText(d.person, ["leaveClassText"]) : "") || null;
 function leaveNotOfferedOf(d) {
   const groups = [];
   (d && Array.isArray(d.notOffered) ? d.notOffered : []).forEach((x) => {
@@ -6061,9 +6057,12 @@ function leaveAdpOf(d) {
   return "";
 }
 // Part 414 (section 4.5, ocsa-api part 410, 3.3): a request asked inside
-// its notice carries insideNoticeText, in the request's language; an API
-// from before it answers none, and the app's own sentence shows.
-const insideNoticeLine = (r) => fkText(r, ["insideNoticeText"]) || tr("Asked with less notice than the policy asks. The office decides it case by case.");
+// its notice carries insideNoticeText, in the request's language. Part 418
+// (section 6.1, ocsa-api Round 21, part 416): the app's own sentence is
+// gone; the line is the API's or none. The preview and the refusal of a
+// reason inside the notice carry it on their notice too.
+const insideNoticeLine = (r) => fkText(r, ["insideNoticeText"]);
+const noticeText = (n) => (n && typeof n === "object" && n.insideNotice === true ? fkText(n, ["insideNoticeText"]) : "");
 const leaveDays = (n) => (n === 1 ? tr("{n} day", { n: String(n) }) : tr("{n} days", { n: String(n) }));
 const leaveUsableLater = (b) => !!b && !!b.usableFrom && b.usableFrom > ymdLocal(todayLocal());
 // A balance's amount as the screen says it: days for a kind kept in days
@@ -6454,7 +6453,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
         if (live) setPreview({ ask: previewAsk, state: "ok", leave: d && d.leave && typeof d.leave === "object" ? d.leave : null, notice: d && d.notice && typeof d.notice === "object" ? d.notice : null });
       }).catch((err) => {
         if (!live) return;
-        if (err && (err.status === 400 || err.status === 409) && err.message) setPreview({ ask: previewAsk, state: "refused", said: tr(err.message), code: err.code || null, keys: err.body && Array.isArray(err.body.keys) ? err.body.keys : [] });
+        if (err && (err.status === 400 || err.status === 409) && err.message) setPreview({ ask: previewAsk, state: "refused", said: tr(err.message), code: err.code || null, keys: err.body && Array.isArray(err.body.keys) ? err.body.keys : [], notice: err.body && err.body.notice && typeof err.body.notice === "object" ? err.body.notice : null });
         else setPreview({ ask: previewAsk, state: err && err.status === 404 ? "none" : "failed" });
       });
     }, 400);
@@ -6476,6 +6475,9 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
   const insideNow = !!((previewRefused && insideRefusal(previewRefused.code)) || (sentNow && insideRefusal(sentNow.code)) || (previewNow && previewNow.state === "ok" && previewNow.notice && previewNow.notice.insideNotice === true));
   useEffect(() => { if (insideNow && reqDayKey) setReasonAsk(reqDayKey); }, [insideNow, reqDayKey]);
   const reasonNeeded = !!reqForm && (insideNow || reasonAsk === reqDayKey);
+  // The API's line about the notice, before the request is sent: from the
+  // preview, else from the refusal that asked for a reason.
+  const insideLine = noticeText(previewNow && previewNow.state === "ok" ? previewNow.notice : null) || noticeText(sentNow ? sentNow.notice : null) || noticeText(previewRefused ? previewRefused.notice : null);
 
   const sendRequest = async () => {
     if (reqBusy) return;
@@ -6497,7 +6499,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
     } catch (err) {
       // A refusal naming a field the form draws is said under it (part 399).
       const keys = err && err.body && Array.isArray(err.body.keys) ? err.body.keys : [];
-      if (err && err.status === 400 && fieldOf(keys, form)) setReqRefused({ ask: JSON.stringify(body), said: tr(err.message), code: err.code || null, keys: keys });
+      if (err && err.status === 400 && fieldOf(keys, form)) setReqRefused({ ask: JSON.stringify(body), said: tr(err.message), code: err.code || null, keys: keys, notice: err.body && err.body.notice && typeof err.body.notice === "object" ? err.body.notice : null });
       else setReqErr(tr(err.message));
     }
     setReqBusy(false);
@@ -6735,7 +6737,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
               kinds not offered them, each named as the API names it. */}
           {leaveMe && leaveMe.state === "ok" && (leaveMe.cls || (leaveMe.notOffered && leaveMe.notOffered.length > 0)) && (
             <div data-leave-class={leaveMe.cls || ""} style={{ marginBottom: 12 }}>
-              {leaveMe.cls && <div data-leave-class-line="1" style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{tr(LEAVE_CLASS_LINES[leaveMe.cls])}</div>}
+              {leaveMe.cls && <div data-leave-class-line="1" style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{leaveMe.cls}</div>}
               {(leaveMe.notOffered || []).map(g => (
                 <div key={g.code + g.names.join()} data-leave-notoffered={g.code} style={{ fontSize: 12, color: t.textMut, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" }}>
                   <span>{tr("Not offered to you: {types}.", { types: g.names.join(", ") })}</span>{g.reason && <span>{" " + g.reason}</span>}
@@ -6756,7 +6758,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
                     <div style={{ fontSize: 11, color: t.textSec, marginTop: 3, overflowWrap: "anywhere" }}>{timeOffDates(r.startsOn, r.endsOn)}</div>
                     {r.partDay && r.startTime && r.endTime && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{fmtTm(r.startTime)} - {fmtTm(r.endTime)}</div>}
                     {hrs && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{hrs}</div>}
-                    {r.insideNotice === true && <div data-timeoff-inside="row" style={{ fontSize: 11, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" }}>{insideNoticeLine(r)}</div>}
+                    {r.insideNotice === true && insideNoticeLine(r) && <div data-timeoff-inside="row" style={{ fontSize: 11, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" }}>{insideNoticeLine(r)}</div>}
                   </div>
                   <span style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px", color: timeOffStatusColor(r.status, t), flexShrink: 0, fontFamily: FONT_HEAD }}>{timeOffStatusWord(r.status)}</span>
                 </div>
@@ -6942,6 +6944,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
                     </div>
                   )}
 
+                  {insideLine && <div data-timeoff-inside="form" role="status" style={{ marginBottom: 10, padding: "10px 12px", borderRadius: R.md, background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, fontSize: 13, color: t.text, lineHeight: 1.5, overflowWrap: "anywhere" }}>{insideLine}</div>}
                   <div style={{ marginBottom: 10 }}>
                     <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
                       <label style={mkLabel(t)}>{reasonNeeded ? tr("Reason") : tr("Reason (optional)")}</label>
@@ -6990,7 +6993,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
             </div>
             {/* Part 399 (API part 395): vacation or a personal day asked
                 inside its notice, which the office decides case by case. */}
-            {offDetail.insideNotice === true && <div data-timeoff-inside="sheet" role="status" style={{ marginBottom: 14, padding: "10px 12px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.borderSolid, fontSize: 13, color: t.text, lineHeight: 1.5, overflowWrap: "anywhere" }}>{insideNoticeLine(offDetail)}</div>}
+            {offDetail.insideNotice === true && insideNoticeLine(offDetail) && <div data-timeoff-inside="sheet" role="status" style={{ marginBottom: 14, padding: "10px 12px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.borderSolid, fontSize: 13, color: t.text, lineHeight: 1.5, overflowWrap: "anywhere" }}>{insideNoticeLine(offDetail)}</div>}
             <TimeOffLeave leave={offDetail.leave} status={offDetail.status} t={t} />
 
             <div style={{ marginBottom: 14 }}>
@@ -23838,7 +23841,9 @@ function AwardReveal({ token, read, motion, onSeen, onClose, reread, t, children
   const up = (e) => { const s = swipe.current; swipe.current = null; if (!s) return; const dx = e.clientX - s.x, dy = e.clientY - s.y; if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) onClose(); };
   const certificate = async () => {
     setCertFault(null);
-    try { await openApiPdf("/api/recognition/awards/" + encodeURIComponent(a.id) + "/certificate.pdf", "employee-of-the-month-" + (a.month || a.id) + ".pdf", token); }
+    // Part 418 (section 6.5, ocsa-api Round 21, part 416, 3): drawn in the
+    // language on the screen.
+    try { await openApiPdf(withLocale("/api/recognition/awards/" + encodeURIComponent(a.id) + "/certificate.pdf", languageToSend()), "employee-of-the-month-" + (a.month || a.id) + ".pdf", token); }
     catch (err) { setCertFault(saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC)); }
   };
   const quiet = { fontSize: 13, color: t.textSec, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" };
@@ -24088,6 +24093,7 @@ function ShoutoutSheet({ token, id, initial, onSeen, onChange, onRemoved, onClos
   const [ask, setAsk] = useState(false);
   const [busy, setBusy] = useState(false);
   const [removeFault, setRemoveFault] = useState(null);
+  const [gone, setGone] = useState(false);
   const seenSent = useRef(false);
   const load = async () => {
     setFault(null);
@@ -24111,13 +24117,20 @@ function ShoutoutSheet({ token, id, initial, onSeen, onChange, onRemoved, onClos
       await api("/api/recognition/shoutouts/" + encodeURIComponent(x.id) + "/remove", { method: "POST", body: {}, token });
       if (onRemoved) onRemoved(x.id);
       onClose();
-    } catch (err) { setRemoveFault(saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC)); }
+    } catch (err) {
+      setRemoveFault(saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC));
+      // Part 418 (section 6.4, ocsa-api Round 21, part 416, 4.4): taken down
+      // already, by the office or another of the poster's phones (409
+      // recognition.shoutoutAlreadyRemoved): the API's words, and it leaves
+      // the list once the sheet closes.
+      if (err && err.status === 409 && err.code === "recognition.shoutoutAlreadyRemoved") { setAsk(false); setGone(true); }
+    }
     setBusy(false);
   };
   useBusy("shout-out remove", busy);
   const quiet = { fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" };
   return (
-    <RecogSheet id="ocsa-shoutout-sheet" title={tr("Shout-out")} onClose={onClose} t={t}>
+    <RecogSheet id="ocsa-shoutout-sheet" title={tr("Shout-out")} onClose={() => { if (gone && onRemoved && x) onRemoved(x.id); onClose(); }} t={t}>
       <div data-shoutout-sheet={id}>
         {!x && !fault && <div style={{ padding: "20px 0", textAlign: "center", fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div>}
         {fault && (fault.gone
@@ -24135,8 +24148,8 @@ function ShoutoutSheet({ token, id, initial, onSeen, onChange, onRemoved, onClos
             {x.line && <div data-shoutout-line="1" style={{ fontSize: 14, color: t.text, lineHeight: 1.5, marginTop: 12, padding: "10px 12px", borderRadius: R.md, background: t.goldSubtle, border: "1px solid " + t.goldBorder, overflowWrap: "anywhere" }}>{x.line}</div>}
             {x.postedBy && <div style={quiet}>{tr("From {name}", { name: x.postedBy.name })}</div>}
             <ReactionRow token={token} path={"/api/recognition/shoutouts/" + encodeURIComponent(x.id) + "/reaction"} reactions={x.reactions} own={x.isMe} onChange={(rx) => { const next = Object.assign({}, x, { reactions: rx }); setX(next); if (onChange) onChange(next); }} t={t} />
-            {x.canRemove && !ask && <button type="button" data-shoutout-remove={x.id} onClick={() => { setAsk(true); setRemoveFault(null); }} style={{ ...mkTapFrame(), marginTop: 10, color: ink(t, RED), fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Take down")}</button>}
-            {x.canRemove && ask && (
+            {x.canRemove && !gone && !ask && <button type="button" data-shoutout-remove={x.id} onClick={() => { setAsk(true); setRemoveFault(null); }} style={{ ...mkTapFrame(), marginTop: 10, color: ink(t, RED), fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Take down")}</button>}
+            {x.canRemove && !gone && ask && (
               <div data-shoutout-remove-ask={x.id} role="group" style={{ marginTop: 10, padding: "10px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder }}>
                 <div style={{ fontSize: 13, color: t.text, lineHeight: 1.45 }}>{tr("Take down this shout-out?")}</div>
                 <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
@@ -24153,25 +24166,29 @@ function ShoutoutSheet({ token, id, initial, onSeen, onChange, onRemoved, onClos
   );
 }
 
-// The people who share one of the poster's sites, from each site's staff
-// (GET /api/sites/:id), the poster and client contacts left out, each
-// with the sites the two share.
-async function shoutPeopleOf(token, sites, user) {
-  const own = (Array.isArray(sites) ? sites : []).map(s => ({ id: String(s.siteId || s.id || ""), name: String(s.siteName || s.name || "") })).filter(s => s.id);
-  const people = new Map();
-  for (const s of own) {
-    const d = await api("/api/sites/" + encodeURIComponent(s.id), { token });
-    (d && Array.isArray(d.staff) ? d.staff : []).forEach((p) => {
-      if (!p || p.id === undefined || p.id === null || (user && String(p.id) === String(user.id)) || p.role === "client_contact") return;
-      const id = String(p.id);
-      const name = [p.first_name || p.firstName, p.last_name || p.lastName].filter(x => typeof x === "string" && x.trim()).map(x => x.trim()).join(" ");
+// The people a shout-out can name (part 418, section 6.2; ocsa-api Round
+// 21, part 416, 4.2): GET /api/recognition/shoutouts/people, in name
+// order, read page by page by nextCursor, each with the sites the two
+// share (every site of theirs for an admin). The API leaves out the
+// poster, client contacts and anyone not active, and test accounts for a
+// real poster. The picker searches them as every people picker does.
+const SHOUT_PEOPLE_PAGES = 20;
+async function shoutPeopleOf(token) {
+  const people = [];
+  let cursor = "";
+  for (let i = 0; i < SHOUT_PEOPLE_PAGES; i += 1) {
+    const d = await api("/api/recognition/shoutouts/people?q=&limit=50&cursor=" + encodeURIComponent(cursor), { token });
+    (d && Array.isArray(d.people) ? d.people : []).forEach((p) => {
+      if (!p || p.id === undefined || p.id === null || people.some(x => x.id === String(p.id))) return;
+      const name = [p.firstName, p.lastName].filter(x => typeof x === "string" && x.trim()).map(x => x.trim()).join(" ");
       if (!name) return;
-      const had = people.get(id) || { id: id, name: name, sites: [] };
-      if (!had.sites.some(x => x.id === s.id)) had.sites.push(s);
-      people.set(id, had);
+      const sites = (Array.isArray(p.sites) ? p.sites : []).map(x => (x && x.id !== undefined && x.id !== null ? { id: String(x.id), name: typeof x.name === "string" ? x.name : "" } : null)).filter(Boolean);
+      people.push({ id: String(p.id), name: name, sites: sites });
     });
+    cursor = d && typeof d.nextCursor === "string" && d.nextCursor ? d.nextCursor : "";
+    if (!cursor) break;
   }
-  return Array.from(people.values()).sort((a, b) => a.name.localeCompare(b.name));
+  return people;
 }
 
 // Give a shout-out: the person, the site and the line, POST
@@ -24184,7 +24201,7 @@ function ShoutoutForm({ token, user, sites, onPosted, onClose, t }) {
   const [line, setLine] = useState("");
   const [busy, setBusy] = useState(false);
   const [fault, setFault] = useState(null);
-  const loadPeople = () => { setPeopleFault(false); shoutPeopleOf(token, sites, user).then(setPeople).catch(() => setPeopleFault(true)); };
+  const loadPeople = () => { setPeopleFault(false); shoutPeopleOf(token).then(setPeople).catch(() => setPeopleFault(true)); };
   useEffect(() => { loadPeople(); }, []);
   useBusy("shout-out form", busy || line.trim().length > 0);
   const person = Array.isArray(people) ? people.find(p => p.id === who) || null : null;
