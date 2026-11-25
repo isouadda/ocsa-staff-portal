@@ -11930,6 +11930,266 @@ function TrainingCertificate({ token, item, onSent, t }) {
   );
 }
 
+// ------------------------------------------------------------
+// Courses (part 418, section 1; ocsa-api Round 20, part 415, #170).
+// GET /api/training/courses answers the person's courses, each a set of
+// chapters (training topics) in order, with every chapter's status as
+// the training gaps read it: done when current or dueSoon. My Training
+// draws them above what it drew before: a required chapter still due,
+// Pick up where you left off, Your courses (a promoted course not yet
+// complete first, marked New), and My certificates. A course page lists
+// the chapters, done ones with Watch again (their published version from
+// GET /api/training/courses/library), the next with Continue or Start,
+// and the rest numbered, with a button at the bottom for the next. Names
+// are drawn exactly as the API stores them. An API without the route
+// answers no list, and My Training stays as it was.
+// ------------------------------------------------------------
+const CHAPTER_STATUSES = ["missing", "expired", "refresherDue", "dueSoon", "current", "inProgress", "awaitingTrainer"];
+const CHAPTER_DUE = ["missing", "expired", "refresherDue", "dueSoon"];
+function courseChapterOf(x, i) {
+  if (!x || typeof x !== "object") return null;
+  const topicId = trainingId(x, ["topicId"]);
+  const name = typeof x.name === "string" ? x.name.trim() : "";
+  if (!topicId || !name) return null;
+  const str = (k, o) => { const v = (o || x)[k]; return typeof v === "string" ? v.trim() : ""; };
+  const l = x.lesson && typeof x.lesson === "object" ? x.lesson : null;
+  const v = x.version && typeof x.version === "object" ? x.version : null;
+  const left = l ? trainingNum(l.attemptsLeft) : null;
+  return {
+    topicId: topicId, key: str("key"), name: name, n: i + 1,
+    status: CHAPTER_STATUSES.indexOf(x.status) !== -1 ? x.status : "missing",
+    done: x.done === true, required: x.required === true,
+    completedDate: str("completedDate"), expiresOn: str("expiresOn"), recordId: trainingId(x, ["recordId"]), attemptId: trainingId(x, ["attemptId"]),
+    // attemptsLeft null is a lesson with no limit, as a player always is.
+    lesson: l && trainingId(l, ["versionId"]) ? { versionId: trainingId(l, ["versionId"]), kind: ["player", "quiz", "observation"].indexOf(l.kind) !== -1 ? l.kind : "", attemptsUsed: Math.max(0, trainingNum(l.attemptsUsed) || 0), attemptsLeft: left === null ? null : Math.max(0, left) } : null,
+    // The library's published version (section 1.3), or null.
+    version: v && trainingId(v, ["id"]) ? { id: trainingId(v, ["id"]), kind: v.kind === "player" || v.kind === "quiz" ? v.kind : "", title: str("title", v), screens: Math.max(0, trainingNum(v.screens) || 0), checks: Math.max(0, trainingNum(v.checks) || 0) } : null,
+  };
+}
+function courseOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = trainingId(x, ["id"]);
+  const name = typeof x.name === "string" ? x.name.trim() : "";
+  if (!id || !name) return null;
+  const chapters = (Array.isArray(x.chapters) ? x.chapters : []).map(courseChapterOf).filter(Boolean).map((c, i) => ({ ...c, n: i + 1 }));
+  const total = trainingNum(x.chaptersTotal), done = trainingNum(x.chaptersDone);
+  return {
+    id: id, key: trainingId(x, ["key"]), name: name, summary: typeof x.summary === "string" ? x.summary.trim() : "",
+    certificate: x.certificate === true, promoted: x.promoted === true,
+    status: x.status === "complete" || x.status === "inProgress" ? x.status : "notStarted",
+    chaptersTotal: total === null ? chapters.length : Math.max(0, total), chaptersDone: done === null ? chapters.filter(c => c.done).length : Math.max(0, done),
+    certificateId: trainingId(x, ["certificateId"]), certificateNumber: typeof x.certificateNumber === "string" ? x.certificateNumber : "",
+    chapters: chapters,
+  };
+}
+const coursesOf = (d) => { const rows = wsRows(d, "courses"); return rows && !Array.isArray(d) ? rows.map(courseOf).filter(Boolean) : null; };
+async function readCourses(token) {
+  try { return coursesOf(await api("/api/training/courses", { token })); } catch (e) { return null; }
+}
+// A course certificate as GET /api/training/certificates/mine answers
+// it (section 3), newest first. mailStatus null is a mail still going.
+const CERT_MAIL = ["sent", "failed", "no_email"];
+function courseCertificateOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = trainingId(x, ["id"]);
+  if (!id) return null;
+  const str = (k) => (typeof x[k] === "string" ? x[k].trim() : "");
+  return { id: id, number: str("number"), courseId: trainingId(x, ["courseId"]), courseKey: str("courseKey"), courseName: str("courseName"), completedOn: str("completedOn").slice(0, 10), locale: str("locale"), filed: x.filed === true, mailStatus: CERT_MAIL.indexOf(x.mailStatus) !== -1 ? x.mailStatus : null, mailedAt: str("mailedAt"), createdAt: str("createdAt"), isTest: x.isTest === true };
+}
+const courseCertificatesOf = (d) => { const rows = wsRows(d, "certificates"); return rows && !Array.isArray(d) ? rows.map(courseCertificateOf).filter(Boolean) : null; };
+async function readMyCertificates(token) {
+  try { return courseCertificatesOf(await api("/api/training/certificates/mine", { token })); } catch (e) { return null; }
+}
+// The chapter a course goes on with: the first not done.
+const courseNext = (c) => (c ? c.chapters.find(x => !x.done) || null : null);
+// Whether a chapter can be taken here: a player or a quiz with a try
+// left, not done and not waiting for a trainer. A watched checklist is
+// the trainer's to run.
+const chapterTakeable = (ch) => !!ch && !!ch.lesson && (ch.lesson.kind === "player" || ch.lesson.kind === "quiz") && !ch.done && ch.status !== "awaitingTrainer" && (ch.lesson.attemptsLeft === null || ch.lesson.attemptsLeft > 0);
+// A chapter's state in plain words, from the API's status.
+function chapterDueWords(ch) {
+  if (ch.status === "missing") return tr("Not done yet");
+  if (ch.status === "expired") return ch.expiresOn ? tr("Expired {date}", { date: trainingDay(ch.expiresOn) }) : tr("Expired");
+  if (ch.status === "refresherDue") return tr("Refresher due");
+  if (ch.status === "dueSoon") return ch.expiresOn ? tr("Expires {date}", { date: trainingDay(ch.expiresOn) }) : tr("Expires soon");
+  if (ch.status === "inProgress") return tr("In progress");
+  if (ch.status === "awaitingTrainer") return tr("Waiting for your trainer. Show them you can do it, and they sign it off.");
+  return ch.completedDate ? tr("Done {date}", { date: trainingDay(ch.completedDate) }) : tr("Done");
+}
+const chaptersDoneWords = (done, total) => (total === 1 ? tr("{done} of 1 chapter done", { done: done }) : tr("{done} of {total} chapters done", { done: done, total: total }));
+// A course's ring: the share of chapters done, gold, and green with Done
+// once every chapter is.
+function CourseRing({ done, total, size, label, t }) {
+  const sz = size || 52;
+  const all = total > 0 && done >= total;
+  const pct = total > 0 ? Math.min(1, done / total) : 0;
+  const r = sz / 2 - 4, c = 2 * Math.PI * r;
+  return (
+    <div role="img" aria-label={all ? tr("Done") : chaptersDoneWords(done, total)} data-course-ring={done + "/" + total} style={{ position: "relative", width: sz, height: sz, flexShrink: 0 }}>
+      <svg width={sz} height={sz} viewBox={"0 0 " + sz + " " + sz} aria-hidden="true" style={{ display: "block", transform: "rotate(-90deg)" }}>
+        <circle cx={sz / 2} cy={sz / 2} r={r} fill="none" stroke={t.border} strokeWidth="5" />
+        <circle cx={sz / 2} cy={sz / 2} r={r} fill="none" stroke={all ? GREEN : GOLD} strokeWidth="5" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - (all ? 1 : pct))} />
+      </svg>
+      <div aria-hidden="true" style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: sz < 48 ? 10 : 12, fontWeight: 700, color: all ? ink(t, GREEN) : t.text, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{label || (all ? tr("Done") : Math.round(pct * 100) + "%")}</div>
+    </div>
+  );
+}
+// The play mark on a gold disc, the check on a green one, and a number in
+// a ring: how a chapter row starts.
+const PlayIco = (p) => <Ico d="M7 4l13 8-13 8z" {...p} />;
+function ChapterMark({ ch, next, t }) {
+  const disc = { width: 34, height: 34, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" };
+  if (ch.done) return <span aria-hidden="true" style={{ ...disc, background: "#1E7A46" }}><CheckIco sz={16} c="#FFFFFF" /></span>;
+  if (next) return <span aria-hidden="true" style={{ ...disc, background: GOLD }}><PlayIco sz={14} c={NAVY} /></span>;
+  return <span aria-hidden="true" style={{ ...disc, border: "2px solid " + t.borderSolid, color: t.textSec, fontSize: 13, fontWeight: 700, fontFamily: FONT_HEAD }}>{ch.n}</span>;
+}
+
+// My Training's part above the older trainings (board 1).
+function CoursesPart({ courses, certs, pickup, onCourse, onChapter, onCertificates, t }) {
+  if (!courses) return null;
+  const nameSt = { fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const lineSt = { fontSize: 13, color: t.textSec, marginTop: 3, lineHeight: 1.45, overflowWrap: "anywhere" };
+  // A required chapter still due, the first the courses hold.
+  let due = null;
+  courses.some(c => c.chapters.some(ch => { if (ch.required && !ch.done && CHAPTER_DUE.indexOf(ch.status) !== -1) { due = { course: c, ch: ch }; return true; } return false; }));
+  const ordered = courses.filter(c => c.promoted && c.status !== "complete").concat(courses.filter(c => !(c.promoted && c.status !== "complete")));
+  return (
+    <div data-courses={courses.length} style={{ marginTop: 8 }}>
+      {due && (
+        <button type="button" data-course-due={due.ch.topicId} onClick={() => onCourse(due.course)} style={{ ...fkRowSt(t), width: "100%", minHeight: TAP, textAlign: "left", cursor: "pointer", display: "flex", gap: 12, alignItems: "flex-start", background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, color: t.text, fontFamily: FONT_BODY }}>
+          <ShieldIco sz={22} c={ink(t, ORANGE)} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ ...nameSt, display: "block", color: ink(t, ORANGE) }}>{tr("Required: {name}", { name: due.ch.name })}</span>
+            <span style={{ ...lineSt, display: "block" }}>{chapterDueWords(due.ch)}</span>
+          </span>
+        </button>
+      )}
+      {pickup && (
+        <div data-course-pickup={pickup.ch.topicId} style={{ ...fkRowSt(t), padding: "14px 14px", background: t.headerBg, border: "1px solid " + t.goldBorder }}>
+          <div style={{ ...mkLabel(t), color: GOLD }}>{tr("Pick up where you left off")}</div>
+          <div style={{ ...nameSt, fontSize: 18, color: "#FFFFFF" }}>{pickup.ch.name}</div>
+          <div style={{ ...lineSt, color: "rgba(255,255,255,0.82)" }}>{tr("{course}, chapter {n} of {total}", { course: pickup.course.name, n: pickup.ch.n, total: pickup.course.chapters.length })}</div>
+          {pickup.share !== null && <div role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pickup.share * 100)} data-course-pickup-bar={Math.round(pickup.share * 100)} style={{ height: 6, borderRadius: R.pill, background: "rgba(255,255,255,0.2)", marginTop: 12, overflow: "hidden" }}><div style={{ width: Math.round(pickup.share * 100) + "%", height: "100%", background: GOLD }} /></div>}
+          <button type="button" data-course-pickup-go={pickup.ch.topicId} onClick={() => onChapter(pickup.course, pickup.ch)} style={{ display: "flex", alignItems: "center", gap: 8, minHeight: TAP, marginTop: 8, padding: 0, background: "none", border: "none", color: "#FFFFFF", fontSize: 15, fontWeight: 600, fontFamily: FONT_HEAD, cursor: "pointer" }}><PlayIco sz={14} c={GOLD} />{tr("Keep going")}</button>
+        </div>
+      )}
+      <div role="heading" aria-level={3} data-training-group="courses" style={fkHeadSt(t)}>{tr("Your courses")}</div>
+      {ordered.map(c => {
+        const isNew = c.promoted && c.status !== "complete";
+        return (
+          <button key={c.id} type="button" data-course={c.id} data-course-new={isNew ? "1" : "0"} onClick={() => onCourse(c)} style={{ ...fkRowSt(t), width: "100%", minHeight: TAP, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, color: t.text, fontFamily: FONT_BODY, border: "1px solid " + (isNew ? t.goldBorder : t.borderSolid) }}>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              {isNew && <span data-course-new-mark="1" style={{ display: "inline-block", marginBottom: 4, padding: "2px 8px", borderRadius: R.pill, background: GOLD, color: NAVY, fontSize: 10, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD }}>{tr("New")}</span>}
+              <span style={{ ...nameSt, display: "block" }}>{c.name}</span>
+              <span style={{ ...lineSt, display: "block" }}>{chaptersDoneWords(c.chaptersDone, c.chaptersTotal)}</span>
+            </span>
+            <CourseRing done={c.chaptersDone} total={c.chaptersTotal} t={t} />
+          </button>
+        );
+      })}
+      {Array.isArray(certs) && onCertificates && (
+        <button type="button" data-certificates-open={certs.length} onClick={onCertificates} style={{ ...fkRowSt(t), width: "100%", minHeight: TAP, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, color: t.text, fontFamily: FONT_BODY, background: "transparent", boxShadow: "none" }}>
+          <AwardIco sz={20} c={t.goldText} style={{ flexShrink: 0 }} />
+          <span style={{ ...nameSt, flex: 1, minWidth: 0, color: t.goldText }}>{tr("My certificates ({n})", { n: certs.length })}</span>
+          <ChevIco sz={16} c={t.textMut} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+// A course page (board 2). The course is read again as it opens, and the
+// library beside it for Watch again; either failing keeps what the list
+// held. wide (the training site on a computer, section 5) puts the
+// player on the right of the chapters.
+function CoursePage({ token, course: first, onBack, onPlay, onCertificate, playing, wide, t }) {
+  const [course, setCourse] = useState(first);
+  const [versions, setVersions] = useState({});
+  const [fault, setFault] = useState(null);
+  useEffect(() => {
+    let on = true;
+    api("/api/training/courses/" + encodeURIComponent(first.id), { token }).then(d => { const c = courseOf(d && d.course); if (on && c) { setCourse(c); setFault(null); } }).catch(err => { if (on) setFault(fkFaultWords(err, "This course did not load.")); });
+    api("/api/training/courses/library", { token }).then(d => {
+      const c = (coursesOf(d) || []).find(x => x.id === first.id);
+      if (!on || !c) return;
+      const m = {};
+      c.chapters.forEach(ch => { if (ch.version) m[ch.topicId] = ch.version; });
+      setVersions(m);
+    }).catch(() => {});
+    return () => { on = false; };
+  }, [first.id, playing ? playing.closedAt : 0]);
+  const next = courseNext(course);
+  const nameSt = { fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const lineSt = { fontSize: 13, color: t.textSec, marginTop: 3, lineHeight: 1.45, overflowWrap: "anywhere" };
+  const playable = (ch) => chapterTakeable(ch);
+  const watchable = (ch) => ch.done && versions[ch.topicId] && versions[ch.topicId].kind === "player";
+  const go = (ch) => { if (playable(ch)) onPlay(course, ch, false); else if (watchable(ch)) onPlay(course, ch, true); };
+  const chapterRow = (ch) => {
+    const isNext = !!next && next.topicId === ch.topicId;
+    const on = playing && playing.topicId === ch.topicId;
+    const word = ch.done ? (watchable(ch) ? tr("Watch again") : "") : playable(ch) ? (ch.status === "inProgress" || ch.attemptId ? tr("Continue") : tr("Begin")) : "";
+    const tappable = playable(ch) || watchable(ch);
+    const body = (
+      <>
+        <ChapterMark ch={ch} next={isNext} t={t} />
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ ...nameSt, display: "block" }}>{ch.name}</span>
+          {ch.required && !ch.done && <span data-chapter-required={ch.status} style={{ ...lineSt, display: "block", fontWeight: 600, color: ch.status === "awaitingTrainer" ? ink(t, BLUE) : CHAPTER_DUE.indexOf(ch.status) !== -1 ? wsLateInk(t) : t.textSec }}>{tr("Required")}. {chapterDueWords(ch)}</span>}
+          {!ch.required && ch.status === "awaitingTrainer" && <span style={{ ...lineSt, display: "block", color: ink(t, BLUE) }}>{chapterDueWords(ch)}</span>}
+          {!ch.done && !playable(ch) && ch.status !== "awaitingTrainer" && <span data-training-trainer="1" style={{ ...lineSt, display: "block" }}>{tr("Your trainer goes over this one with you.")}</span>}
+        </span>
+        {word && <span style={{ flexShrink: 0, fontSize: 13, fontWeight: 600, color: ch.done ? ink(t, GREEN) : t.goldText, fontFamily: FONT_HEAD }}>{word}</span>}
+      </>
+    );
+    const st = { ...fkRowSt(t), width: "100%", minHeight: TAP, textAlign: "left", display: "flex", alignItems: "center", gap: 12, color: t.text, fontFamily: FONT_BODY, border: (isNext || on ? "2px solid " + GOLD : "1px solid " + t.borderSolid), background: on ? t.goldBg : t.card };
+    return tappable
+      ? <button key={ch.topicId} type="button" data-chapter={ch.topicId} data-chapter-state={ch.done ? "done" : isNext ? "next" : "later"} data-chapter-action={ch.done ? "watch" : "take"} aria-current={on ? "step" : undefined} onClick={() => go(ch)} style={{ ...st, cursor: "pointer" }}>{body}</button>
+      : <div key={ch.topicId} data-chapter={ch.topicId} data-chapter-state={ch.done ? "done" : isNext ? "next" : "later"} style={st}>{body}</div>;
+  };
+  const headPart = (
+    <div>
+      <WsBack label={tr("My training")} onBack={onBack} t={t} />
+      <div role="heading" aria-level={2} data-course-title={course.id} style={{ fontSize: 20, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{course.name}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10 }}>
+        <CourseRing done={course.chaptersDone} total={course.chaptersTotal} size={56} label={course.chaptersDone + "/" + course.chaptersTotal} t={t} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {course.summary && <div data-course-summary="1" style={{ ...lineSt, marginTop: 0, fontSize: 14, color: t.text }}>{course.summary}</div>}
+          <div style={lineSt}>{chaptersDoneWords(course.chaptersDone, course.chaptersTotal)}</div>
+          {course.certificate && course.status !== "complete" && <div data-course-certificate-line="1" style={{ ...lineSt, color: t.goldText, fontWeight: 600 }}>{course.chaptersTotal === 1 ? tr("You get a certificate when you finish it.") : tr("You get a certificate when you finish all {n}.", { n: course.chaptersTotal })}</div>}
+        </div>
+      </div>
+      {course.certificate && course.status === "complete" && course.certificateId && (
+        <button type="button" data-course-certificate={course.certificateId} onClick={() => onCertificate(course.certificateId)} style={{ ...fkRowSt(t), width: "100%", minHeight: TAP, marginTop: 12, display: "flex", alignItems: "center", gap: 10, cursor: "pointer", color: t.text, fontFamily: FONT_BODY, textAlign: "left", background: t.greenSubtle, border: "1px solid " + t.greenBorder }}>
+          <AwardIco sz={20} c={ink(t, GREEN)} style={{ flexShrink: 0 }} /><span style={{ ...nameSt, flex: 1, minWidth: 0 }}>{tr("Open my certificate")}</span><ChevIco sz={16} c={t.textMut} />
+        </button>
+      )}
+      {fault && <WsFault text={fault} t={t} />}
+    </div>
+  );
+  const list = <div data-course-chapters={course.chapters.length} style={{ marginTop: 14 }}>{course.chapters.map(chapterRow)}</div>;
+  const stickyNext = next && playable(next) && !playing && (
+    <div style={{ position: "sticky", bottom: "calc(var(--ocsa-bar, 76px) + 8px)", marginTop: 12, zIndex: 2 }}>
+      <button type="button" data-course-next={next.topicId} onClick={() => go(next)} style={{ ...trainingGoldBtn, width: "100%", minHeight: 52, fontSize: 16, gap: 10 }}><PlayIco sz={14} c={NAVY} /><span style={{ overflowWrap: "anywhere" }}>{next.status === "inProgress" || next.attemptId ? tr("Continue: {name}", { name: next.name }) : tr("Start: {name}", { name: next.name })}</span></button>
+    </div>
+  );
+  if (wide && playing) {
+    return (
+      <div data-course-page={course.id} data-course-wide="1" style={{ padding: "20px 24px 40px", display: "grid", gridTemplateColumns: "minmax(260px, 320px) 1fr", gap: 24, alignItems: "start" }}>
+        <div style={{ ...fkRowSt(t), padding: "16px 16px 8px", borderRadius: R.lg }}>{headPart}{list}</div>
+        <div style={{ minWidth: 0 }}>{playing.node}</div>
+      </div>
+    );
+  }
+  if (playing) return playing.node;
+  return (
+    <div data-course-page={course.id} style={{ padding: "14px 16px 100px" }}>
+      {headPart}
+      {list}
+      {stickyNext}
+    </div>
+  );
+}
+
 function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   // Read again each time the screen opens, and each time a lesson is
   // left; a read that fails keeps what is on the screen and says so,
@@ -11953,16 +12213,51 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   const portal = !!(data && data.categories && (data.categories.length > 0 || data.items.length === 0));
   const openCat = (key) => { setCat(key); try { window.history.pushState({ trainingCategory: key }, "", "/training/c/" + encodeURIComponent(key)); } catch (e) {} };
   const closeCat = () => { setCat(null); try { if (window.history.state && window.history.state.trainingCategory) window.history.back(); } catch (e) {} };
+  // Part 418 (section 1): the person's courses and certificates, null
+  // until a read answers a list (an API from before Round 20 never does,
+  // and My Training stays as it was); the course page open, an entry in
+  // the phone's history as a category page is; and the chapter Pick up
+  // where you left off names, with the share of it done once its attempt
+  // is read.
+  const [courses, setCourses] = useState(null);
+  const [certs, setCerts] = useState(null);
+  const [coursePage, setCoursePage] = useState(null);
+  const [pickupShare, setPickupShare] = useState(null);
+  const openCourse = (c) => { setCoursePage(c); try { window.history.pushState({ trainingCourse: c.id }, "", "/"); } catch (e) {} };
+  const closeCourse = () => { setCoursePage(null); try { if (window.history.state && window.history.state.trainingCourse) window.history.back(); } catch (e) {} };
   useEffect(() => {
-    const onPop = () => setCat(window.history.state && window.history.state.trainingCategory ? String(window.history.state.trainingCategory) : null);
+    const onPop = () => {
+      setCat(window.history.state && window.history.state.trainingCategory ? String(window.history.state.trainingCategory) : null);
+      if (!(window.history.state && window.history.state.trainingCourse)) setCoursePage(null);
+    };
     window.addEventListener("popstate", onPop);
     return () => { window.removeEventListener("popstate", onPop); try { if (window.history.state && window.history.state.trainingCategory) window.history.replaceState({}, "", "/"); } catch (e) {} };
   }, []);
   useEffect(() => {
     let live = true;
     readTraining(token).then(d => { if (!live) return; if (d) { onData(d); setFault(false); } else setFault(true); });
+    readCourses(token).then(list => { if (live && list) setCourses(list); });
+    readMyCertificates(token).then(list => { if (live && list) setCerts(list); });
     return () => { live = false; };
   }, [asked]);
+  // The chapter in progress, first of the courses, and its attempt's
+  // progress read for the bar.
+  let pickup = null;
+  (courses || []).some(c => c.chapters.some(ch => { if (!ch.done && ch.status === "inProgress" && chapterTakeable(ch)) { pickup = { course: c, ch: ch }; return true; } return false; }));
+  const pickupAttempt = pickup && pickup.ch.attemptId ? pickup.ch.attemptId : "";
+  useEffect(() => {
+    let on = true;
+    setPickupShare(null);
+    if (!pickupAttempt) return undefined;
+    api("/api/training/attempts/" + encodeURIComponent(pickupAttempt), { token }).then(d => {
+      const p = d && d.attempt && d.attempt.progress && typeof d.attempt.progress === "object" ? d.attempt.progress : null;
+      if (!on || !p) return;
+      const total = (trainingNum(p.screensTotal) || 0) + (trainingNum(p.checksTotal) || 0);
+      const done = (Array.isArray(p.watched) ? p.watched.length : 0) + (trainingNum(p.checksRight) || 0);
+      if (total > 0) setPickupShare(Math.min(1, done / total));
+    }).catch(() => {});
+    return () => { on = false; };
+  }, [pickupAttempt]);
   // A lesson named from Before you start opens once its item is on the
   // list; a category named by a link, or the category of a topic a notice
   // names, opens its page once the portal is drawn.
@@ -11988,9 +12283,22 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   const cats = portal ? data.categories : [];
   const openCatOf = cat ? cats.find(c => c.key === cat) || null : null;
   if (lesson) {
-    return <TrainingLesson key={lesson.id + ":" + lesson.opened} token={token} item={lesson.item} siteId={lesson.item.siteId || shiftSiteId || null} backLabel={openCatOf ? openCatOf.name : ""} onBack={() => { setLesson(null); setAsked(n => n + 1); }} t={t} />;
+    return <TrainingLesson key={lesson.id + ":" + lesson.opened} token={token} item={lesson.item} siteId={lesson.item.siteId || shiftSiteId || null} backLabel={coursePage ? coursePage.name : openCatOf ? openCatOf.name : ""} onBack={() => { setLesson(null); setAsked(n => n + 1); }} t={t} />;
   }
   const openLesson = (i) => setLesson({ id: i.id, item: i, opened: Date.now() });
+  // A course's chapter taken (part 418): a quiz opens the lesson as My
+  // Training always has, from an item made of the chapter.
+  const playChapter = (c, ch, review) => {
+    if (!ch || !ch.lesson) return;
+    if (ch.lesson.kind === "quiz" && !review) {
+      const own = items.find(i => i.topicId === ch.topicId && i.lesson) || null;
+      openLesson(own || { id: ch.topicId + ":", topicId: ch.topicId, siteId: "", name: ch.name, docCode: "", docSection: "", safetyCritical: false, siteName: "", status: ch.status, completedDate: ch.completedDate, expiresOn: ch.expiresOn, linkUrl: "", attemptId: ch.attemptId, recordId: ch.recordId, lesson: { versionId: ch.lesson.versionId, kind: "quiz", attemptsUsed: ch.lesson.attemptsUsed, attemptsLeft: ch.lesson.attemptsLeft === null ? 1 : ch.lesson.attemptsLeft }, category: "other", sortOrder: null, needsTrainer: false, signoffBy: null, outsideCourse: false, findingFollowUp: null });
+    }
+  };
+  if (coursePage) {
+    return <CoursePage key={coursePage.id} token={token} course={coursePage} onBack={() => { closeCourse(); setAsked(n => n + 1); }} onPlay={playChapter} onCertificate={() => {}} playing={null} t={t} />;
+  }
+  const coursesPart = <CoursesPart courses={courses} certs={certs} pickup={pickup ? { ...pickup, share: pickupShare } : null} onCourse={openCourse} onChapter={(c, ch) => { openCourse(c); playChapter(c, ch, false); }} t={t} />;
   // Part 383: a certificate the API took. The item reads done at once,
   // its record leads History, and the list is read again.
   const certDone = (item, record, day) => {
@@ -12130,6 +12438,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
     return (
       <div data-training="waiting" style={{ padding: "14px 16px 100px" }}>
         {title}
+        {coursesPart}
         {faultPart || <div style={{ ...wsQuiet(t), marginTop: 8 }}>{tr("Loading...")}</div>}
       </div>
     );
@@ -12191,6 +12500,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
     return (
       <div data-training="portal" style={{ padding: "14px 16px 100px" }}>
         {title}
+        {coursesPart}
         {faultPart}
         {certSentPart}
         {cats.length > 0 && (
@@ -12237,6 +12547,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   return (
     <div data-training="1" style={{ padding: "14px 16px 100px" }}>
       {title}
+      {coursesPart}
       {faultPart}
       {certSentPart}
       {joinPart}

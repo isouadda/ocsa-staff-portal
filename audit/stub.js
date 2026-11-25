@@ -1809,6 +1809,47 @@ const namedShiftView = (sh, i, lang) => ({ id: sh.id, label: sh.label, display: 
 //                (RECOG_SITE_STAFF), for the shout-out picker
 // A case that names no recognition is answered none: no award shown, no
 // shout-out and an empty team wall, as live answers before December 1.
+// Part 418: the courses' state a case starts from. o.courses is true or
+// { appLeft: "shift" (Set Up Your Account done, one chapter left in The
+// Staff App), appDone (The Staff App complete with its certificate),
+// setupAt: [screen keys] (an open attempt on Set Up Your Account with
+// those watched, as another device left it), mailStatus (the new
+// certificate's mail: "sent", "failed", "no_email", or "sending", null on
+// its first read and sent after), certs (more certificates on file),
+// resendStatus, resendBusy (the next resend 409 training.certificateSending),
+// setup false (no setup chapter, 404), setupLimit (429), mediaStale (the
+// next n media links refused as run out), none (GET /courses 404, an API
+// from before Round 20) }.
+function r418StateOf(o) {
+  const c = o.courses;
+  if (!c) return null;
+  const opt = c === true ? {} : c;
+  const ch = {
+    "tc-setup": { status: "missing" }, "tc-shift": { status: "missing" },
+    "tc-restroom": { status: "inProgress", attemptId: "pa-restroom" }, "tc-mop": { status: "current", completedDate: "2026-09-20" }, "tc-chem": { status: "missing" },
+  };
+  const attempts = [{ id: "pa-restroom", versionId: "pv-restroom", topicId: "tc-restroom", locale: "en", startedAt: "2026-09-30T14:00:00Z", progress: { watched: ["s1", "s2"], right: [], wrong: {} }, passed: null, scoredAt: null, acknowledgedAt: null, voidedAt: null }];
+  const certificates = [];
+  if (opt.appLeft === "shift" || opt.appDone) ch["tc-setup"] = { status: "current", completedDate: "2026-09-28" };
+  if (opt.appDone) {
+    ch["tc-shift"] = { status: "current", completedDate: "2026-09-29" };
+    certificates.push({ id: "cert-co-app", number: "OCSA-TR-2026-00007", courseId: "co-app", completedOn: "2026-09-29", locale: "en", mailStatus: "sent", createdAt: "2026-09-29T20:00:00Z" });
+  }
+  for (let i = 0; i < (Number(opt.certs) || 0); i += 1) certificates.push({ id: "cert-old-" + (i + 1), number: "OCSA-TR-2026-0000" + (i + 1), courseId: "co-clean", completedOn: "2026-0" + (i + 1) + "-15", locale: "en", mailStatus: i === 0 ? "failed" : "sent", createdAt: "2026-0" + (i + 1) + "-15T20:00:00Z" });
+  if (Array.isArray(opt.setupAt)) {
+    attempts.push({ id: "pa-setup-1", versionId: "pv-setup", topicId: "tc-setup", locale: "en", startedAt: "2026-10-01T20:00:00Z", progress: { watched: opt.setupAt.slice(), right: opt.setupRight ? opt.setupRight.slice() : [], wrong: {} }, passed: null, scoredAt: null, acknowledgedAt: null, voidedAt: null });
+    ch["tc-setup"] = { status: "inProgress", attemptId: "pa-setup-1" };
+  }
+  return {
+    chapters: ch, required: { "tc-setup": true, "tc-restroom": true, "tc-chem": true }, attempts: attempts, certificates: certificates,
+    mailStatus: opt.mailStatus === undefined ? "sent" : opt.mailStatus, mineReads: 0,
+    resendStatus: opt.resendStatus || "sent", resendBusy: opt.resendBusy === true,
+    setup: opt.setup !== false, setupLimit: opt.setupLimit === true,
+    mediaStale: Number(opt.mediaStale) || 0, mediaSeq: 0, media: [], lessonReads: [],
+    none: opt.none === true, seq: 0,
+  };
+}
+
 function recogStateOf(o) {
   const r = o.recognition && typeof o.recognition === "object" ? o.recognition : { award: false, wall: 0, shoutouts: 0 };
   const me = o.person || PERSON;
@@ -2309,6 +2350,9 @@ function makeState(opts) {
     // Part 414: Employee of the Month and shout-outs (ocsa-api Round 19),
     // see recogStateOf.
     recognition: recogStateOf(o),
+    // Part 418: courses, player lessons, certificates and the signed-out
+    // setup chapter (ocsa-api Round 20), behind courses (see r418StateOf).
+    r418: r418StateOf(o),
   };
 }
 
@@ -3332,6 +3376,99 @@ const RECOG_SITE_STAFF = {
 const WEST_SHIFTS = [["Day shift", "Turno de d\u00eda"], ["Night shift", "Turno de noche"]];
 const westShiftNames = (lang) => ({ shifts: WEST_SHIFTS.map(p => p[lang === "es" ? 1 : 0]).join(", ") });
 
+// --- Courses, the lesson player and certificates (part 418) --------------
+//
+// ocsa-api Round 20 (part 415, isouadda/ocsa-api#170) and Round 21 (part
+// 416, #171) as merged: routes/training.js's courses, library, player
+// lessons and attempts, checks and course certificates, routes/public.js's
+// signed-out setup chapter (helpers/setupChapter.js), and the training
+// sign-in. Every course, chapter, line and picture here is invented. The
+// media is served from storage links the browser fetches itself, a real
+// WebM video and MP3 voice (audio/media/), each link signed.
+const R418_MEDIA_HOST = "https://media.example.invalid";
+const R418_CLIP = require("fs").readFileSync(require("path").join(__dirname, "media", "clip.webm"));
+const R418_VOICE = require("fs").readFileSync(require("path").join(__dirname, "media", "voice.mp3"));
+const r418Pic = (bg, fg, box) => pngOf(64, 40, (x, y) => (x >= box[0] && x < box[0] + box[2] && y >= box[1] && y < box[1] + box[3] ? fg : bg));
+const R418_PICTURES = {
+  email: r418Pic([220, 230, 242], [23, 76, 134], [8, 8, 48, 24]),
+  phone: r418Pic([242, 245, 249], [15, 27, 45], [24, 4, 16, 32]),
+  mop: r418Pic([242, 245, 249], [120, 84, 40], [30, 2, 4, 36]),
+  pinbox: r418Pic([242, 245, 249], [232, 178, 28], [16, 16, 32, 12]),
+  poster: r418Pic([23, 76, 134], [232, 178, 28], [26, 14, 12, 12]),
+  restroom: r418Pic([220, 230, 242], [255, 255, 255], [20, 10, 24, 24]),
+};
+const R418_T = (en, es) => ({ en: en, es: es });
+// The player lessons, with what the learner never reads: the right value,
+// the tap's boxes and the screens a wrong answer replays.
+const R418_LESSONS = {
+  "pv-setup": {
+    topicId: "tc-setup", version: 3, title: R418_T("Set Up Your Account", "Configure Su Cuenta"),
+    acknowledgement: R418_T("I watched how to set up my account and I can do it.", "Vi c\u00f3mo configurar mi cuenta y puedo hacerlo."),
+    screens: [
+      { key: "s1", media: { kind: "image", pic: "email" }, say: R418_T("Open the welcome email from the office.", "Abra el correo de bienvenida de la oficina."), caption: null, audio: true },
+      { key: "s2", media: { kind: "video" }, say: R418_T("Tap the button in the email. The app opens on your phone.", "Toque el bot\u00f3n del correo. La app se abre en su tel\u00e9fono."), caption: R418_T("Tap the button. The app opens.", "Toque el bot\u00f3n. La app se abre."), audio: true },
+      { key: "s3", media: { kind: "none" }, say: R418_T("Choose a PIN of four numbers that only you know.", "Elija un PIN de cuatro n\u00fameros que solo usted sepa."), caption: null, audio: false },
+    ],
+    checks: [
+      { key: "c1", after: "s1", kind: "choice", prompt: R418_T("Where is the button to set up your account?", "\u00bfD\u00f3nde est\u00e1 el bot\u00f3n para configurar su cuenta?"), options: [{ value: "email", text: R418_T("In the welcome email", "En el correo de bienvenida") }, { value: "clock", text: R418_T("On the time clock", "En el reloj de entrada") }, { value: "flyer", text: R418_T("On a paper flyer", "En un folleto de papel") }], correct: "email", replay: ["s1"] },
+      { key: "c2", after: "s2", kind: "picture", prompt: R418_T("Which picture shows the app?", "\u00bfQu\u00e9 imagen muestra la app?"), options: [{ value: "phone", pic: "phone", alt: R418_T("A phone with the app open", "Un tel\u00e9fono con la app abierta") }, { value: "mop", pic: "mop", alt: R418_T("A mop and a bucket", "Un trapeador y una cubeta") }], correct: "phone", replay: ["s2"] },
+      { key: "c3", after: "s3", kind: "tap", prompt: R418_T("Tap the box where your PIN goes.", "Toque la casilla donde va su PIN."), pic: "pinbox", targets: [{ x: 0.2, y: 0.3, w: 0.6, h: 0.4 }], replay: ["s3"] },
+    ],
+  },
+  "pv-shift": {
+    topicId: "tc-shift", version: 1, title: R418_T("Start and End a Shift", "Inicie y Termine un Turno"),
+    acknowledgement: R418_T("I can start and end a shift in the app.", "Puedo iniciar y terminar un turno en la app."),
+    screens: [
+      { key: "s1", media: { kind: "image", pic: "phone" }, say: R418_T("On Home, pick your site and tap Start Shift.", "En Inicio, elija su sitio y toque Iniciar turno."), caption: null, audio: true },
+      { key: "s2", media: { kind: "none" }, say: R418_T("When you finish, tap End Shift.", "Cuando termine, toque Terminar turno."), caption: null, audio: true },
+    ],
+    checks: [
+      { key: "c1", after: "s2", kind: "choice", prompt: R418_T("What do you tap when you finish?", "\u00bfQu\u00e9 toca cuando termina?"), options: [{ value: "end", text: R418_T("End Shift", "Terminar turno") }, { value: "chat", text: R418_T("Chat", "Chat") }], correct: "end", replay: ["s2"] },
+    ],
+  },
+  "pv-restroom": {
+    topicId: "tc-restroom", version: 2, title: R418_T("Clean a Restroom", "Limpie un Ba\u00f1o"),
+    acknowledgement: R418_T("I know how to clean a restroom.", "S\u00e9 c\u00f3mo limpiar un ba\u00f1o."),
+    screens: [
+      { key: "s1", media: { kind: "image", pic: "restroom" }, say: R418_T("Put on gloves before you start.", "P\u00f3ngase guantes antes de empezar."), caption: null, audio: true },
+      { key: "s2", media: { kind: "image", pic: "restroom" }, say: R418_T("Squeeze bowl cleaner under the rim of every toilet.", "Ponga limpiador bajo el borde de cada inodoro."), caption: null, audio: true },
+      { key: "s3", media: { kind: "none" }, say: R418_T("Wipe the high-touch spots last.", "Limpie al final los puntos que m\u00e1s se tocan."), caption: null, audio: true },
+    ],
+    checks: [
+      { key: "c1", after: "s3", kind: "choice", prompt: R418_T("What do you put on first?", "\u00bfQu\u00e9 se pone primero?"), options: [{ value: "gloves", text: R418_T("Gloves", "Guantes") }, { value: "hat", text: R418_T("A hat", "Un sombrero") }], correct: "gloves", replay: ["s1"] },
+    ],
+  },
+  "pv-mop": {
+    topicId: "tc-mop", version: 1, title: R418_T("Mop a Floor the Right Way", "Trapee un Piso Correctamente"),
+    acknowledgement: R418_T("I know how to mop a floor.", "S\u00e9 c\u00f3mo trapear un piso."),
+    screens: [
+      { key: "s1", media: { kind: "none" }, say: R418_T("Put out the wet floor sign first.", "Primero ponga el letrero de piso mojado."), caption: null, audio: true },
+    ],
+    checks: [
+      { key: "c1", after: "s1", kind: "choice", prompt: R418_T("What goes out first?", "\u00bfQu\u00e9 se pone primero?"), options: [{ value: "sign", text: R418_T("The wet floor sign", "El letrero de piso mojado") }, { value: "mop", text: R418_T("The mop", "El trapeador") }], correct: "sign", replay: ["s1"] },
+    ],
+  },
+};
+// The person's courses: The Staff App, promoted, and Cleaning Skills, with
+// a chapter a trainer watches.
+const R418_COURSES = [
+  { id: "co-app", key: "staff_app", names: R418_T("The Staff App", "La App del Personal"), summary: R418_T("How to use the app, one short step at a time.", "C\u00f3mo usar la app, un paso corto a la vez."), audience: "staff", certificate: true, promoted: true, sortOrder: 10,
+    chapters: [{ topicId: "tc-setup", key: "account_setup", names: R418_T("Set Up Your Account", "Configure Su Cuenta"), versionId: "pv-setup", kind: "player" }, { topicId: "tc-shift", key: "start_end_shift", names: R418_T("Start and End a Shift", "Inicie y Termine un Turno"), versionId: "pv-shift", kind: "player" }] },
+  { id: "co-clean", key: "cleaning_skills", names: R418_T("Cleaning Skills", "Habilidades de Limpieza"), summary: R418_T("How we clean, step by step.", "C\u00f3mo limpiamos, paso a paso."), audience: "staff", certificate: true, promoted: false, sortOrder: 20,
+    chapters: [{ topicId: "tc-restroom", key: "restroom", names: R418_T("Clean a Restroom", "Limpie un Ba\u00f1o"), versionId: "pv-restroom", kind: "player" }, { topicId: "tc-mop", key: "mop", names: R418_T("Mop a Floor the Right Way", "Trapee un Piso Correctamente"), versionId: "pv-mop", kind: "player" }, { topicId: "tc-chem", key: "chemicals", names: R418_T("Never Mix Chemicals", "Nunca Mezcle Qu\u00edmicos"), versionId: "ob-chem", kind: "observation" }] },
+];
+const R418_REFUSALS = {
+  "training.courseNotFound": { status: 404, en: "That course is not open to you.", es: "Ese curso no est\u00e1 abierto para usted." },
+  "training.checkNotFound": { status: 404, en: "That question is not in this lesson.", es: "Esa pregunta no est\u00e1 en esta lecci\u00f3n." },
+  "training.certificateNotFound": { status: 404, en: "That certificate is not on file.", es: "Ese certificado no est\u00e1 archivado." },
+  "training.certificateSending": { status: 409, en: "This certificate is being emailed right now. Try again in a minute.", es: "Este certificado se est\u00e1 enviando ahora. Intente de nuevo en un minuto." },
+  "training.noSetupChapter": { status: 404, en: "The account setup video is not ready yet.", es: "El video para configurar la cuenta todav\u00eda no est\u00e1 listo." },
+  "customer.tooManyRequests": { status: 429, en: "Too many tries from this connection. Wait a minute and try again.", es: "Demasiados intentos desde esta conexi\u00f3n. Espere un minuto e intente de nuevo." },
+  "training.notPlayer": { status: 409, en: "This lesson has no questions to try here.", es: "Esta lecci\u00f3n no tiene preguntas para probar aqu\u00ed." },
+};
+// What a course certificate's PDF is: one small real PDF.
+const R418_PDF = Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 792 612]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n", "latin1");
+
 const TWIN_PAIRS = [
   // To-do items, their instructions and their zones.
   ["Wipe the entry doors and handles", "Limpie las puertas de entrada y las manijas"],
@@ -3626,7 +3763,10 @@ const TWIN_PAIRS = [
   // is the API's own (the owner's choice of Nov 17).
   .concat(Object.keys(R15_WORDS).filter(k => R15_WORDS[k].en.indexOf("{") === -1).map(k => [R15_WORDS[k].en, R15_WORDS[k].es]))
   .concat(R15_LINES.map(l => [l.en, l.es]))
-  .concat([[r15Say("leave.note.hoursPostedThrough", "en", { date: r15DateWords(R15_POSTED_THROUGH, "en") }), r15Say("leave.note.hoursPostedThrough", "es", { date: r15DateWords(R15_POSTED_THROUGH, "es") })]]);
+  .concat([[r15Say("leave.note.hoursPostedThrough", "en", { date: r15DateWords(R15_POSTED_THROUGH, "en") }), r15Say("leave.note.hoursPostedThrough", "es", { date: r15DateWords(R15_POSTED_THROUGH, "es") })]])
+  // Part 418: the refusals of the course, player, certificate and setup
+  // routes (ocsa-api Round 20).
+  .concat(Object.keys(R418_REFUSALS).map(k => [R418_REFUSALS[k].en, R418_REFUSALS[k].es]));
 
 const TWIN_ES = new Map();
 const TWIN_EN = new Map();
@@ -3742,6 +3882,8 @@ const SIGNED_OUT = [
   /^GET \/api\/support\/contact$/,
   // A client's acknowledgement of a monthly report (part 344), the same way.
   /^GET \/api\/public\/acknowledge\/[^/]+$/, /^POST \/api\/public\/acknowledge\/[^/]+$/,
+  // Part 418: the setup chapter signed out, its checks, and its media.
+  /^GET \/api\/public\/training\/setup$/, /^POST \/api\/public\/training\/setup\/checks\/[^/]+$/, /^GET \/api\/lesson-media\/signed\/[^/]+$/,
 ];
 const signedOutLanguage = (search, accept) => {
   const m = String(search || "").match(/[?&]locale=(en|es)\b/);
@@ -5014,6 +5156,205 @@ function createStub(opts) {
   // Part 414: ocsa-api Round 19's routes/recognition.js, as the person
   // reads it, and GET /api/sites/:id's staff for the shout-out picker
   // when a case asks (staffAt). null for any other route.
+  // Part 418 (ocsa-api Round 20, part 415): the routes the staff app's
+  // courses, player, certificates and setup page read, as routes/training.js
+  // and routes/public.js answer them. Answers null for anything else.
+  function r418Answer(method, pathname, key, search, body) {
+    const R = state.r418;
+    const lang = /^\/api\/public\//.test(pathname) ? signedOutLanguage(search, "") : languageOf(search, state);
+    const refuse = (k, extra) => { const r = R418_REFUSALS[k] || TRAINING_REFUSALS[k]; return json(r.status, Object.assign({ error: refusalIn(r, lang), code: k }, extra || {})); };
+    const sign = (name) => { R.mediaSeq += 1; return R418_MEDIA_HOST + "/api/lesson-media/signed/" + name + "?token=m" + R.mediaSeq; };
+    // A media link, fetched by an <img>, a <video> or an <audio>.
+    const media = /^\/api\/lesson-media\/signed\/([A-Za-z0-9_.-]+)$/.exec(pathname);
+    if (media && method === "GET") {
+      const name = media[1];
+      const stale = R.mediaStale > 0;
+      if (stale) R.mediaStale -= 1;
+      R.media.push({ name: name, ok: !stale });
+      if (stale) return { status: 400, contentType: "application/json", body: JSON.stringify({ statusCode: "400", error: "InvalidJWT", message: "\"exp\" claim timestamp check failed" }) };
+      if (/\.png$/.test(name)) return image("image/png", R418_PICTURES[name.replace(/\.png$/, "")] || R418_PICTURES.poster);
+      if (/\.webm$/.test(name)) return image("video/webm", R418_CLIP);
+      if (/\.mp3$/.test(name)) return image("audio/mpeg", R418_VOICE);
+      return json(404, { error: "Not found" });
+    }
+    const lessonView = (vid, review) => {
+      const L = R418_LESSONS[vid];
+      const own = R.attempts.find(a => a.versionId === vid && !a.voidedAt);
+      return {
+        versionId: vid, topicId: L.topicId, version: L.version, title: L.title[lang], locale: lang, locales: ["en", "es"], kind: "player", review: !!review,
+        acknowledgement: L.acknowledgement[lang], passPercent: 100, needsTrainer: false, attemptsUsed: own ? 1 : 0, attemptsLeft: null, blocks: [], questions: [], steps: [], spanishHeld: false,
+        screens: L.screens.map(sc => ({ key: sc.key, media: sc.media.kind === "image" ? { kind: "image", src: sign(sc.media.pic + ".png") } : sc.media.kind === "video" ? { kind: "video", src: sign("clip.webm"), poster: sign("poster.png") } : { kind: "none" }, say: sc.say[lang], caption: sc.caption ? sc.caption[lang] : null, audio: sc.audio ? { url: sign("voice-" + vid + "-" + sc.key + ".mp3") } : null })),
+        checks: L.checks.map(ck => {
+          const out = { key: ck.key, after: ck.after, kind: ck.kind, prompt: ck.prompt[lang] };
+          if (ck.kind === "choice") out.options = ck.options.map(x => ({ value: x.value, text: x.text[lang] }));
+          if (ck.kind === "picture") out.options = ck.options.map(x => ({ value: x.value, src: sign(x.pic + ".png"), alt: x.alt[lang] }));
+          if (ck.kind === "tap") out.image = { src: sign(ck.pic + ".png") };
+          return out;
+        }),
+      };
+    };
+    const score = (ck, b) => {
+      const x = b && typeof b === "object" ? b : {};
+      if (ck.kind === "tap") {
+        const ok = (v) => typeof v === "number" && isFinite(v) && v >= 0 && v <= 1;
+        const keys = ["x", "y"].filter(k => !ok(x[k]));
+        if (keys.length) return { keys: keys };
+        return { right: (ck.targets || []).some(tg => x.x >= tg.x && x.x <= tg.x + tg.w && x.y >= tg.y && x.y <= tg.y + tg.h) };
+      }
+      if (typeof x.value !== "string" || !ck.options.some(o => o.value === x.value)) return { keys: ["value"] };
+      return { right: x.value === ck.correct };
+    };
+    // --- the setup chapter, signed out (routes/public.js)
+    if (key === "GET /api/public/training/setup" || /^POST \/api\/public\/training\/setup\/checks\/[^/]+$/.test(key)) {
+      if (R.setupLimit) return refuse("customer.tooManyRequests");
+      if (!R.setup) return refuse("training.noSetupChapter");
+      if (method === "GET") { R.lessonReads.push({ id: "setup", locale: lang, public: true }); return json(200, { lesson: lessonView("pv-setup", true) }); }
+      const ck = R418_LESSONS["pv-setup"].checks.find(c => c.key === decodeURIComponent(pathname.split("/").pop()));
+      if (!ck) return refuse("training.checkNotFound");
+      const got = score(ck, body);
+      if (got.keys) return refuse("training.badAnswers", { keys: got.keys });
+      return json(200, { right: got.right, replay: got.right ? [] : ck.replay.slice(), review: true });
+    }
+    if (pathname.indexOf("/api/training/") !== 0) return null;
+    const chapterView = (cd, withVersion) => {
+      const st = R.chapters[cd.topicId] || { status: "missing" };
+      const done = st.status === "current" || st.status === "dueSoon";
+      const v = {
+        topicId: cd.topicId, key: cd.key, name: cd.names[lang], status: st.status, done: done, required: !!R.required[cd.topicId],
+        completedDate: st.completedDate || null, expiresOn: st.expiresOn || null, recordId: done ? "rec-" + cd.topicId : null, attemptId: st.attemptId || null,
+        lesson: { versionId: cd.versionId, kind: cd.kind, attemptsUsed: 0, attemptsLeft: null },
+      };
+      if (withVersion) {
+        const L = R418_LESSONS[cd.versionId];
+        v.version = L ? { id: cd.versionId, version: L.version, kind: "player", title: L.title[lang], screens: L.screens.length, checks: L.checks.length, questions: 0, publishedAt: "2026-09-01T12:00:00Z" } : null;
+      }
+      return v;
+    };
+    const courseView = (c, withVersion) => {
+      const chapters = c.chapters.map(cd => chapterView(cd, withVersion));
+      const doneN = chapters.filter(x => x.done).length;
+      const cert = R.certificates.find(x => x.courseId === c.id);
+      return { id: c.id, key: c.key, name: c.names[lang], summary: c.summary[lang], audience: c.audience, certificate: c.certificate, promoted: c.promoted, sortOrder: c.sortOrder,
+        status: chapters.length > 0 && doneN === chapters.length ? "complete" : chapters.some(x => x.done || x.status === "inProgress" || x.status === "awaitingTrainer") ? "inProgress" : "notStarted",
+        chaptersDone: doneN, chaptersTotal: chapters.length, certificateId: cert ? cert.id : null, certificateNumber: cert ? cert.number : null, chapters: chapters };
+    };
+    const certView = (x) => {
+      const c = R418_COURSES.find(y => y.id === x.courseId);
+      return { id: x.id, number: x.number, userId: state.person.id, courseId: x.courseId, courseKey: c.key, courseName: c.names[lang], completedOn: x.completedOn, locale: x.locale, filed: true, documentId: "doc-" + x.id, mailStatus: x.mailStatus === "sending" ? null : x.mailStatus, mailedAt: x.mailStatus === "sent" ? x.createdAt : null, createdAt: x.createdAt, isTest: false };
+    };
+    const attemptView = (a) => {
+      const L = R418_LESSONS[a.versionId];
+      const sk = L.screens.map(x => x.key), ckk = L.checks.map(x => x.key);
+      const watched = sk.filter(k => a.progress.watched.indexOf(k) !== -1), right = ckk.filter(k => a.progress.right.indexOf(k) !== -1);
+      const nextScreen = sk.find(k => watched.indexOf(k) === -1) || null;
+      return { id: a.id, versionId: a.versionId, topicId: a.topicId, topicName: L.title[lang], attemptNo: 1, locale: a.locale, startedAt: a.startedAt, scoredAt: a.scoredAt, scorePercent: a.passed ? 100 : null, passed: a.passed, missed: [], acknowledgedAt: a.acknowledgedAt, awaitingTrainer: false, trainerSignedAt: null, trainer: null, demonstrated: null, siteId: null, voidedAt: a.voidedAt, kind: "player",
+        progress: { watched: watched, right: right, wrong: Object.assign({}, a.progress.wrong), screensTotal: sk.length, checksTotal: ckk.length, checksRight: right.length, nextScreen: nextScreen, nextCheck: nextScreen ? null : (ckk.find(k => right.indexOf(k) === -1) || null) },
+        trainerNote: null, signoffBy: null, signoffAttemptId: null, attemptsUsed: 1, attemptsLeft: null };
+    };
+    if (key === "GET /api/training/courses") {
+      if (R.none) return json(404, { error: "Not found" });
+      return json(200, { courses: R418_COURSES.map(c => courseView(c, false)) });
+    }
+    if (key === "GET /api/training/courses/library") return json(200, { courses: R418_COURSES.map(c => courseView(c, true)) });
+    const oneCourse = /^GET \/api\/training\/courses\/([^/]+)$/.exec(key);
+    if (oneCourse) {
+      const c = R418_COURSES.find(x => x.id === decodeURIComponent(oneCourse[1]));
+      return c ? json(200, { course: courseView(c, false) }) : refuse("training.courseNotFound");
+    }
+    if (key === "GET /api/training/certificates/mine") {
+      R.mineReads += 1;
+      const rows = R.certificates.slice().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).map(certView);
+      R.certificates.forEach(x => { if (x.mailStatus === "sending" && x.reads > 0) x.mailStatus = "sent"; x.reads = (x.reads || 0) + 1; });
+      return json(200, { certificates: rows });
+    }
+    const certRoute = /^(GET|POST) \/api\/training\/certificates\/([^/]+)\/(pdf|resend)$/.exec(key);
+    if (certRoute && !(certRoute[1] === "GET" && certRoute[3] === "resend") && !(certRoute[1] === "POST" && certRoute[3] === "pdf")) {
+      const x = R.certificates.find(y => y.id === decodeURIComponent(certRoute[2]));
+      if (!x) return refuse("training.certificateNotFound");
+      if (certRoute[3] === "pdf") { R.pdfReads = (R.pdfReads || []).concat([{ id: x.id, search: search || "" }]); return { status: 200, contentType: "application/pdf", body: R418_PDF }; }
+      if (R.resendBusy) { R.resendBusy = false; return refuse("training.certificateSending"); }
+      x.mailStatus = R.resendStatus;
+      R.resends = (R.resends || 0) + 1;
+      return json(200, { certificate: certView(x), mailStatus: x.mailStatus });
+    }
+    const lv = /^(GET|POST) \/api\/training\/lesson-versions\/([^/]+)(?:\/checks\/([^/]+))?$/.exec(key);
+    if (lv && R418_LESSONS[decodeURIComponent(lv[2])]) {
+      const vid = decodeURIComponent(lv[2]);
+      const L = R418_LESSONS[vid];
+      const st = R.chapters[L.topicId] || {};
+      if (lv[1] === "GET" && !lv[3]) {
+        const review = /[?&]review=true\b/.test(search || "") || st.status === "current" || st.status === "dueSoon";
+        R.lessonReads.push({ id: vid, locale: lang, review: review });
+        return json(200, { lesson: lessonView(vid, review) });
+      }
+      if (lv[1] === "POST" && lv[3]) {
+        const ck = L.checks.find(c => c.key === decodeURIComponent(lv[3]));
+        if (!ck) return refuse("training.checkNotFound");
+        const got = score(ck, body);
+        if (got.keys) return refuse("training.badAnswers", { keys: got.keys });
+        R.reviewChecks = (R.reviewChecks || 0) + 1;
+        return json(200, { right: got.right, replay: got.right ? [] : ck.replay.slice(), review: true });
+      }
+    }
+    if (key === "POST /api/training/attempts" && body && R418_LESSONS[body.versionId]) {
+      const L = R418_LESSONS[body.versionId];
+      const open = R.attempts.find(a => a.versionId === body.versionId && !a.voidedAt && !a.acknowledgedAt);
+      if (open) return json(200, { attempt: attemptView(open) });
+      R.seq += 1;
+      const made = { id: "pa-made-" + R.seq, versionId: body.versionId, topicId: L.topicId, locale: body.locale === "es" ? "es" : "en", startedAt: new Date().toISOString(), progress: { watched: [], right: [], wrong: {} }, passed: null, scoredAt: null, acknowledgedAt: null, voidedAt: null };
+      R.attempts.push(made);
+      R.chapters[L.topicId] = { status: "inProgress", attemptId: made.id };
+      return json(201, { attempt: attemptView(made) });
+    }
+    const at = /^(GET|POST) \/api\/training\/attempts\/(pa-[^/]+)(?:\/(progress|checks|acknowledge)(?:\/([^/]+))?)?$/.exec(key);
+    if (at) {
+      const a = R.attempts.find(x => x.id === decodeURIComponent(at[2]));
+      if (!a) return refuse("training.attemptNotFound");
+      const L = R418_LESSONS[a.versionId];
+      if (at[1] === "GET" && !at[3]) return json(200, { attempt: attemptView(a) });
+      const b = body && typeof body === "object" ? body : {};
+      if (at[3] === "progress") {
+        if (a.voidedAt) return refuse("training.attemptClosed", { attempt: attemptView(a) });
+        const keys = L.screens.map(x => x.key);
+        if (!Array.isArray(b.watched) || b.watched.length === 0) return refuse("training.badDetails", { keys: ["watched"] });
+        const bad = b.watched.map((k, i) => (keys.indexOf(k) === -1 ? "watched[" + i + "]" : null)).filter(Boolean);
+        if (bad.length) return refuse("training.badDetails", { keys: bad });
+        b.watched.forEach(k => { if (a.progress.watched.indexOf(k) === -1) a.progress.watched.push(k); });
+        return json(200, { attempt: attemptView(a) });
+      }
+      if (at[3] === "checks") {
+        if (a.voidedAt || a.scoredAt) return refuse("training.attemptClosed", { attempt: attemptView(a) });
+        const ck = L.checks.find(c => c.key === decodeURIComponent(at[4] || ""));
+        if (!ck) return refuse("training.checkNotFound");
+        const got = score(ck, b);
+        if (got.keys) return refuse("training.badAnswers", { keys: got.keys });
+        if (got.right) { if (a.progress.right.indexOf(ck.key) === -1) a.progress.right.push(ck.key); } else a.progress.wrong[ck.key] = (a.progress.wrong[ck.key] || 0) + 1;
+        const passed = L.checks.every(c => a.progress.right.indexOf(c.key) !== -1);
+        if (passed) { a.passed = true; a.scoredAt = new Date().toISOString(); }
+        return json(200, { right: got.right, replay: got.right ? [] : ck.replay.slice(), passed: passed, attempt: attemptView(a) });
+      }
+      if (at[3] === "acknowledge") {
+        if (a.acknowledgedAt && !a.voidedAt) return json(200, { attempt: attemptView(a), record: { id: "rec-" + a.topicId, name: L.title[lang], completedDate: "2026-10-01", expiresOn: null, siteName: null, locale: a.locale } });
+        if (a.passed !== true) return refuse("training.notPassed");
+        const raw = typeof b.signature === "string" ? b.signature.trim() : "";
+        const drawn = raw ? /^data:image\/png;base64,([A-Za-z0-9+/=\s]+)$/.exec(raw) : null;
+        const bytes = drawn ? Buffer.from(drawn[1].replace(/\s+/g, ""), "base64") : null;
+        if (!bytes || !sniffImage(bytes) || sniffImage(bytes).ext !== "png") return refuse("training.signatureRequired");
+        a.acknowledgedAt = new Date().toISOString();
+        R.chapters[a.topicId] = { status: "current", completedDate: "2026-10-01" };
+        // A course with a certificate now complete makes its certificate,
+        // its mail sent after (helpers/courseCertificates.js).
+        R418_COURSES.forEach(c => {
+          if (!c.certificate || R.certificates.some(x => x.courseId === c.id)) return;
+          if (!c.chapters.every(cd => { const s = R.chapters[cd.topicId]; return s && (s.status === "current" || s.status === "dueSoon"); })) return;
+          R.certificates.push({ id: "cert-" + c.id, number: "OCSA-TR-2026-00012", courseId: c.id, completedOn: "2026-10-01", locale: a.locale, mailStatus: R.mailStatus, createdAt: new Date().toISOString(), reads: 0 });
+        });
+        return json(200, { attempt: attemptView(a), record: { id: "rec-" + a.topicId, name: L.title[lang], completedDate: "2026-10-01", expiresOn: null, siteName: null, locale: a.locale } });
+      }
+    }
+    return null;
+  }
+
   function recognitionAnswer(method, pathname, key, search, body) {
     const R = state.recognition;
     const lang = languageOf(search, state);
@@ -5237,7 +5578,7 @@ function createStub(opts) {
     // A lesson picture's signed address is fetched by an <img>, which the
     // portal never builds through reach(), so it says no language and needs
     // none (part 344).
-    const fault = /^\/api\/lesson-images\/signed\//.test(pathname) ? null : localeFault(search, state.languages);
+    const fault = /^\/api\/lesson-(images|media)\/signed\//.test(pathname) ? null : localeFault(search, state.languages);
     if (fault) {
       state.localeFaults.push(key + (search || "") + " " + fault);
       noteLocaleFault(key, search, fault);
@@ -5299,6 +5640,9 @@ function createStub(opts) {
     // Part 414: Employee of the Month and shout-outs.
     const recognized = recognitionAnswer(method, pathname, key, search, body);
     if (recognized) return recognized;
+    // Part 418: courses, player lessons, certificates, the setup chapter.
+    const coursed = state.r418 ? r418Answer(method, pathname, key, search, body) : null;
+    if (coursed) return coursed;
     // --- signing in and getting in
     if (key === "POST /api/auth/login") {
       // A wrong PIN carries its key as its code, the way the API's

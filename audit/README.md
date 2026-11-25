@@ -2445,6 +2445,40 @@ dm-inbox (TEST_CHAT_PEOPLE, TEST_CHAT_LINES), and the two open routes.
 Two journeys, in English and Spanish, fail on the main of part 408:
 `chattestoffice` and `chattestlines`; `chatreopen` passes on both.
 
+## My Training and courses (part 418, section 1)
+
+ocsa-api Round 20 (part 415, isouadda/ocsa-api#170) answers the person's
+courses at `GET /api/training/courses`, a course at `GET
+/api/training/courses/:id` and the Watch again list, each chapter with its
+published version, at `GET /api/training/courses/library`. My Training
+draws them above the older trainings, which stay as they were: the first
+required chapter still due, **Pick up where you left off** (the chapter in
+progress, its course and place, and the share of its attempt done from
+`GET /api/training/attempts/:id`), and **Your courses** with a promoted
+course not yet complete first and marked **New**, each with its ring. A
+course page lists the chapters: a done one with **Watch again** where the
+library holds a player, the next with **Continue** or **Begin**, the rest
+numbered, a required one's due state in words, and the next one's button
+at the bottom.
+
+The stub answers every route of Round 20 the staff app reads behind
+`courses` (see `r418StateOf`): The Staff App, promoted, and Cleaning
+Skills, with a chapter a trainer watches; player lessons with an image, a
+video and a screen with no voice, and a choice, a picture and a tap check;
+attempts with their progress; course certificates; the signed-out setup
+chapter; and the media links, a real WebM video and MP3 voice
+(`audit/media/`), which a case can make run out (`mediaStale`). Two
+journeys, in English and Spanish, each failing on the main of part 414:
+
+- `coursesmytraining`: the required chapter, Pick up where you left off
+  with its share, the promoted course first and marked New, each ring,
+  the names as the API stores them, the older trainings still there; an
+  API with no courses route draws none.
+- `coursepage`: the course and the library read, the summary, n of m and
+  the certificate line, Continue on the next, Watch again on a done one,
+  a required chapter's state and the trainer's line, the button at the
+  bottom, and the phone's back to My Training.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

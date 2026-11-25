@@ -1765,6 +1765,24 @@ export const WORDS = {
   "Your time off follows the rules for staff at a union site.": "Su tiempo libre sigue las reglas del personal en un sitio sindicalizado.",
   // Part 414 (section 5): New message for a test office account.
   "Direct message": "Mensaje directo",
+  // Part 418 (section 1): My Training's courses and a course page.
+  "Expired": "Vencida",
+  "{done} of 1 chapter done": "{done} de 1 cap\u00edtulo terminado",
+  "{done} of {total} chapters done": "{done} de {total} cap\u00edtulos terminados",
+  "Required: {name}": "Obligatorio: {name}",
+  "Pick up where you left off": "Siga donde lo dej\u00f3",
+  "{course}, chapter {n} of {total}": "{course}, cap\u00edtulo {n} de {total}",
+  "Keep going": "Seguir adelante",
+  "Your courses": "Sus cursos",
+  "My certificates ({n})": "Mis certificados ({n})",
+  "Watch again": "Ver de nuevo",
+  "You get a certificate when you finish it.": "Recibe un certificado cuando lo termine.",
+  "You get a certificate when you finish all {n}.": "Recibe un certificado cuando termine los {n}.",
+  "Open my certificate": "Abrir mi certificado",
+  "Continue: {name}": "Continuar: {name}",
+  "Start: {name}": "Empezar: {name}",
+  "Begin": "Empezar",
+  "This course did not load.": "Este curso no se carg\u00f3.",
   },
 };
 
@@ -3406,6 +3424,24 @@ WORDS.fr = {
   "Your time off follows the rules for staff at a union site.": "Vos cong\u00e9s suivent les r\u00e8gles du personnel d'un site syndiqu\u00e9.",
   // Part 414 (section 5): New message for a test office account.
   "Direct message": "Message direct",
+  // Part 418 (section 1): My Training's courses and a course page.
+  "Expired": "Expir\u00e9e",
+  "{done} of 1 chapter done": "{done} chapitre sur 1 termin\u00e9",
+  "{done} of {total} chapters done": "{done} chapitres sur {total} termin\u00e9s",
+  "Required: {name}": "Obligatoire\u00a0: {name}",
+  "Pick up where you left off": "Reprenez l\u00e0 o\u00f9 vous en \u00e9tiez",
+  "{course}, chapter {n} of {total}": "{course}, chapitre {n} sur {total}",
+  "Keep going": "Poursuivre",
+  "Your courses": "Vos cours",
+  "My certificates ({n})": "Mes certificats ({n})",
+  "Watch again": "Revoir",
+  "You get a certificate when you finish it.": "Vous recevez un certificat quand vous le terminez.",
+  "You get a certificate when you finish all {n}.": "Vous recevez un certificat quand vous terminez les {n}.",
+  "Open my certificate": "Ouvrir mon certificat",
+  "Continue: {name}": "Continuer\u00a0: {name}",
+  "Start: {name}": "Commencer\u00a0: {name}",
+  "Begin": "Commencer",
+  "This course did not load.": "Ce cours ne s'est pas charg\u00e9.",
 };
 
 // {name} is replaced after the language is chosen, so the

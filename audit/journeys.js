@@ -12497,4 +12497,77 @@ const PART414_S5_JOURNEYS = [
 ];
 JOURNEYS.push(...PART414_S5_JOURNEYS);
 
+// --- Round 18 of the staff app (part 418), section 1 ----------------------
+//
+// My Training and courses (ocsa-api Round 20, part 415, #170), each failing
+// on the main of part 414, where no screen reads GET /api/training/courses.
+const r418Has = (page, sel) => page.evaluate((x) => !!document.querySelector(x), sel);
+const r418Click = (page, sel) => page.evaluate((x) => { const b = document.querySelector(x); if (b) b.click(); return !!b; }, sel);
+const r418Text = (page, sel) => page.evaluate((x) => { const e = document.querySelector(x); return e ? e.innerText.replace(/\s+/g, " ").trim() : ""; }, sel);
+const r418Attr = (page, sel, a) => page.evaluate(([x, n]) => { const e = document.querySelector(x); return e ? e.getAttribute(n) : null; }, [sel, a]);
+const r418Name = (en, es, language) => (language === "es" ? es : en);
+const r418Open = (open, opts) => open(Object.assign({}, opts || {}, { stubOptions: Object.assign({ training: true, courses: true }, (opts || {}).stubOptions || {}) }));
+const r418Training = async (app, language) => {
+  await openTab(app.page, "training", language);
+  return shows(app.page, "[data-courses]", 8000);
+};
+const PART418_S1_JOURNEYS = [
+  {
+    id: "coursesmytraining",
+    label: "My Training with a promoted course (part 418, 1.1, 1.4): the required chapter still due, Pick up where you left off with its course and place and the share done, Your courses with the promoted course first marked New and each ring, the names as the API stores them; the older trainings still there; an API with no courses route leaves My Training as it was",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open);
+      try {
+        const drawn = await r418Training(app, language);
+        expect("My Training reads GET /api/training/courses and draws the courses", drawn && sent(app.stub, "GET", "/api/training/courses").length >= 1, "drawn " + drawn);
+        const due = await r418Text(app.page, "[data-course-due]");
+        expect("a required chapter still due is named first, with its due state in words", has(due, fill(say("Required: {name}", language), { name: r418Name("Set Up Your Account", "Configure Su Cuenta", language) })) && has(due, say("Not done yet", language)), due);
+        await shows(app.page, "[data-course-pickup-bar]", 4000);
+        const pick = await r418Text(app.page, "[data-course-pickup]");
+        const bar = Number(await r418Attr(app.page, "[data-course-pickup-bar]", "data-course-pickup-bar"));
+        expect("Pick up where you left off names the chapter in progress, its course and place, and the share done (2 of 3 screens, 0 of 1 check)", has(pick, r418Name("Clean a Restroom", "Limpie un Baño", language)) && has(pick, fill(say("{course}, chapter {n} of {total}", language), { course: r418Name("Cleaning Skills", "Habilidades de Limpieza", language), n: 1, total: 3 })) && bar === 50 && sent(app.stub, "GET", "/api/training/attempts/pa-restroom").length === 1, pick + " " + bar);
+        const cards = await app.page.evaluate(() => Array.from(document.querySelectorAll("[data-course]")).map(b => ({ id: b.getAttribute("data-course"), isNew: b.getAttribute("data-course-new") === "1", mark: !!b.querySelector("[data-course-new-mark]"), ring: (b.querySelector("[data-course-ring]") || {}).getAttribute ? b.querySelector("[data-course-ring]").getAttribute("data-course-ring") : null, text: b.innerText.replace(/\s+/g, " ") })));
+        expect("Your courses: the promoted course first, marked New, then the other, each with its ring", cards.length === 2 && cards[0].id === "co-app" && cards[0].isNew && cards[0].mark && cards[1].id === "co-clean" && !cards[1].mark && cards[0].ring === "0/2" && cards[1].ring === "1/3", JSON.stringify(cards));
+        expect("the names are drawn exactly as the API stores them", has(cards[0].text, r418Name("The Staff App", "La App del Personal", language)) && has(cards[1].text, r418Name("Cleaning Skills", "Habilidades de Limpieza", language)) && has(cards[1].text, fill(say("{done} of {total} chapters done", language), { done: 1, total: 3 })), cards.map(c => c.text).join(" | "));
+        expect("the older trainings are still reachable on the same page", await r418Has(app.page, "[data-training-join]"), "no Join a session");
+        await spokenWithin(app, language, expect, "[data-courses]");
+      } finally { await app.context.close(); }
+      const old = await r418Open(open, { stubOptions: { courses: { none: true } } });
+      try {
+        await openTab(old.page, "training", language);
+        await shows(old.page, "[data-training-join]", 8000);
+        await pause(old.page, 800);
+        expect("an API with no courses route: My Training as it was, no course drawn", !(await r418Has(old.page, "[data-courses]")) && (await r418Has(old.page, "[data-training-join]")), "drawn");
+      } finally { await old.context.close(); }
+    },
+  },
+  {
+    id: "coursepage",
+    label: "A course page (part 418, 1.2, 1.3, 1.4): the course read again, its summary, n of m, the certificate line, each chapter done with Watch again from the library, the next with Continue, a required one's due state in words and the trainer's line, and Continue at the bottom; back to My Training",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open);
+      try {
+        await r418Training(app, language);
+        await r418Click(app.page, '[data-course="co-clean"]');
+        const up = await shows(app.page, '[data-course-page="co-clean"]', 6000);
+        await shows(app.page, '[data-chapter="tc-mop"][data-chapter-action="watch"]', 6000);
+        expect("the course opens, read again (GET /api/training/courses/:id) with the library (GET /api/training/courses/library)", up && sent(app.stub, "GET", "/api/training/courses/co-clean").length === 1 && sent(app.stub, "GET", "/api/training/courses/library").length === 1, "up " + up);
+        const head = await r418Text(app.page, '[data-course-page="co-clean"]');
+        expect("its name, summary, n of m and the certificate line", has(head, r418Name("Cleaning Skills", "Habilidades de Limpieza", language)) && has(head, r418Name("How we clean, step by step.", "Cómo limpiamos, paso a paso.", language)) && has(head, fill(say("{done} of {total} chapters done", language), { done: 1, total: 3 })) && has(head, fill(say("You get a certificate when you finish all {n}.", language), { n: 3 })), head.slice(0, 260));
+        const rows = await app.page.evaluate(() => Array.from(document.querySelectorAll("[data-chapter]")).map(e => ({ id: e.getAttribute("data-chapter"), state: e.getAttribute("data-chapter-state"), action: e.getAttribute("data-chapter-action"), tag: e.tagName, text: e.innerText.replace(/\s+/g, " ") })));
+        const rest = rows.find(r => r.id === "tc-restroom"), mop = rows.find(r => r.id === "tc-mop"), chem = rows.find(r => r.id === "tc-chem");
+        expect("the next chapter is marked next with Continue; a done one offers Watch again", !!rest && rest.state === "next" && has(rest.text, say("Continue", language)) && !!mop && mop.state === "done" && mop.action === "watch" && has(mop.text, say("Watch again", language)), JSON.stringify(rows));
+        expect("a required chapter shows its due state in words, and one for a trainer says so and offers nothing", !!chem && chem.tag === "DIV" && has(chem.text, say("Required", language)) && has(chem.text, say("Not done yet", language)) && has(chem.text, say("Your trainer goes over this one with you.", language)), chem ? chem.text : "none");
+        const next = await r418Text(app.page, "[data-course-next]");
+        expect("the button at the bottom continues the next chapter", has(next, fill(say("Continue: {name}", language), { name: r418Name("Clean a Restroom", "Limpie un Baño", language) })), next);
+        await spokenHere(app, language, expect);
+        await app.page.goBack();
+        await pause(app.page, 900);
+        expect("the phone's back goes to My Training", await r418Has(app.page, "[data-courses]") && !(await r418Has(app.page, "[data-course-page]")), "still on the course");
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART418_S1_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };
