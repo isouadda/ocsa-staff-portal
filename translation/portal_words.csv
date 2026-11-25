@@ -1630,3 +1630,17 @@ Start next chapter,Empezar el siguiente capítulo,Commencer le chapitre suivant,
 I'll do it later,Lo haré después,Je le ferai plus tard,Chapter done
 Back to the course,Volver al curso,Retour au cours,"Chapter done, with no chapter left"
 Your answer was not sent. Try again.,Su respuesta no se envió. Intente de nuevo.,Votre réponse n'a pas été envoyée. Réessayez.,"The player, a question whose answer did not go"
+Finished {date},Terminado el {date},Terminé le {date},"A certificate, under the course's name"
+Saved to your HR file,Guardado en su expediente de RR. HH.,Enregistré dans votre dossier RH,Course done and My certificates
+We emailed you a copy,Le enviamos una copia por correo,Nous vous avons envoyé une copie par courriel,"Course done and My certificates, a mail that went"
+We are emailing you a copy.,Le estamos enviando una copia por correo.,Nous vous envoyons une copie par courriel.,"Course done and My certificates, a mail still going"
+We could not email it,No pudimos enviarlo por correo,Nous n'avons pas pu l'envoyer par courriel,"Course done and My certificates, a mail that did not go"
+Send it again,Enviarlo de nuevo,Le renvoyer,"Course done and My certificates, a mail that did not go"
+Print or share,Imprimir o compartir,Imprimer ou partager,Course done
+You did it!,¡Lo logró!,Vous avez réussi !,Course done
+You finished {name}. Here is your certificate.,Terminó {name}. Aquí está su certificado.,Vous avez terminé {name}. Voici votre certificat.,Course done
+Your certificate is being made.,Su certificado se está preparando.,Votre certificat est en préparation.,"Course done, before the certificate is ready"
+My certificates,Mis certificados,Mes certificats,"My training, My certificates"
+No certificates yet. Finish a course to earn one.,Todavía no tiene certificados. Termine un curso para obtener uno.,Pas encore de certificat. Terminez un cours pour en obtenir un.,"My certificates, with none"
+Your certificate did not open. Try again.,Su certificado no se abrió. Intente de nuevo.,Votre certificat ne s'est pas ouvert. Réessayez.,A certificate whose PDF did not open
+Your copy was not sent. Try again.,Su copia no se envió. Intente de nuevo.,Votre copie n'a pas été envoyée. Réessayez.,"Send it again, when it did not go"

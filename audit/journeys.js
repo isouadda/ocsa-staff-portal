@@ -12791,4 +12791,104 @@ const PART418_S2_JOURNEYS = [
 ];
 JOURNEYS.push(...PART418_S2_JOURNEYS);
 
+// --- Round 18 of the staff app (part 418), section 3 ----------------------
+//
+// Course certificates (ocsa-api Round 20, part 415), each failing on the
+// main of part 414, where no screen reads a course certificate.
+// The last chapter of The Staff App played and signed.
+const r418FinishShift = async (app, language) => {
+  await r418OpenApp(app, language);
+  await app.page.click('[data-chapter="tc-shift"]', { timeout: 4000 }).catch(() => {});
+  await shows(app.page, '[data-player-step="s1"]', 8000);
+  await r418Next(app.page);
+  await r418Next(app.page);
+  await r418Pick(app.page, "end");
+  await r418Answer(app.page);
+  await shows(app.page, '[data-player="sign"]', 5000);
+  await drawSignature(app.page);
+  await app.page.click("[data-player-sign]", { timeout: 4000 }).catch(() => {});
+  return shows(app.page, "[data-course-done]", 8000);
+};
+const r418Pdfs = (stub) => (stub.state.r418.pdfReads || []).length;
+const PART418_S3_JOURNEYS = [
+  {
+    id: "coursedone",
+    label: "Course done (part 418, 3.1): the last chapter signed ends the course: You did it!, the course, Saved to your HR file, the mail as mailStatus says (sent: We emailed you a copy; failed and no_email: We could not email it with Send it again; still going: read again until it went), Open my certificate and Print or share reading GET /api/training/certificates/:id/pdf",
+    run: async (open, language, expect) => {
+      for (const mail of ["sent", "failed", "no_email", "sending"]) {
+        const app = await r418Open(open, { stubOptions: { courses: { appLeft: "shift", mailStatus: mail } } });
+        try {
+          const up = await r418FinishShift(app, language);
+          await shows(app.page, "[data-cert]", 8000);
+          const text = await r418Text(app.page, "[data-course-done]");
+          expect(mail + ": You did it! and the course finished", up && has(text, say("You did it!", language)) && has(text, fill(say("You finished {name}. Here is your certificate.", language), { name: r418Name("The Staff App", "La App del Personal", language) })), text.slice(0, 240));
+          expect(mail + ": Saved to your HR file", await r418Has(app.page, "[data-cert-filed]"), "");
+          if (mail === "sent") expect("sent: We emailed you a copy", (await r418Attr(app.page, "[data-cert-mail-line]", "data-cert-mail-line")) === "sent" && has(text, say("We emailed you a copy", language)), text.slice(0, 240));
+          if (mail === "sending") {
+            const first = await r418Attr(app.page, "[data-cert-mail-line]", "data-cert-mail-line");
+            await app.page.clock.runFor(3500);
+            const went = await shows(app.page, '[data-cert-mail-line="sent"]', 6000);
+            expect("still going: We are emailing you a copy., then read again until it went", first === "sending" && went && app.stub.state.r418.mineReads >= 2, first + " " + app.stub.state.r418.mineReads);
+          }
+          if (mail === "failed" || mail === "no_email") {
+            expect(mail + ": We could not email it, with Send it again", (await r418Attr(app.page, "[data-cert-mail-line]", "data-cert-mail-line")) === mail && has(text, say("We could not email it", language)) && (await r418Has(app.page, "[data-cert-resend]")), text.slice(0, 240));
+            await app.page.click("[data-cert-resend]", { timeout: 4000 }).catch(() => {});
+            const went = await shows(app.page, '[data-cert-mail-line="sent"]', 5000);
+            expect(mail + ": Send it again posts the resend and reads it sent", went && sent(app.stub, "POST", "/api/training/certificates/cert-co-app/resend").length === 1, String(went));
+          }
+          await app.page.click("[data-cert-open]", { timeout: 4000 }).catch(() => {});
+          await pause(app.page, 1200);
+          await app.page.click("[data-cert-print]", { timeout: 4000 }).catch(() => {});
+          await pause(app.page, 1200);
+          expect(mail + ": Open my certificate and Print or share each open its PDF", r418Pdfs(app.stub) === 2, "reads " + r418Pdfs(app.stub));
+          await spokenWithin(app, language, expect, "[data-course-done]");
+        } finally { await app.context.close(); }
+      }
+    },
+  },
+  {
+    id: "mycertificates",
+    label: "My certificates (part 418, 3.2): My Training counts them, the page lists GET /api/training/certificates/mine newest first, each opening its PDF; Send it again on one whose mail failed reads 409 training.certificateSending in the API's words, then sends",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { stubOptions: { courses: { appDone: true, certs: 2, resendBusy: true } } });
+      try {
+        await r418Training(app, language);
+        const count = await r418Attr(app.page, "[data-certificates-open]", "data-certificates-open");
+        expect("My Training reads My certificates (3)", count === "3" && has(await r418Text(app.page, "[data-certificates-open]"), fill(say("My certificates ({n})", language), { n: 3 })), String(count));
+        await r418Click(app.page, "[data-certificates-open]");
+        await shows(app.page, "[data-cert]", 6000);
+        const ids = await app.page.evaluate(() => Array.from(document.querySelectorAll("[data-cert]")).map(e => e.getAttribute("data-cert")));
+        expect("the list is newest first", JSON.stringify(ids) === JSON.stringify(["cert-co-app", "cert-old-2", "cert-old-1"]), JSON.stringify(ids));
+        await app.page.click('[data-cert="cert-old-1"] [data-cert-resend]', { timeout: 4000 }).catch(() => {});
+        await pause(app.page, 900);
+        const said = await r418Text(app.page, '[data-cert="cert-old-1"]');
+        expect("409 training.certificateSending is said in the API's words", has(said, language === "es" ? "Este certificado se está enviando ahora." : "This certificate is being emailed right now."), said.slice(0, 260));
+        await app.page.click('[data-cert="cert-old-1"] [data-cert-resend]', { timeout: 4000 }).catch(() => {});
+        const went = await shows(app.page, '[data-cert="cert-old-1"][data-cert-mail="sent"]', 5000);
+        expect("Send it again then sends it", went && sent(app.stub, "POST", "/api/training/certificates/cert-old-1/resend").length === 2, String(went));
+        await app.page.click('[data-cert="cert-old-2"] [data-cert-open]', { timeout: 4000 }).catch(() => {});
+        await pause(app.page, 1200);
+        expect("a certificate opens its PDF", (app.stub.state.r418.pdfReads || []).some(r => r.id === "cert-old-2"), JSON.stringify(app.stub.state.r418.pdfReads || []));
+        await spokenHere(app, language, expect);
+        await app.page.goBack();
+        await pause(app.page, 800);
+        expect("the phone's back goes to My Training", await r418Has(app.page, "[data-courses]"), "");
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "certificatebell",
+    label: "The bell's training_certificate (part 418, 3.3): /?open=training_certificate:<id> opens My certificates on that certificate",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { path: "/?open=training_certificate:cert-old-2", stubOptions: { courses: { certs: 2 } } });
+      try {
+        const up = await shows(app.page, '[data-cert="cert-old-2"][data-cert-focus="1"]', 10000);
+        expect("the notice's link opens My certificates on the certificate it names", up, "not opened");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART418_S3_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };

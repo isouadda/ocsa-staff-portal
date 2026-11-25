@@ -4023,7 +4023,7 @@ export default function OCSAStaffPortal() {
       if (!isAdmin) { setActiveTab("training"); setShowMore(false); return; }
       setFieldKitAt(at => ({ siteId: at && at.siteId ? at.siteId : null, tile: place.signoff ? "signoff" : null }));
     }
-    if (place.tab === "training") setTrainingAt(place.join ? { join: String(place.join) } : place.doc ? { doc: { docCode: String(place.doc), title: String(place.doc) } } : place.category ? { category: String(place.category) } : place.topic ? { topic: String(place.topic) } : null);
+    if (place.tab === "training") setTrainingAt(place.join ? { join: String(place.join) } : place.doc ? { doc: { docCode: String(place.doc), title: String(place.doc) } } : place.category ? { category: String(place.category) } : place.topic ? { topic: String(place.topic) } : place.certificate !== undefined ? { certificate: String(place.certificate) } : null);
     if (place.tab === "inspect") setInspectAt(place.inspection ? { id: String(place.inspection), at: Date.now() } : null);
     if (place.tab === "tasks") setTaskFocus(place.task ? { id: String(place.task), at: Date.now() } : null);
     if (place.tab === "forms" && place.draft) setFormsDraft(String(place.draft));
@@ -12191,6 +12191,122 @@ function CoursePage({ token, course: first, onBack, onPlay, onCertificate, playi
 }
 
 // ------------------------------------------------------------
+// Certificates (part 418, section 3; ocsa-api Round 20, part 415, #170).
+// A course with a certificate ends in one, filed in the person's HR file
+// and emailed to them (mailStatus: sent, failed, no_email, or null while
+// the mail is still going). Its PDF, GET
+// /api/training/certificates/:id/pdf, opens the way the app opens every
+// PDF on a phone, which also prints or shares it. A mail that did not go
+// is sent again with POST .../resend; 409 training.certificateSending is
+// said in the API's words. My certificates lists GET
+// /api/training/certificates/mine, newest first, and the bell's
+// training_certificate opens it on that certificate.
+// ------------------------------------------------------------
+const certPdfPath = (id) => "/api/training/certificates/" + encodeURIComponent(id) + "/pdf";
+function CertificateCard({ token, cert: first, big, focus, t }) {
+  const [cert, setCert] = useState(first);
+  const [busy, setBusy] = useState(false);
+  const [fault, setFault] = useState(null);
+  const box = useRef(null);
+  useEffect(() => { setCert(first); }, [first]);
+  useEffect(() => { if (focus && box.current) { try { box.current.scrollIntoView({ block: "center" }); } catch (e) {} } }, [focus]);
+  // Opened straight from the tap, as every PDF here is.
+  const open = async () => {
+    setFault(null);
+    try { await openApiPdf(certPdfPath(cert.id), "certificate-" + (cert.number || cert.id) + ".pdf", token); }
+    catch (err) { setFault(fkFaultWords(err, "Your certificate did not open. Try again.")); }
+  };
+  const resend = async () => {
+    if (busy) return;
+    setBusy(true); setFault(null);
+    try {
+      const d = await api("/api/training/certificates/" + encodeURIComponent(cert.id) + "/resend", { method: "POST", body: {}, token });
+      const got = courseCertificateOf(d && d.certificate);
+      setCert(prev => ({ ...(got || prev), mailStatus: d && CERT_MAIL.indexOf(d.mailStatus) !== -1 ? d.mailStatus : (got ? got.mailStatus : prev.mailStatus) }));
+    } catch (err) { setFault(fkFaultWords(err, "Your copy was not sent. Try again.")); }
+    finally { setBusy(false); }
+  };
+  const lost = cert.mailStatus === "failed" || cert.mailStatus === "no_email";
+  const lineSt = { display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 600, lineHeight: 1.4, overflowWrap: "anywhere" };
+  return (
+    <div ref={box} data-cert={cert.id} data-cert-mail={cert.mailStatus || "sending"} data-cert-focus={focus ? "1" : "0"} style={{ ...fkRowSt(t), padding: big ? "16px 14px" : "12px 12px", border: focus ? "2px solid " + GOLD : "1px solid " + t.borderSolid }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+        <span aria-hidden="true" style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", background: t.goldBg, border: "1px solid " + t.goldBorder, display: "flex", alignItems: "center", justifyContent: "center" }}><AwardIco sz={20} c={t.goldText} /></span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: big ? 17 : 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{cert.courseName}</div>
+          {cert.number && <div data-cert-number="1" style={{ fontSize: 13, color: t.textSec, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{cert.number}</div>}
+          {cert.completedOn && <div style={{ fontSize: 13, color: t.textSec, marginTop: 2 }}>{tr("Finished {date}", { date: trainingDay(cert.completedOn) })}</div>}
+        </div>
+      </div>
+      <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: R.md, background: lost ? t.orangeSubtle : t.greenSubtle, border: "1px solid " + (lost ? t.orangeBorder : t.greenBorder), display: "flex", flexDirection: "column", gap: 6 }}>
+        {cert.filed && <div data-cert-filed="1" style={{ ...lineSt, color: ink(t, GREEN) }}><CheckIco sz={16} c={ink(t, GREEN)} />{tr("Saved to your HR file")}</div>}
+        {cert.mailStatus === "sent" && <div data-cert-mail-line="sent" style={{ ...lineSt, color: ink(t, GREEN) }}><CheckIco sz={16} c={ink(t, GREEN)} />{tr("We emailed you a copy")}</div>}
+        {!cert.mailStatus && <div data-cert-mail-line="sending" style={{ ...lineSt, color: t.textSec }}>{tr("We are emailing you a copy.")}</div>}
+        {lost && <div data-cert-mail-line={cert.mailStatus} style={{ ...lineSt, color: ink(t, ORANGE) }}><AlertIco sz={16} c={ink(t, ORANGE)} />{tr("We could not email it")}</div>}
+        {lost && <button type="button" data-cert-resend={cert.id} disabled={busy} onClick={resend} style={{ ...wsPlainBtn(t), flex: "none", alignSelf: "flex-start", minHeight: TAP }}>{busy ? tr("Sending...") : tr("Send it again")}</button>}
+      </div>
+      {fault && <WsFault text={fault} t={t} />}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+        <button type="button" data-cert-open={cert.id} onClick={open} style={{ ...wsMainBtn(t, false), display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><AwardIco sz={16} c={NAVY} />{tr("Open my certificate")}</button>
+        {big && <button type="button" data-cert-print={cert.id} onClick={open} style={{ ...wsPlainBtn(t), display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>{tr("Print or share")}</button>}
+      </div>
+    </div>
+  );
+}
+// Course done (board 7): the course's certificate, read from
+// GET /api/training/certificates/mine, and read again a few times while
+// it is still being made or mailed.
+const CERT_WAIT_MS = 3000, CERT_WAIT_TRIES = 5;
+function CourseDone({ token, course, onBack, t }) {
+  const [cert, setCert] = useState(null);
+  const [tries, setTries] = useState(0);
+  useEffect(() => {
+    let on = true, timer = null;
+    readMyCertificates(token).then(list => {
+      if (!on) return;
+      const mine = (list || []).find(x => x.courseId === course.id) || null;
+      if (mine) setCert(mine);
+      if ((!mine || !mine.mailStatus) && tries < CERT_WAIT_TRIES) timer = setTimeout(() => { if (on) setTries(n => n + 1); }, CERT_WAIT_MS);
+    });
+    return () => { on = false; if (timer) clearTimeout(timer); };
+  }, [tries]);
+  return (
+    <div data-course-done={course.id} style={{ padding: "14px 16px 24px" }}>
+      <div style={{ textAlign: "center", padding: "12px 8px 4px" }}>
+        <div role="heading" aria-level={1} style={{ fontSize: 28, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{tr("You did it!")}</div>
+        <div style={{ fontSize: 16, color: t.textSec, marginTop: 6, lineHeight: 1.5, overflowWrap: "anywhere" }}>{tr("You finished {name}. Here is your certificate.", { name: course.name })}</div>
+      </div>
+      <div style={{ marginTop: 14 }}>
+        {cert ? <CertificateCard token={token} cert={cert} big t={t} /> : <div data-cert-waiting="1" style={{ ...wsQuiet(t), marginTop: 8 }}>{tr("Your certificate is being made.")}</div>}
+      </div>
+      {onBack && <div style={{ marginTop: 12 }}><button type="button" data-course-done-back="1" onClick={onBack} style={{ ...wsPlainBtn(t), width: "100%", minHeight: 52 }}>{tr("Back to the course")}</button></div>}
+    </div>
+  );
+}
+// My certificates: every course certificate of the person, newest first,
+// one of them in focus when the bell opened it.
+function CertificatesPage({ token, focus, onBack, t }) {
+  const [list, setList] = useState(null);
+  const [fault, setFault] = useState(false);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    let on = true;
+    readMyCertificates(token).then(l => { if (!on) return; if (l) { setList(l); setFault(false); } else setFault(true); });
+    return () => { on = false; };
+  }, [asked]);
+  return (
+    <div data-certificates={list ? list.length : "waiting"} style={{ padding: "14px 16px 100px" }}>
+      <WsBack label={tr("My training")} onBack={onBack} t={t} />
+      <div role="heading" aria-level={2} style={{ fontSize: 18, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, marginBottom: 10 }}>{tr("My certificates")}</div>
+      {fault && <ListFault icon={AwardIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} />}
+      {!list && !fault && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
+      {list && list.length === 0 && <div data-certificates-none="1" style={wsQuiet(t)}>{tr("No certificates yet. Finish a course to earn one.")}</div>}
+      {list && list.map(c => <CertificateCard key={c.id} token={token} cert={c} focus={focus === c.id} t={t} />)}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
 // The player (part 418, section 2; ocsa-api Round 20, part 415, #170).
 // A player lesson is short screens, each a picture, a video or nothing
 // with its words in big type, read aloud by its voice (audio.url) where
@@ -12490,7 +12606,12 @@ function CoursePlayer({ token, versionId, review: askedReview, publicSetup, cour
     if (!course) return;
     try {
       const c = courseOf((await api("/api/training/courses/" + encodeURIComponent(course.id), { token }) || {}).course);
-      if (c && live.current) { setDoneCourse(c); if (onCourse) onCourse(c); }
+      if (c && live.current) {
+        setDoneCourse(c);
+        if (onCourse) onCourse(c);
+        // The course finished with this chapter: its certificate (section 3).
+        if (c.status === "complete" && c.certificate) setPhase("course");
+      }
     } catch (e) {}
   };
   const sign = async () => {
@@ -12676,6 +12797,7 @@ function CoursePlayer({ token, versionId, review: askedReview, publicSetup, cour
       </div>
     ));
   }
+  if (phase === "course" && doneCourse) return <CourseDone token={token} course={doneCourse} onBack={onBack} t={t} />;
   // Chapter done (board 6), with what comes next in the course.
   const c = doneCourse || course;
   const upNext = c ? courseNext(c) : null;
@@ -12743,6 +12865,11 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   // a count bumped as it closes, which reads the course again.
   const [playing, setPlaying] = useState(null);
   const [courseReread, setCourseReread] = useState(0);
+  // Part 418 (section 3): My certificates open, { focus } (the one the
+  // bell named, or ""), an entry of its own in the phone's history.
+  const [certsPage, setCertsPage] = useState(null);
+  const openCerts = (focus) => { setCertsPage({ focus: focus || "" }); try { window.history.pushState({ trainingCertificates: 1 }, "", "/"); } catch (e) {} };
+  const closeCerts = () => { try { if (window.history.state && window.history.state.trainingCertificates) { window.history.back(); return; } } catch (e) {} setCertsPage(null); };
   const openCourse = (c) => { setCoursePage(c); try { window.history.pushState({ trainingCourse: c.id }, "", "/"); } catch (e) {} };
   const closeCourse = () => { setCoursePage(null); try { if (window.history.state && window.history.state.trainingCourse) window.history.back(); } catch (e) {} };
   useEffect(() => {
@@ -12750,6 +12877,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
       setCat(window.history.state && window.history.state.trainingCategory ? String(window.history.state.trainingCategory) : null);
       if (!(window.history.state && window.history.state.trainingCourse)) setCoursePage(null);
       if (!(window.history.state && window.history.state.trainingPlayer)) { setPlaying(null); setCourseReread(n => n + 1); }
+      if (!(window.history.state && window.history.state.trainingCertificates)) setCertsPage(null);
     };
     window.addEventListener("popstate", onPop);
     return () => { window.removeEventListener("popstate", onPop); try { if (window.history.state && window.history.state.trainingCategory) window.history.replaceState({}, "", "/"); } catch (e) {} };
@@ -12783,6 +12911,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   // list; a category named by a link, or the category of a topic a notice
   // names, opens its page once the portal is drawn.
   useEffect(() => {
+    if (at && at.certificate !== undefined) { openCerts(at.certificate); onAt(null); return; }
     if (!at || !data || !(at.lesson || at.category || at.topic)) return;
     if (at.lesson) {
       const item = data.items.find(x => x.id === at.lesson) || data.firstDay.find(x => x.id === at.lesson);
@@ -12827,9 +12956,11 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   if (coursePage) {
     const closePlayer = () => { try { if (window.history.state && window.history.state.trainingPlayer) { window.history.back(); return; } } catch (e) {} setPlaying(null); setCourseReread(n => n + 1); };
     const playerNode = playing ? <CoursePlayer key={playing.versionId + ":" + playing.opened} token={token} versionId={playing.versionId} review={playing.review} course={playing.course} chapter={playing.ch} backLabel={coursePage.name} onBack={closePlayer} onNext={(c, ch) => playChapter(c, ch, false)} t={t} /> : null;
-    return <CoursePage key={coursePage.id} token={token} course={coursePage} onBack={() => { closeCourse(); setAsked(n => n + 1); }} onPlay={playChapter} onCertificate={() => {}} playing={playing ? { topicId: playing.ch.topicId, node: playerNode } : null} reread={courseReread} t={t} />;
+    const openCert = (id) => { openApiPdf(certPdfPath(id), "certificate.pdf", token).catch(() => openCerts(id)); };
+    return <CoursePage key={coursePage.id} token={token} course={coursePage} onBack={() => { closeCourse(); setAsked(n => n + 1); }} onPlay={playChapter} onCertificate={openCert} playing={playing ? { topicId: playing.ch.topicId, node: playerNode } : null} reread={courseReread} t={t} />;
   }
-  const coursesPart = <CoursesPart courses={courses} certs={certs} pickup={pickup ? { ...pickup, share: pickupShare } : null} onCourse={openCourse} onChapter={(c, ch) => { openCourse(c); playChapter(c, ch, false); }} t={t} />;
+  if (certsPage) return <CertificatesPage token={token} focus={certsPage.focus} onBack={() => { closeCerts(); setAsked(n => n + 1); }} t={t} />;
+  const coursesPart = <CoursesPart courses={courses} certs={certs} pickup={pickup ? { ...pickup, share: pickupShare } : null} onCourse={openCourse} onChapter={(c, ch) => { openCourse(c); playChapter(c, ch, false); }} onCertificates={() => openCerts("")} t={t} />;
   // Part 383: a certificate the API took. The item reads done at once,
   // its record leads History, and the list is read again.
   const certDone = (item, record, day) => {
@@ -15350,6 +15481,8 @@ function notifPlace(subjectType, subjectId, subjectKey) {
   // A training notice naming a topic, or an attempt on one (Step 267):
   // the portal, on that topic's category page when the item is known.
   if (subjectType === "training_expiring" || subjectType === "training_reteach") return id ? { tab: tab, topic: id } : { tab: tab };
+  // Part 418 (section 3): a course certificate made, on My certificates.
+  if (subjectType === "training_certificate") return { tab: tab, certificate: id || "" };
   return { tab: tab };
 }
 // Whether this person may read the place a notice opens, by the

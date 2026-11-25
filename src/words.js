@@ -1818,6 +1818,21 @@ export const WORDS = {
   "I'll do it later": "Lo har\u00e9 despu\u00e9s",
   "Back to the course": "Volver al curso",
   "Your answer was not sent. Try again.": "Su respuesta no se envi\u00f3. Intente de nuevo.",
+  // Part 418 (section 3): course certificates.
+  "Finished {date}": "Terminado el {date}",
+  "Saved to your HR file": "Guardado en su expediente de RR. HH.",
+  "We emailed you a copy": "Le enviamos una copia por correo",
+  "We are emailing you a copy.": "Le estamos enviando una copia por correo.",
+  "We could not email it": "No pudimos enviarlo por correo",
+  "Send it again": "Enviarlo de nuevo",
+  "Print or share": "Imprimir o compartir",
+  "You did it!": "\u00a1Lo logr\u00f3!",
+  "You finished {name}. Here is your certificate.": "Termin\u00f3 {name}. Aqu\u00ed est\u00e1 su certificado.",
+  "Your certificate is being made.": "Su certificado se est\u00e1 preparando.",
+  "My certificates": "Mis certificados",
+  "No certificates yet. Finish a course to earn one.": "Todav\u00eda no tiene certificados. Termine un curso para obtener uno.",
+  "Your certificate did not open. Try again.": "Su certificado no se abri\u00f3. Intente de nuevo.",
+  "Your copy was not sent. Try again.": "Su copia no se envi\u00f3. Intente de nuevo.",
   },
 };
 
@@ -3512,6 +3527,21 @@ WORDS.fr = {
   "I'll do it later": "Je le ferai plus tard",
   "Back to the course": "Retour au cours",
   "Your answer was not sent. Try again.": "Votre r\u00e9ponse n'a pas \u00e9t\u00e9 envoy\u00e9e. R\u00e9essayez.",
+  // Part 418 (section 3): course certificates.
+  "Finished {date}": "Termin\u00e9 le {date}",
+  "Saved to your HR file": "Enregistr\u00e9 dans votre dossier RH",
+  "We emailed you a copy": "Nous vous avons envoy\u00e9 une copie par courriel",
+  "We are emailing you a copy.": "Nous vous envoyons une copie par courriel.",
+  "We could not email it": "Nous n'avons pas pu l'envoyer par courriel",
+  "Send it again": "Le renvoyer",
+  "Print or share": "Imprimer ou partager",
+  "You did it!": "Vous avez r\u00e9ussi\u00a0!",
+  "You finished {name}. Here is your certificate.": "Vous avez termin\u00e9 {name}. Voici votre certificat.",
+  "Your certificate is being made.": "Votre certificat est en pr\u00e9paration.",
+  "My certificates": "Mes certificats",
+  "No certificates yet. Finish a course to earn one.": "Pas encore de certificat. Terminez un cours pour en obtenir un.",
+  "Your certificate did not open. Try again.": "Votre certificat ne s'est pas ouvert. R\u00e9essayez.",
+  "Your copy was not sent. Try again.": "Votre copie n'a pas \u00e9t\u00e9 envoy\u00e9e. R\u00e9essayez.",
 };
 
 // {name} is replaced after the language is chosen, so the

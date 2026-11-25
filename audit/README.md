@@ -2521,6 +2521,31 @@ Five journeys, in English and Spanish, each failing on the main of part
   `training.attemptClosed` moving on to signing, and a 404 in the API's
   words.
 
+## Certificates (part 418, section 3)
+
+A chapter signed that completes a course with a certificate ends on
+**You did it!**: the course, **Saved to your HR file**, the mail as
+`mailStatus` says (**We emailed you a copy**; **We could not email it** with
+**Send it again** for `failed` and `no_email`; while it is still going,
+`GET /api/training/certificates/mine` read again every 3 seconds, five
+times at most), **Open my certificate** and **Print or share**, each
+opening `GET /api/training/certificates/:id/pdf` the way every PDF opens
+here. **My certificates (n)** on My Training opens the list, newest
+first; **Send it again** is `POST .../resend`, and 409
+`training.certificateSending` reads in the API's words. The bell's
+`training_certificate` opens the list on the certificate it names.
+
+Three journeys, in English and Spanish, each failing on the main of part
+414:
+
+- `coursedone`: the last chapter of The Staff App played and signed, once
+  for each `mailStatus` (sent, failed, no_email, and still going), with
+  Send it again where it failed and both PDF buttons.
+- `mycertificates`: the count on My Training, newest first, a resend met
+  with 409 and then sent, a PDF opened, and the phone's back.
+- `certificatebell`: `/?open=training_certificate:<id>` on that
+  certificate.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names
