@@ -2546,6 +2546,24 @@ Three journeys, in English and Spanish, each failing on the main of part
 - `certificatebell`: `/?open=training_certificate:<id>` on that
   certificate.
 
+## The setup page (part 418, section 4)
+
+`/setup`, from the welcome email and from the sign-in screen's **New here?
+Watch how to set up your account**, needs no sign-in. It reads `GET
+/api/public/training/setup?locale=en|es` and draws the chapter's name as
+the API stores it, its steps, one line, **English** and **Español**,
+**Start the video** and **I already have an account. Sign in.**; the
+chapter plays in the player as a review, its checks through `POST
+/api/public/training/setup/checks/:key` with no token, and ends on **Sign
+in**. 404 `training.noSetupChapter` and 429 `customer.tooManyRequests` say
+the API's words beside Sign in. The inventory lists the screen.
+
+Three journeys, in English and Spanish, each failing on the main of part
+414: `setuppage` (read in the page's language and again in the other,
+played through with a wrong answer watched again, no token and nothing
+written, Sign in at the end), `setupnone` (the 404 and the 429), and
+`setuplink` (the sign-in screen's link and the phone's back).
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

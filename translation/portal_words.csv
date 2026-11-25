@@ -1644,3 +1644,11 @@ My certificates,Mis certificados,Mes certificats,"My training, My certificates"
 No certificates yet. Finish a course to earn one.,Todavía no tiene certificados. Termine un curso para obtener uno.,Pas encore de certificat. Terminez un cours pour en obtenir un.,"My certificates, with none"
 Your certificate did not open. Try again.,Su certificado no se abrió. Intente de nuevo.,Votre certificat ne s'est pas ouvert. Réessayez.,A certificate whose PDF did not open
 Your copy was not sent. Try again.,Su copia no se envió. Intente de nuevo.,Votre copie n'a pas été envoyée. Réessayez.,"Send it again, when it did not go"
+New here? Watch how to set up your account,¿Es nuevo? Vea cómo configurar su cuenta,Vous êtes nouveau ? Regardez comment configurer votre compte,"Sign in, under the buttons"
+Set Up Your Account,Configure Su Cuenta,Configurez Votre Compte,"The setup page, its heading when the video is not ready"
+I already have an account. Sign in.,Ya tengo una cuenta. Iniciar sesión.,J'ai déjà un compte. Se connecter.,"The setup page, under Start the video"
+Start the video,Comenzar el video,Lancer la vidéo,The setup page
+{n} short steps,{n} pasos cortos,{n} étapes courtes,"The setup page, on the video"
+"Watch this before you sign in. It shows the welcome email, your PIN and your first sign-in.","Vea esto antes de iniciar sesión. Muestra el correo de bienvenida, su PIN y su primer inicio de sesión.","Regardez ceci avant de vous connecter. On y voit le courriel de bienvenue, votre code PIN et votre première connexion.","The setup page, under its heading"
+Pick your language,Elija su idioma,Choisissez votre langue,"The setup page, over English and Español"
+The setup video did not load. Try again.,El video de configuración no se cargó. Intente de nuevo.,La vidéo de configuration ne s'est pas chargée. Réessayez.,"The setup page, when it did not load"

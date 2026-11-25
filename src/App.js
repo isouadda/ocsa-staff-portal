@@ -1871,6 +1871,9 @@ function readEntryFromUrl() {
     // closet: /sds, or /sds/<code> for one sheet. No token, no sign-in.
     var sds = /^\/sds(?:\/([A-Za-z0-9_.-]+))?$/i.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
     if (sds) return { screen: "sds", token: null, code: sds[1] || null };
+    // The account setup video (part 418, section 4), from the welcome
+    // email, before the person has signed in: /setup. No token.
+    if (path === "/setup") return { screen: "setup", token: null };
     return null;
   } catch (e) { return null; }
 }
@@ -3351,6 +3354,15 @@ export default function OCSAStaffPortal() {
     return () => window.removeEventListener("ocsa-must-set-pin", ask);
   }, []);
   const goLogin = () => { leaveEntryPath(); setScreen("login"); };
+  // Part 418 (section 4): the setup page and the sign-in screen lead to
+  // each other. A phone that holds a session goes into the app.
+  const goSignInFromSetup = () => {
+    if (readAuth()) { try { window.location.replace("/"); } catch (e) {} return; }
+    leaveEntryPath();
+    try { window.history.replaceState({}, "", "/"); } catch (e) {}
+    setScreen("login");
+  };
+  const goSetup = () => { try { window.history.pushState({ setup: 1 }, "", "/setup"); } catch (e) {} setScreen("setup"); };
 
   const handleRegister = async (firstName, lastName, phone, email, pin) => {
     setLoading(true);
@@ -4980,7 +4992,7 @@ export default function OCSAStaffPortal() {
       )}
 
       {booting && <BootSplash t={t} themeMode={themeMode} fault={bootFault} onRetry={() => { if (token) bootWith(token); }} />}
-      {!booting && screen === "login" && <LoginScreen onLogin={handleLogin} onGoRegister={() => { backToPin(); setScreen("register"); }} onGoForgot={() => { backToPin(); setScreen("forgot"); }} loading={loading} fault={loginFault} onTyped={() => { if (loginFault) setLoginFault(null); }} step={secondStep} codeFault={codeFault} onCode={handleCode} onResend={handleResend} onBackToPin={backToPin} showToast={showToast} t={t} toggleTheme={toggleTheme} themeMode={themeMode} />}
+      {!booting && screen === "login" && <LoginScreen onSetup={goSetup} onLogin={handleLogin} onGoRegister={() => { backToPin(); setScreen("register"); }} onGoForgot={() => { backToPin(); setScreen("forgot"); }} loading={loading} fault={loginFault} onTyped={() => { if (loginFault) setLoginFault(null); }} step={secondStep} codeFault={codeFault} onCode={handleCode} onResend={handleResend} onBackToPin={backToPin} showToast={showToast} t={t} toggleTheme={toggleTheme} themeMode={themeMode} />}
       {screen === "register" && <RegisterScreen onRegister={handleRegister} onBack={() => setScreen("login")} loading={loading} t={t} />}
       {screen === "activate" && <ActivateScreen token={ENTRY ? ENTRY.token : null} onActivated={handleAuthSuccess} onGoLogin={goLogin} showToast={showToast} t={t} />}
       {screen === "reset" && <ResetScreen token={ENTRY ? ENTRY.token : null} onReset={handleAuthSuccess} onGoLogin={goLogin} onGoForgot={() => setScreen("forgot")} showToast={showToast} t={t} />}
@@ -4990,6 +5002,7 @@ export default function OCSAStaffPortal() {
       {screen === "supply" && <SupplyScreen code={ENTRY ? ENTRY.code : null} token={token} onSignIn={() => { returnTo.current = "supply"; setScreen("login"); }} onMustSetPin={() => mustSetPinRef.current()} showToast={showToast} t={t} themeMode={themeMode} />}
       {screen === "acknowledge" && <AcknowledgeScreen token={ENTRY ? ENTRY.token : null} t={t} themeMode={themeMode} />}
       {screen === "sds" && <SdsPublicScreen code={ENTRY ? ENTRY.code : null} t={t} themeMode={themeMode} />}
+      {screen === "setup" && <SetupScreen t={t} themeMode={themeMode} onSignIn={goSignInFromSetup} />}
       {screen === "setpin" && <SetPinScreen token={token} user={user} onDone={handlePinSet} onSignOut={handleLogout} showToast={showToast} t={t} />}
       {!booting && screen === "main" && (
         <>
@@ -5227,7 +5240,7 @@ export default function OCSAStaffPortal() {
   );
 }
 
-function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, fault, onTyped, step, codeFault, onCode, onResend, onBackToPin, showToast, t, toggleTheme, themeMode }) {
+function LoginScreen({ onSetup, site, onLogin, onGoRegister, onGoForgot, loading, fault, onTyped, step, codeFault, onCode, onResend, onBackToPin, showToast, t, toggleTheme, themeMode }) {
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
   const labelSt = mkLabel(t);
@@ -5307,6 +5320,7 @@ function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, fault, onType
         <div style={{ textAlign: "right", marginBottom: 24 }}><button onClick={onGoForgot} style={{ background: "none", border: "none", minHeight: TAP, padding: "4px 0", color: t.textSec, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>{tr("Forgot your PIN?")}</button></div>
         <button onClick={() => onLogin(phone, pin)} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", opacity: loading ? 0.6 : 1, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Signing in...") : tr("Sign In")}</button>
         <button onClick={onGoRegister} style={mkGhostBtn(t)}>{tr("New Employee? Register Here")}</button>
+        {onSetup && <button type="button" data-setup-link="1" onClick={onSetup} style={{ ...mkGhostBtn(t), display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><PlayIco sz={14} c={t.goldText} />{tr("New here? Watch how to set up your account")}</button>}
         {cantSignIn}
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 20 }}><button onClick={toggleTheme} style={mkTapFrame()}><span style={mkSmallPill(t)}>{themeMode === "dark" ? <SunIco sz={14} c={t.textMut} /> : <MoonIco sz={14} c={t.textMut} />}{themeMode === "dark" ? tr("Light Mode") : tr("Dark Mode")}</span></button><TextSizeButton t={t} /><LanguageButton t={t} /></div>
       </div>
@@ -16450,6 +16464,73 @@ function SdsPublicScreen({ code: first, t, themeMode }) {
     <div style={{ padding: 16 }}>
       <PublicHead logo={null} companyName="" siteName="" withPicker={true} locale={languageToSend(language)} setLanguage={setLanguage} t={t} themeMode={themeMode} />
       <SdsBrowser initial={null} onList={null} code={code} onCode={move} t={t} />
+    </div>
+  );
+}
+
+// The account setup page (part 418, section 4; ocsa-api Round 20, part
+// 415, 9.1): /setup, from the welcome email and from the sign-in screen,
+// before the person has an account. It reads the setup chapter from GET
+// /api/public/training/setup?locale=en|es with no sign-in and plays it in
+// the same player as a review, its checks through POST
+// /api/public/training/setup/checks/:key, nothing written. 404
+// training.noSetupChapter (none published yet) and 429 say the API's
+// words with Sign in beside them. Signed in, the same chapter is in The
+// Staff App course and counts there.
+const SETUP_LANGUAGES = ["en", "es"];
+function SetupScreen({ t, themeMode, onSignIn }) {
+  const { language, setLanguage } = useContext(LanguageCtx);
+  const lang = SETUP_LANGUAGES.indexOf(languageToSend(language)) !== -1 ? languageToSend(language) : "en";
+  const [got, setGot] = useState({ phase: "loading" });
+  const [playing, setPlaying] = useState(false);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    let on = true;
+    setGot(prev => (prev.phase === "ready" ? prev : { phase: "loading" }));
+    api("/api/public/training/setup?locale=" + encodeURIComponent(lang)).then(d => {
+      const l = playerLessonOf(d);
+      if (on) setGot(l ? { phase: "ready", lesson: l } : { phase: "fault", said: tr(ERR_GENERIC) });
+    }).catch(err => {
+      if (!on) return;
+      const said = fkFaultWords(err, "The setup video did not load. Try again.");
+      setGot({ phase: err && err.status === 404 ? "none" : err && err.status === 429 ? "limit" : "fault", said: said });
+    });
+    return () => { on = false; };
+  }, [lang, asked]);
+  // The phone's back from /setup, when the sign-in screen opened it.
+  useEffect(() => {
+    const onPop = () => { if (String(window.location.pathname || "").replace(/\/+$/, "").toLowerCase() !== "/setup") onSignIn(); };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  const wrapSt = { width: "100%", maxWidth: 560, margin: "0 auto", padding: "16px 16px 24px", "--ocsa-bar": "0px" };
+  if (playing && got.phase === "ready") {
+    return <div data-setup="playing" style={wrapSt}><CoursePlayer publicSetup backLabel={tr("Set Up Your Account")} onBack={() => setPlaying(false)} onSignIn={onSignIn} stick="12px" t={t} /></div>;
+  }
+  const lesson = got.phase === "ready" ? got.lesson : null;
+  const start = () => { unlockVoice(); setPlaying(true); };
+  const signInBtn = <button type="button" data-setup-sign-in="1" onClick={onSignIn} style={{ display: "block", width: "100%", minHeight: TAP, marginTop: 10, padding: "8px 0", background: "none", border: "none", cursor: "pointer", color: t.goldText, fontSize: 15, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("I already have an account. Sign in.")}</button>;
+  return (
+    <div data-setup={got.phase} style={wrapSt}>
+      <div style={{ textAlign: "center", marginBottom: 14 }}>
+        <div style={{ display: "inline-block", maxWidth: "100%", padding: themeMode === "dark" ? "8px 14px" : 0, background: themeMode === "dark" ? "rgba(255,255,255,0.95)" : "transparent", borderRadius: 12 }}><img src={LOGO_LG} alt={clientConfig.company.shortName} style={{ height: 48, maxWidth: "100%", objectFit: "contain" }} /></div>
+      </div>
+      <button type="button" data-setup-play="1" disabled={!lesson} onClick={start} aria-label={tr("Start the video")} style={{ position: "relative", display: "block", width: "100%", height: 190, borderRadius: R.lg, border: "none", cursor: lesson ? "pointer" : "default", background: NAVY, padding: 0 }}>
+        <span aria-hidden="true" style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", width: 84, height: 84, borderRadius: "50%", background: lesson ? GOLD : "rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}><PlayIco sz={34} c={NAVY} /></span>
+        {lesson && <span data-setup-steps={lesson.screens.length} style={{ position: "absolute", left: 14, bottom: 12, color: "#FFFFFF", fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("{n} short steps", { n: lesson.screens.length })}</span>}
+      </button>
+      <div role="heading" aria-level={1} style={{ fontSize: 26, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, marginTop: 18, lineHeight: 1.25, overflowWrap: "anywhere" }}>{lesson && lesson.title ? lesson.title : tr("Set Up Your Account")}</div>
+      <div style={{ fontSize: 16, color: t.textSec, marginTop: 8, lineHeight: 1.5 }}>{tr("Watch this before you sign in. It shows the welcome email, your PIN and your first sign-in.")}</div>
+      <div style={{ ...mkLabel(t), marginTop: 18 }}>{tr("Pick your language")}</div>
+      <div role="group" aria-label={tr("Pick your language")} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {SETUP_LANGUAGES.map(code => <button key={code} type="button" lang={code} aria-pressed={lang === code} data-setup-language={code} onClick={() => setLanguage(code)} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 56, borderRadius: R.lg, cursor: "pointer", fontSize: 17, fontWeight: 700, fontFamily: FONT_HEAD, color: t.text, background: lang === code ? t.goldBg : t.card, border: lang === code ? "2px solid " + GOLD : "1px solid " + t.borderSolid }}><GlobeIco sz={18} c={t.text} />{LANGUAGE_NAMES[code]}</button>)}
+      </div>
+      {got.phase === "loading" && <div style={{ ...wsQuiet(t), marginTop: 16 }}>{tr("Loading...")}</div>}
+      {(got.phase === "none" || got.phase === "limit" || got.phase === "fault") && <div data-setup-said={got.phase} style={{ marginTop: 16 }}><WsFault text={got.said} t={t} />{got.phase === "fault" && <button type="button" onClick={() => setAsked(n => n + 1)} style={{ ...wsPlainBtn(t), width: "100%", marginTop: 10 }}>{tr("Try again")}</button>}</div>}
+      <div style={{ marginTop: 20 }}>
+        {lesson && <button type="button" data-setup-start="1" onClick={start} style={{ ...wsMainBtn(t, false), width: "100%", minHeight: 56, fontSize: 17, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}><PlayIco sz={16} c={NAVY} />{tr("Start the video")}</button>}
+        {signInBtn}
+      </div>
     </div>
   );
 }

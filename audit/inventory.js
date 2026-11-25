@@ -94,6 +94,7 @@ const SCREEN_CASES = [
   // Part 344: the pages a QR code or a mail opens with no sign-in, each
   // with the stub switch that answers it, added since the sweep last ran.
   { id: "sds", kind: "screen", path: "/sds", signedIn: false, label: "Safety data sheets, from the poster", stubOptions: { sds: true } },
+  { id: "setup", kind: "screen", path: "/setup", signedIn: false, label: "The account setup video, before sign-in (part 418)", stubOptions: { courses: true } },
   { id: "supply", kind: "screen", path: "/sup/" + SUP_CODE, signedIn: false, label: "A supply label", stubOptions: { supplyQr: true } },
   { id: "request", kind: "screen", path: "/r/req-area", signedIn: false, label: "A client's request page", stubOptions: { requests: true } },
   { id: "acknowledge", kind: "screen", path: "/a/" + ACK_TOKEN, signedIn: false, label: "A client's acknowledgement", stubOptions: { acknowledge: true } },

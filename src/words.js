@@ -1833,6 +1833,15 @@ export const WORDS = {
   "No certificates yet. Finish a course to earn one.": "Todav\u00eda no tiene certificados. Termine un curso para obtener uno.",
   "Your certificate did not open. Try again.": "Su certificado no se abri\u00f3. Intente de nuevo.",
   "Your copy was not sent. Try again.": "Su copia no se envi\u00f3. Intente de nuevo.",
+  // Part 418 (section 4): the setup page, before sign-in.
+  "New here? Watch how to set up your account": "\u00bfEs nuevo? Vea c\u00f3mo configurar su cuenta",
+  "Set Up Your Account": "Configure Su Cuenta",
+  "I already have an account. Sign in.": "Ya tengo una cuenta. Iniciar sesi\u00f3n.",
+  "Start the video": "Comenzar el video",
+  "{n} short steps": "{n} pasos cortos",
+  "Watch this before you sign in. It shows the welcome email, your PIN and your first sign-in.": "Vea esto antes de iniciar sesi\u00f3n. Muestra el correo de bienvenida, su PIN y su primer inicio de sesi\u00f3n.",
+  "Pick your language": "Elija su idioma",
+  "The setup video did not load. Try again.": "El video de configuraci\u00f3n no se carg\u00f3. Intente de nuevo.",
   },
 };
 
@@ -3542,6 +3551,15 @@ WORDS.fr = {
   "No certificates yet. Finish a course to earn one.": "Pas encore de certificat. Terminez un cours pour en obtenir un.",
   "Your certificate did not open. Try again.": "Votre certificat ne s'est pas ouvert. R\u00e9essayez.",
   "Your copy was not sent. Try again.": "Votre copie n'a pas \u00e9t\u00e9 envoy\u00e9e. R\u00e9essayez.",
+  // Part 418 (section 4): the setup page, before sign-in.
+  "New here? Watch how to set up your account": "Vous \u00eates nouveau\u00a0? Regardez comment configurer votre compte",
+  "Set Up Your Account": "Configurez Votre Compte",
+  "I already have an account. Sign in.": "J'ai d\u00e9j\u00e0 un compte. Se connecter.",
+  "Start the video": "Lancer la vid\u00e9o",
+  "{n} short steps": "{n} \u00e9tapes courtes",
+  "Watch this before you sign in. It shows the welcome email, your PIN and your first sign-in.": "Regardez ceci avant de vous connecter. On y voit le courriel de bienvenue, votre code PIN et votre premi\u00e8re connexion.",
+  "Pick your language": "Choisissez votre langue",
+  "The setup video did not load. Try again.": "La vid\u00e9o de configuration ne s'est pas charg\u00e9e. R\u00e9essayez.",
 };
 
 // {name} is replaced after the language is chosen, so the

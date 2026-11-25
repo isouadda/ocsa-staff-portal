@@ -12891,4 +12891,92 @@ const PART418_S3_JOURNEYS = [
 ];
 JOURNEYS.push(...PART418_S3_JOURNEYS);
 
+// --- Round 18 of the staff app (part 418), section 4 ----------------------
+//
+// The setup page before sign-in (ocsa-api Round 20, part 415, 9.1), each
+// failing on the main of part 414, which has no /setup.
+const r418Setup = (stub) => sent(stub, "GET", "/api/public/training/setup");
+const PART418_S4_JOURNEYS = [
+  {
+    id: "setuppage",
+    label: "The setup page (part 418, 4.1): /setup with no sign-in reads GET /api/public/training/setup?locale=, draws the chapter's name, its steps, the language choice, Start the video and Sign in; the chapter plays in the same player as a review, its checks through POST /api/public/training/setup/checks/:key with no token, nothing written, and ends on Sign in",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { signedIn: false, path: "/setup" });
+      try {
+        const up = await shows(app.page, '[data-setup="ready"]', 10000);
+        const text = await r418Text(app.page, "[data-setup]");
+        expect("the page draws the chapter's name as the API stores it, its steps, the line and Sign in", up && has(text, r418Name("Set Up Your Account", "Configure Su Cuenta", language)) && (await r418Attr(app.page, "[data-setup-steps]", "data-setup-steps")) === "3" && has(text, say("I already have an account. Sign in.", language)) && (await r418Has(app.page, "[data-setup-start]")), text.slice(0, 260));
+        expect("it reads GET /api/public/training/setup in the page's language", r418Setup(app.stub).some(c => new RegExp("locale=" + language).test(c.search)), JSON.stringify(r418Setup(app.stub).map(c => c.search)));
+        await spokenHere(app, language, expect);
+        const other = language === "es" ? "en" : "es";
+        await app.page.click('[data-setup-language="' + other + '"]', { timeout: 4000 }).catch(() => {});
+        await pause(app.page, 900);
+        expect("the language choice reads it again in the other language", r418Setup(app.stub).some(c => new RegExp("locale=" + other).test(c.search)), JSON.stringify(r418Setup(app.stub).map(c => c.search)));
+        await app.page.click('[data-setup-language="' + language + '"]', { timeout: 4000 }).catch(() => {});
+        await pause(app.page, 900);
+        await app.page.click("[data-setup-start]", { timeout: 4000 }).catch(() => {});
+        const playing = await shows(app.page, '[data-player="screen"][data-player-review="1"][data-player-step="s1"]', 8000);
+        expect("Start the video plays the chapter in the player as a review", playing, await r418Phase(app.page));
+        await r418Next(app.page);
+        await r418Pick(app.page, "flyer");
+        await r418Answer(app.page);
+        const wrongUp = await shows(app.page, '[data-player-wrong="c1"]', 4000);
+        await app.page.click("[data-player-try-again]", { timeout: 4000 }).catch(() => {});
+        await pause(app.page, 300);
+        await r418Pick(app.page, "email");
+        await r418Answer(app.page);
+        await shows(app.page, '[data-player-step="s2"]', 4000);
+        await r418Next(app.page);
+        await r418Pick(app.page, "phone");
+        await r418Answer(app.page);
+        await shows(app.page, '[data-player-step="s3"]', 4000);
+        await r418Next(app.page);
+        await r418Tap(app.page, 0.5, 0.5);
+        await r418Answer(app.page);
+        const end = await shows(app.page, '[data-player="watched"]', 5000);
+        const checks = sent(app.stub, "POST", "/api/public/training/setup/checks/");
+        const tokened = app.stub.state.calls.filter(c => /^\/api\/(public\/training|training)\//.test(c.path) && /^Bearer /.test(String((c.headers || {}).authorization || "")));
+        expect("its checks go to the public route with no token, a wrong one watched again, and nothing is written", wrongUp && end && checks.length === 4 && tokened.length === 0 && sent(app.stub, "POST", "/api/training/attempts").length === 0, JSON.stringify({ checks: checks.length, tokened: tokened.map(c => c.path) }));
+        await spokenHere(app, language, expect);
+        await app.page.click("[data-player-sign-in]", { timeout: 4000 }).catch(() => {});
+        expect("Sign in at the end goes to the sign-in screen", await shows(app.page, 'input[type="password"]', 5000), "no sign-in");
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "setupnone",
+    label: "The setup page with no chapter, and at the limit (part 418, 4.1): 404 training.noSetupChapter and 429 customer.tooManyRequests each say the API's words with Sign in, and nothing plays",
+    run: async (open, language, expect) => {
+      for (const which of [{ code: "training.noSetupChapter", opt: { setup: false }, phase: "none", en: "The account setup video is not ready yet.", es: "El video para configurar la cuenta todavía no está listo." }, { code: "customer.tooManyRequests", opt: { setupLimit: true }, phase: "limit", en: "Too many tries from this connection.", es: "Demasiados intentos desde esta conexión." }]) {
+        const app = await r418Open(open, { signedIn: false, path: "/setup", stubOptions: { courses: which.opt } });
+        try {
+          const up = await shows(app.page, '[data-setup="' + which.phase + '"]', 10000);
+          const text = await r418Text(app.page, "[data-setup]");
+          expect(which.code + ": the API's words, Sign in, and no Start the video", up && has(text, language === "es" ? which.es : which.en) && (await r418Has(app.page, "[data-setup-sign-in]")) && !(await r418Has(app.page, "[data-setup-start]")), text.slice(0, 240));
+          await spokenHere(app, language, expect);
+          await app.page.click("[data-setup-sign-in]", { timeout: 4000 }).catch(() => {});
+          expect(which.code + ": Sign in goes to the sign-in screen", await shows(app.page, 'input[type="password"]', 5000), "");
+        } finally { await app.context.close(); }
+      }
+    },
+  },
+  {
+    id: "setuplink",
+    label: "The sign-in screen's link (part 418, 4.2): New here? Watch how to set up your account opens /setup, and the phone's back returns to sign in",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { signedIn: false });
+      try {
+        await shows(app.page, "[data-setup-link]", 8000);
+        expect("the sign-in screen offers the link", has(await r418Text(app.page, "[data-setup-link]"), say("New here? Watch how to set up your account", language)), "");
+        await app.page.click("[data-setup-link]", { timeout: 4000 }).catch(() => {});
+        const up = await shows(app.page, '[data-setup="ready"]', 8000);
+        expect("it opens the setup page at /setup", up && /\/setup$/.test(new URL(app.page.url()).pathname), app.page.url());
+        await app.page.goBack();
+        expect("the phone's back returns to sign in", await shows(app.page, 'input[type="password"]', 5000), "");
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART418_S4_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };
