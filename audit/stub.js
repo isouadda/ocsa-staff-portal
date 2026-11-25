@@ -1822,7 +1822,8 @@ const namedShiftView = (sh, i, lang) => ({ id: sh.id, label: sh.label, display: 
 // Part 418: the courses' state a case starts from. o.courses is true or
 // { appLeft: "shift" (Set Up Your Account done, one chapter left in The
 // Staff App), appDone (The Staff App complete with its certificate),
-// setupAt: [screen keys] (an open attempt on Set Up Your Account with
+// passed: [versionIds] (an attempt on each answered right and not yet
+// signed), setupAt: [screen keys] (an open attempt on Set Up Your Account with
 // those watched, as another device left it), mailStatus (the new
 // certificate's mail: "sent", "failed", "no_email", or "sending", null on
 // its first read and sent after), certs (more certificates on file),
@@ -1846,6 +1847,14 @@ function r418StateOf(o) {
     certificates.push({ id: "cert-co-app", number: "OCSA-TR-2026-00007", courseId: "co-app", completedOn: "2026-09-29", locale: "en", mailStatus: "sent", createdAt: "2026-09-29T20:00:00Z" });
   }
   for (let i = 0; i < (Number(opt.certs) || 0); i += 1) certificates.push({ id: "cert-old-" + (i + 1), number: "OCSA-TR-2026-0000" + (i + 1), courseId: "co-clean", completedOn: "2026-0" + (i + 1) + "-15", locale: "en", mailStatus: i === 0 ? "failed" : "sent", createdAt: "2026-0" + (i + 1) + "-15T20:00:00Z" });
+  // passed: versions with an attempt answered right throughout and not yet
+  // signed, so a case opens on the signature.
+  (Array.isArray(opt.passed) ? opt.passed : []).forEach((vid, i) => {
+    const L = R418_LESSONS[vid];
+    if (!L) return;
+    attempts.push({ id: "pa-passed-" + (i + 1), versionId: vid, topicId: L.topicId, locale: "en", startedAt: "2026-10-01T20:00:00Z", progress: { watched: L.screens.map(x => x.key), right: L.checks.map(x => x.key), wrong: {} }, passed: true, scoredAt: "2026-10-01T20:20:00Z", acknowledgedAt: null, voidedAt: null });
+    ch[L.topicId] = { status: "inProgress", attemptId: "pa-passed-" + (i + 1) };
+  });
   if (Array.isArray(opt.setupAt)) {
     attempts.push({ id: "pa-setup-1", versionId: "pv-setup", topicId: "tc-setup", locale: "en", startedAt: "2026-10-01T20:00:00Z", progress: { watched: opt.setupAt.slice(), right: opt.setupRight ? opt.setupRight.slice() : [], wrong: {} }, passed: null, scoredAt: null, acknowledgedAt: null, voidedAt: null });
     ch["tc-setup"] = { status: "inProgress", attemptId: "pa-setup-1" };

@@ -89,7 +89,8 @@ async function open(browser, language, o) {
     stubOptions: Object.assign({ accountPreferences: { language: language, textSize: "standard" } }, opts.stub || {}),
   }, opts.phone || {}));
   const page = app.page;
-  await page.setViewportSize({ width: WIDTH, height: HEIGHT });
+  // Part 418: a shot may name its own size (the training site on a computer).
+  await page.setViewportSize(opts.size || { width: WIDTH, height: HEIGHT });
   await page.goto(BASE + (opts.path || "/"), { waitUntil: "domcontentloaded" });
   await waitFor(page, () => !!document.querySelector(".sp-content, input[type=\"password\"], form, button"), null, 15000);
   await pause(page, 600);
@@ -300,7 +301,8 @@ const offDates = async (s, from, to) => {
 // Part 399: a vacation asked inside its notice, waiting, and a PTO request
 // filed before part 395, approved. Invented.
 const OFF_SHOT_ROWS = () => [
-  timeOffRow({ id: "to-vac", leaveType: "vacation", leaveTypeLabel: "Vacation", status: "requested", startsOn: "2026-10-08", endsOn: "2026-10-09", insideNotice: true, reason: "A family visit" }),
+  // Part 418: asked inside its notice, with the API's line (Round 21).
+  timeOffRow({ id: "to-vac", leaveType: "vacation", leaveTypeLabel: "Vacation", status: "requested", startsOn: "2026-10-08", endsOn: "2026-10-09", insideNotice: true, insideNoticeText: require("./stub").R15_INSIDE_TEXT.en, insideNoticeWords: Object.assign({ fr: null }, require("./stub").R15_INSIDE_TEXT), reason: "A family visit" }),
   timeOffRow({ id: "to-pto", leaveType: "pto", leaveTypeLabel: "PTO (paid time off)", status: "approved", startsOn: "2026-09-14", endsOn: "2026-09-15", hours: 16, decidedAt: "2026-09-10T15:00:00.000Z" }),
 ];
 const guideForm = (name, entry, en, es) => ({ name, entry, o: { signedIn: true, stub: { guideForms: true } }, go: (s) => formCard(s, en, es) });
@@ -1275,7 +1277,94 @@ const SHOTS = [
       await s.pause(400);
       return true;
     } },
+  // --- Part 418: courses, the player, certificates, the setup page and the
+  // training site, against the stub's courses (r418StateOf).
+  { name: "courses-my-training", entry: E("See your courses on My training"), o: { signedIn: true, stub: { training: true, courses: { certs: 1 } } },
+    go: async (s) => { if (!(await s.go("My training"))) return false; return s.waitFor(() => !!document.querySelector("[data-courses] [data-course-pickup-bar]") && !!document.querySelector("[data-certificates-open]")); } },
+  { name: "course-page", entry: E("Open a course and its chapters"), o: { signedIn: true, stub: { training: true, courses: true } },
+    go: async (s) => { if (!(await r418Course(s, "co-clean"))) return false; return s.waitFor(() => !!document.querySelector('[data-chapter="tc-mop"][data-chapter-action="watch"]')); } },
+  { name: "chapter-screen", entry: E("Watch a chapter"), o: { signedIn: true, stub: { training: true, courses: true } },
+    go: async (s) => { if (!(await r418Chapter(s, "co-app", "tc-setup"))) return false; return s.waitFor(() => { const i = document.querySelector('[data-player-image="s1"]'); return !!i && i.complete && i.naturalWidth > 0; }); } },
+  { name: "chapter-question", entry: E("Answer a question in a chapter"), o: { signedIn: true, stub: { training: true, courses: true } },
+    go: async (s) => {
+      if (!(await r418Chapter(s, "co-app", "tc-setup"))) return false;
+      await r418Tap(s, "[data-player-next]"); await r418Tap(s, '[data-player-option="email"]'); await r418Tap(s, "[data-player-check-answer]", 900);
+      await r418Tap(s, "[data-player-next]"); await r418Tap(s, '[data-player-option="phone"]'); await r418Tap(s, "[data-player-check-answer]", 900);
+      await r418Tap(s, "[data-player-next]");
+      if (!(await s.waitFor(() => !!document.querySelector("[data-player-tap-image]")))) return false;
+      const box = await s.page.evaluate(() => { const r = document.querySelector("[data-player-tap-image]").getBoundingClientRect(); return { w: r.width, h: r.height }; });
+      await s.page.click("[data-player-tap-image]", { position: { x: Math.round(box.w * 0.5), y: Math.round(box.h * 0.5) } });
+      return s.waitFor(() => !!document.querySelector("[data-player-tap-ring]"));
+    } },
+  { name: "chapter-wrong", entry: E("Answer a question in a chapter"), o: { signedIn: true, stub: { training: true, courses: true } },
+    go: async (s) => {
+      if (!(await r418Chapter(s, "co-app", "tc-setup"))) return false;
+      await r418Tap(s, "[data-player-next]"); await r418Tap(s, '[data-player-option="clock"]'); await r418Tap(s, "[data-player-check-answer]", 900);
+      return s.waitFor(() => !!document.querySelector("[data-player-wrong]"));
+    } },
+  { name: "chapter-watch-again", entry: E("Watch a chapter again"), o: { signedIn: true, stub: { training: true, courses: true } },
+    go: async (s) => {
+      if (!(await r418Course(s, "co-clean"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector('[data-chapter="tc-mop"][data-chapter-action="watch"]')))) return false;
+      await r418Tap(s, '[data-chapter="tc-mop"]', 1200);
+      return s.waitFor(() => !!document.querySelector('[data-player="screen"][data-player-review="1"]'));
+    } },
+  { name: "chapter-done", entry: E("Finish a chapter and a course"), o: { signedIn: true, stub: { training: true, courses: { passed: ["pv-setup"] } } },
+    go: async (s) => { if (!(await r418Chapter(s, "co-app", "tc-setup", '[data-player="sign"]'))) return false; await r418Sign(s); return s.waitFor(() => !!document.querySelector("[data-player-done-count]") && !!document.querySelector("[data-player-up-next]")); } },
+  { name: "course-done", entry: E("Finish a chapter and a course"), o: { signedIn: true, stub: { training: true, courses: { appLeft: "shift", passed: ["pv-shift"] } } },
+    go: async (s) => { if (!(await r418Chapter(s, "co-app", "tc-shift", '[data-player="sign"]'))) return false; await r418Sign(s); return s.waitFor(() => !!document.querySelector('[data-cert-mail="sent"]')); } },
+  { name: "my-certificates", entry: E("See your certificates"), o: { signedIn: true, stub: { training: true, courses: { appDone: true, certs: 2 } } },
+    go: async (s) => {
+      if (!(await s.go("My training"))) return false;
+      if (!(await s.waitFor(() => !!document.querySelector("[data-certificates-open]")))) return false;
+      await r418Tap(s, "[data-certificates-open]", 900);
+      return s.waitFor(() => document.querySelectorAll("[data-cert]").length === 3);
+    } },
+  { name: "setup-page", entry: E("Watch how to set up your account before you sign in"), o: { path: "/setup", stub: { courses: true } },
+    go: (s) => s.waitFor(() => !!document.querySelector('[data-setup="ready"] [data-setup-start]')) },
+  { name: "training-site", entry: E("Do your training on a computer"), o: { path: "/?site=training", size: { width: 1280, height: 900 }, stub: { training: true, courses: true } },
+    go: async (s) => {
+      if (!(await s.waitFor(() => !!document.querySelector('input[type="password"]')))) return false;
+      await s.type('input[autocomplete="username"]', "4821");
+      await s.type('input[type="password"]', "4907");
+      await s.tap(s.say("Sign In"));
+      if (!(await s.waitFor(() => !!document.querySelector('[data-training-site="main"] [data-course="co-app"]'), null, 12000))) return false;
+      await r418Tap(s, '[data-course="co-app"]', 900);
+      if (!(await s.waitFor(() => !!document.querySelector("[data-course-panel] [data-course-next]")))) return false;
+      await r418Tap(s, "[data-course-panel] [data-course-next]", 1200);
+      return s.waitFor(() => { const i = document.querySelector('[data-course-player-side] [data-player-image="s1"]'); return !!i && i.complete && i.naturalWidth > 0; });
+    } },
 ];
+// Part 418: a tap on an element by its selector, then a moment.
+async function r418Tap(s, sel, ms) {
+  await s.page.click(sel, { timeout: 4000 }).catch(() => {});
+  await s.pause(ms || 500);
+}
+// A course's page, from My training.
+async function r418Course(s, id) {
+  if (!(await s.go("My training"))) return false;
+  if (!(await s.waitFor((x) => !!document.querySelector('[data-course="' + x + '"]'), id))) return false;
+  await r418Tap(s, '[data-course="' + id + '"]', 900);
+  return s.waitFor((x) => !!document.querySelector('[data-course-page="' + x + '"]'), id);
+}
+// A chapter of a course, opened, at its first screen or the place named.
+async function r418Chapter(s, course, chapter, at) {
+  if (!(await r418Course(s, course))) return false;
+  if (!(await s.waitFor((x) => !!document.querySelector('[data-chapter="' + x + '"]'), chapter))) return false;
+  await r418Tap(s, '[data-chapter="' + chapter + '"]', 1200);
+  return s.waitFor((x) => !!document.querySelector(x), at || '[data-player="screen"]', 10000);
+}
+// The signature drawn and sent, as a person signs with a finger.
+async function r418Sign(s) {
+  const b = await s.page.evaluate(() => { const c = document.querySelector("[data-lesson-signature] canvas"); if (!c) return null; c.scrollIntoView({ block: "center" }); const r = c.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
+  if (!b) return;
+  await s.page.mouse.move(b.x + b.w * 0.15, b.y + b.h * 0.55);
+  await s.page.mouse.down();
+  for (let i = 1; i <= 8; i += 1) await s.page.mouse.move(b.x + b.w * (0.15 + 0.08 * i), b.y + b.h * 0.55 + (i % 2 ? -18 : 18), { steps: 3 });
+  await s.page.mouse.up();
+  await s.pause(300);
+  await r418Tap(s, "[data-player-sign]", 1500);
+}
 // The stub's inspection with no safety walk, opened from Inspect.
 async function openPlainInspection(s) {
   if (!(await s.go("Inspect"))) return false;

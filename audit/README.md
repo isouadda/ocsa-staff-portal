@@ -2608,6 +2608,16 @@ part 414. `awardcertlocale` passes there too: every request already asks
 in the screen's language (`inScreenLanguage`), so the certificate was
 already drawn in it; the journey holds it.
 
+## Pictures for this round's guide entries (part 418, section 7)
+
+`audit/shots.js` takes the pictures of the nine new entries against the
+stub's courses: `courses-my-training`, `course-page`, `chapter-screen`,
+`chapter-question` (the tap check with its ring), `chapter-wrong`,
+`chapter-watch-again`, `chapter-done`, `course-done`, `my-certificates`,
+`setup-page` and `training-site`, the last at 1280 by 900 (a shot may name
+its own `size`). The stub's `passed` opens a chapter on its signature.
+The time off rows the shots draw carry the API's inside-notice line.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

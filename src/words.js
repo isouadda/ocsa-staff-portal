@@ -1712,7 +1712,6 @@ export const WORDS = {
   "Your employment class is not on file. The office has to set it.": "Su clase de empleo no est\u00e1 registrada. La oficina tiene que agregarla.",
   "Paid holiday, not taken": "Feriado pagado, no se descuenta",
   "Day off, not taken": "D\u00eda libre, no se descuenta",
-  "Asked with less notice than the policy asks. The office decides it case by case.": "Se pidi\u00f3 con menos aviso del que pide la pol\u00edtica. La oficina la decide caso por caso.",
   // Part 404: the task list kept for no signal.
   "No signal. This is your list as it was read at {time}, kept on this phone. Check-offs you make are kept and send when signal returns.": "Sin se\u00f1al. Esta es su lista tal como se ley\u00f3 a las {time}, guardada en este tel\u00e9fono. Las tareas que marque se guardan y se env\u00edan cuando vuelva la se\u00f1al.",
   "No signal. This is your list as it was last read, kept on this phone. Check-offs you make are kept and send when signal returns.": "Sin se\u00f1al. Esta es su lista tal como se ley\u00f3 la \u00faltima vez, guardada en este tel\u00e9fono. Las tareas que marque se guardan y se env\u00edan cuando vuelva la se\u00f1al.",
@@ -1759,10 +1758,6 @@ export const WORDS = {
   // Part 414 (section 4): Remove photo, and the rules a person's time off follows.
   "Remove your photo?": "\u00bfQuitar su foto?",
   "Photo removed": "Foto eliminada",
-  "Your time off follows the rules for full-time staff.": "Su tiempo libre sigue las reglas del personal de tiempo completo.",
-  "Your time off follows the rules for part-time staff.": "Su tiempo libre sigue las reglas del personal de medio tiempo.",
-  "Your time off follows the rules for supplemental staff.": "Su tiempo libre sigue las reglas del personal suplementario.",
-  "Your time off follows the rules for staff at a union site.": "Su tiempo libre sigue las reglas del personal en un sitio sindicalizado.",
   // Part 414 (section 5): New message for a test office account.
   "Direct message": "Mensaje directo",
   // Part 418 (section 1): My Training's courses and a course page.
@@ -3437,7 +3432,6 @@ WORDS.fr = {
   "Your employment class is not on file. The office has to set it.": "Votre cat\u00e9gorie d'emploi n'est pas enregistr\u00e9e. Le bureau doit l'ajouter.",
   "Paid holiday, not taken": "Jour f\u00e9ri\u00e9 pay\u00e9, non d\u00e9compt\u00e9",
   "Day off, not taken": "Jour de repos, non d\u00e9compt\u00e9",
-  "Asked with less notice than the policy asks. The office decides it case by case.": "Demand\u00e9e avec moins de pr\u00e9avis que la politique ne le demande. Le bureau la d\u00e9cide au cas par cas.",
   // Part 404: the task list kept for no signal.
   "No signal. This is your list as it was read at {time}, kept on this phone. Check-offs you make are kept and send when signal returns.": "Pas de r\u00e9seau. Voici votre liste telle qu'elle a \u00e9t\u00e9 lue \u00e0 {time}, gard\u00e9e sur ce t\u00e9l\u00e9phone. Les t\u00e2ches que vous cochez sont gard\u00e9es et partent d\u00e8s que le r\u00e9seau revient.",
   "No signal. This is your list as it was last read, kept on this phone. Check-offs you make are kept and send when signal returns.": "Pas de r\u00e9seau. Voici votre liste telle qu'elle a \u00e9t\u00e9 lue la derni\u00e8re fois, gard\u00e9e sur ce t\u00e9l\u00e9phone. Les t\u00e2ches que vous cochez sont gard\u00e9es et partent d\u00e8s que le r\u00e9seau revient.",
@@ -3484,10 +3478,6 @@ WORDS.fr = {
   // Part 414 (section 4): Remove photo, and the rules a person's time off follows.
   "Remove your photo?": "Retirer votre photo\u00a0?",
   "Photo removed": "Photo supprim\u00e9e",
-  "Your time off follows the rules for full-time staff.": "Vos cong\u00e9s suivent les r\u00e8gles du personnel \u00e0 temps plein.",
-  "Your time off follows the rules for part-time staff.": "Vos cong\u00e9s suivent les r\u00e8gles du personnel \u00e0 temps partiel.",
-  "Your time off follows the rules for supplemental staff.": "Vos cong\u00e9s suivent les r\u00e8gles du personnel suppl\u00e9mentaire.",
-  "Your time off follows the rules for staff at a union site.": "Vos cong\u00e9s suivent les r\u00e8gles du personnel d'un site syndiqu\u00e9.",
   // Part 414 (section 5): New message for a test office account.
   "Direct message": "Message direct",
   // Part 418 (section 1): My Training's courses and a course page.
