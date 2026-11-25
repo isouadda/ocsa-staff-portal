@@ -1596,3 +1596,37 @@ Continue: {name},Continuar: {name},Continuer : {name},"A course page, the butto
 Start: {name},Empezar: {name},Commencer : {name},"A course page, the button at the bottom"
 Begin,Empezar,Commencer,"A course page, beside a chapter not started"
 This course did not load.,Este curso no se cargó.,Ce cours ne s'est pas chargé.,A course page that did not load
+Not quite. That is okay.,Todavía no. Está bien.,Pas tout à fait. Ce n'est pas grave.,"The player, after a wrong answer"
+Let's watch that part one more time. Then try again.,Veamos esa parte una vez más. Luego intente de nuevo.,Regardons cette partie encore une fois. Puis réessayez.,"The player, after a wrong answer with screens to watch again"
+Look at the question again and try again.,Vuelva a mirar la pregunta e intente de nuevo.,Relisez la question et réessayez.,"The player, after a wrong answer with nothing to watch again"
+You can try as many times as you need.,Puede intentarlo todas las veces que necesite.,Vous pouvez essayer autant de fois qu'il le faut.,"The player, after a wrong answer"
+Step {n} of {total},Paso {n} de {total},Étape {n} sur {total},"The player, over each screen, and under a screen to watch again"
+Watch it again,Verlo de nuevo,Le revoir,"The player, after a wrong answer, and at the end of a lesson watched again"
+Try the question again,Intentar la pregunta de nuevo,Réessayer la question,"The player, after a wrong answer"
+Watching again,Viendo de nuevo,Nouvelle lecture,"The player, over a screen watched again after a wrong answer"
+The picture did not load.,La imagen no se cargó.,L'image ne s'est pas chargée.,"The player, a picture or video that did not load"
+Listen along,Escuche,Écoutez,"The player, on the picture while the voice reads"
+This step has no voice. Read the words.,Este paso no tiene voz. Lea las palabras.,Cette étape n'a pas de voix. Lisez le texte.,"The player, a screen with no voice"
+Tap play to hear it.,Toque reproducir para escucharlo.,Touchez lecture pour l'écouter.,"The player, when the phone did not let the voice start by itself"
+Play from the start,Reproducir desde el inicio,Relire depuis le début,"The player, the replay control"
+Pause,Pausa,Pause,"The player, the voice control"
+Play,Reproducir,Lecture,"The player, the voice control"
+Show what you learned,Muestre lo que aprendió,Montrez ce que vous avez appris,"The player, over a question"
+Question {n} of {total},Pregunta {n} de {total},Question {n} sur {total},"The player, over a question"
+Hear the question,Escuchar la pregunta,Écouter la question,"The player, under a question"
+Touch and hold a picture to hear what it shows.,Mantenga el dedo sobre una imagen para escuchar lo que muestra.,Gardez le doigt sur une image pour entendre ce qu'elle montre.,"The player, a question with pictures"
+You tapped here,Usted tocó aquí,Vous avez touché ici,"The player, a question that asks for a tap on the picture"
+Tap the spot on the picture.,Toque el lugar en la imagen.,Touchez l'endroit sur l'image.,"The player, a question that asks for a tap on the picture"
+Check my answer,Revisar mi respuesta,Vérifier ma réponse,"The player, under a question"
+You got every answer right.,Respondió bien todas las preguntas.,Vous avez bien répondu à toutes les questions.,"The player, before the signature"
+You watched it all.,Lo vio todo.,Vous avez tout regardé.,"The player, at the end of a lesson watched again or the setup video"
+Nothing was saved. Your training stays done.,No se guardó nada. Su capacitación sigue terminada.,Rien n'a été enregistré. Votre formation reste terminée.,"The player, at the end of a lesson watched again"
+Sign in,Iniciar sesión,Se connecter,The setup page and its end
+Almost done,Casi terminado,Presque terminé,"Chapter done, when a trainer still signs it off"
+Chapter done!,¡Capítulo terminado!,Chapitre terminé !,Chapter done
+You finished {name}.,Terminó {name}.,Vous avez terminé {name}.,Chapter done
+Up next,Lo siguiente,À suivre,"Chapter done, over the next chapter"
+Start next chapter,Empezar el siguiente capítulo,Commencer le chapitre suivant,Chapter done
+I'll do it later,Lo haré después,Je le ferai plus tard,Chapter done
+Back to the course,Volver al curso,Retour au cours,"Chapter done, with no chapter left"
+Your answer was not sent. Try again.,Su respuesta no se envió. Intente de nuevo.,Votre réponse n'a pas été envoyée. Réessayez.,"The player, a question whose answer did not go"

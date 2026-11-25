@@ -12102,7 +12102,7 @@ function CoursesPart({ courses, certs, pickup, onCourse, onChapter, onCertificat
 // library beside it for Watch again; either failing keeps what the list
 // held. wide (the training site on a computer, section 5) puts the
 // player on the right of the chapters.
-function CoursePage({ token, course: first, onBack, onPlay, onCertificate, playing, wide, t }) {
+function CoursePage({ token, course: first, onBack, onPlay, onCertificate, playing, reread, wide, t }) {
   const [course, setCourse] = useState(first);
   const [versions, setVersions] = useState({});
   const [fault, setFault] = useState(null);
@@ -12117,13 +12117,13 @@ function CoursePage({ token, course: first, onBack, onPlay, onCertificate, playi
       setVersions(m);
     }).catch(() => {});
     return () => { on = false; };
-  }, [first.id, playing ? playing.closedAt : 0]);
+  }, [first.id, reread]);
   const next = courseNext(course);
   const nameSt = { fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
   const lineSt = { fontSize: 13, color: t.textSec, marginTop: 3, lineHeight: 1.45, overflowWrap: "anywhere" };
   const playable = (ch) => chapterTakeable(ch);
   const watchable = (ch) => ch.done && versions[ch.topicId] && versions[ch.topicId].kind === "player";
-  const go = (ch) => { if (playable(ch)) onPlay(course, ch, false); else if (watchable(ch)) onPlay(course, ch, true); };
+  const go = (ch) => { unlockVoice(); if (playable(ch)) onPlay(course, ch, false); else if (watchable(ch)) onPlay(course, { ...ch, version: versions[ch.topicId] }, true); };
   const chapterRow = (ch) => {
     const isNext = !!next && next.topicId === ch.topicId;
     const on = playing && playing.topicId === ch.topicId;
@@ -12190,6 +12190,521 @@ function CoursePage({ token, course: first, onBack, onPlay, onCertificate, playi
   );
 }
 
+// ------------------------------------------------------------
+// The player (part 418, section 2; ocsa-api Round 20, part 415, #170).
+// A player lesson is short screens, each a picture, a video or nothing
+// with its words in big type, read aloud by its voice (audio.url) where
+// it has one, and simple checks after the screens they test. A wrong
+// answer is never final: the screens it names are watched again and the
+// question tried again, as many times as needed, and no score is ever
+// shown. The last right answer passes the lesson, which is signed as a
+// quiz is, and the chapter is done. GET
+// /api/training/lesson-versions/:id reads the lesson; POST
+// /api/training/attempts starts or resumes the attempt (the same one on
+// any device) at progress.nextScreen, else nextCheck; watched screens go
+// to POST .../progress at most every few seconds and on leaving. A
+// review (watching again, or the setup page signed out) writes nothing
+// and its checks are tried through the review route.
+// ------------------------------------------------------------
+const playerPicture = (v) => (typeof v === "string" && /^(https:\/\/|data:image\/)/i.test(v.trim()) ? v.trim() : "");
+const playerHttps = (v) => (typeof v === "string" && /^https:\/\//i.test(v.trim()) ? v.trim() : "");
+function playerLessonOf(d) {
+  const l = d && typeof d === "object" && d.lesson && typeof d.lesson === "object" ? d.lesson : null;
+  if (!l || l.kind !== "player") return null;
+  const str = (v) => (typeof v === "string" ? v.trim() : "");
+  const locale = str(l.locale) || "en";
+  const locales = (Array.isArray(l.locales) ? l.locales : []).filter(x => typeof x === "string" && Object.prototype.hasOwnProperty.call(LANGUAGE_NAMES, x));
+  const screens = (Array.isArray(l.screens) ? l.screens : []).map((s) => {
+    if (!s || typeof s !== "object" || !trainingId(s, ["key"])) return null;
+    const m = s.media && typeof s.media === "object" ? s.media : {};
+    const media = m.kind === "image" && playerPicture(m.src) ? { kind: "image", src: playerPicture(m.src) } : m.kind === "video" && playerHttps(m.src) ? { kind: "video", src: playerHttps(m.src), poster: playerPicture(m.poster) } : { kind: "none" };
+    return { key: trainingId(s, ["key"]), media: media, say: str(s.say), caption: str(s.caption), audio: s.audio && typeof s.audio === "object" ? playerHttps(s.audio.url) : "" };
+  }).filter(Boolean);
+  const checks = (Array.isArray(l.checks) ? l.checks : []).map((c) => {
+    if (!c || typeof c !== "object" || !trainingId(c, ["key"])) return null;
+    const base = { key: trainingId(c, ["key"]), after: trainingId(c, ["after"]), kind: c.kind, prompt: str(c.prompt) };
+    if (c.kind === "choice") { const options = (Array.isArray(c.options) ? c.options : []).map(o => (o && o.value !== undefined && o.value !== null && str(o.text) ? { value: String(o.value), text: str(o.text) } : null)).filter(Boolean); return options.length >= 2 ? { ...base, options: options } : null; }
+    if (c.kind === "picture") { const options = (Array.isArray(c.options) ? c.options : []).map(o => (o && o.value !== undefined && o.value !== null && playerPicture(o.src) ? { value: String(o.value), src: playerPicture(o.src), alt: str(o.alt) } : null)).filter(Boolean); return options.length >= 2 ? { ...base, options: options } : null; }
+    if (c.kind === "tap") { const src = c.image && typeof c.image === "object" ? playerPicture(c.image.src) : ""; return src ? { ...base, image: src } : null; }
+    return null;
+  }).filter(Boolean);
+  if (screens.length === 0) return null;
+  return { versionId: trainingId(l, ["versionId"]), topicId: trainingId(l, ["topicId"]), title: str(l.title), locale: locale, locales: locales.length > 0 ? locales : [locale], review: l.review === true, acknowledgement: str(l.acknowledgement), needsTrainer: l.needsTrainer === true, screens: screens, checks: checks };
+}
+// The order a lesson plays in: each screen, then the checks after it; a
+// check naming no screen goes last.
+function playerSteps(les) {
+  const out = [];
+  let q = 0;
+  les.screens.forEach((s, i) => {
+    out.push({ kind: "screen", key: s.key, n: i + 1 });
+    les.checks.forEach((c) => { if (c.after === s.key) { q += 1; out.push({ kind: "check", key: c.key, n: q }); } });
+  });
+  les.checks.forEach((c) => { if (!les.screens.some(s => s.key === c.after)) { q += 1; out.push({ kind: "check", key: c.key, n: q }); } });
+  return out;
+}
+// An attempt's progress as the API answers it on a player (null on any
+// other kind).
+function playerProgressOf(a) {
+  const p = a && a.progress && typeof a.progress === "object" ? a.progress : null;
+  if (!p) return null;
+  const keys = (v) => (Array.isArray(v) ? v.map(String) : []);
+  return { watched: keys(p.watched), right: keys(p.right), nextScreen: typeof p.nextScreen === "string" ? p.nextScreen : "", nextCheck: typeof p.nextCheck === "string" ? p.nextCheck : "" };
+}
+const playerAttemptOf = (x) => { const a = trainingAttemptOf(x); return a ? { ...a, progress: playerProgressOf(x) } : null; };
+// The voice. One audio element for every screen, so a phone that lets
+// sound play only from a tap lets it play once a tap has started it:
+// every tap that leads into the player starts it on a silent sound.
+const PLAYER_SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+let playerVoiceEl = null;
+const playerVoice = () => { if (!playerVoiceEl) { try { if (typeof Audio === "function") { playerVoiceEl = new Audio(); playerVoiceEl.preload = "auto"; } } catch (e) { playerVoiceEl = null; } } return playerVoiceEl; };
+function unlockVoice() {
+  const a = playerVoice();
+  if (!a || a.dataset.ocsaUnlocked) return;
+  try { a.dataset.ocsaUnlocked = "1"; if (!a.getAttribute("src")) a.src = PLAYER_SILENT; const p = a.play(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+}
+const playerSpeakLang = (locale) => (locale === "es" ? "es-US" : locale === "fr" ? "fr-FR" : "en-US");
+// The device's own speech, for a question's words and a picture's alt
+// text: nothing is asked of the API.
+function speakWords(text, locale) {
+  try {
+    if (!text || !window.speechSynthesis || typeof window.SpeechSynthesisUtterance !== "function") return false;
+    window.speechSynthesis.cancel();
+    const u = new window.SpeechSynthesisUtterance(text);
+    u.lang = playerSpeakLang(locale);
+    window.speechSynthesis.speak(u);
+    return true;
+  } catch (e) { return false; }
+}
+const canSpeak = () => { try { return !!window.speechSynthesis && typeof window.SpeechSynthesisUtterance === "function"; } catch (e) { return false; } };
+const PauseIco = (p) => <Ico d="M7 4h4v16H7zM13 4h4v16h-4z" {...p} />;
+const ReplayIco = (p) => <Ico d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5" {...p} />;
+const SpeakerIco = (p) => <Ico d="M11 5L6 9H3v6h3l5 4V5zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" {...p} />;
+// How often watched screens are sent, at most.
+const PLAYER_PROGRESS_MS = 4000;
+
+function CoursePlayer({ token, versionId, review: askedReview, publicSetup, course, chapter, backLabel, onBack, onNext, onCourse, onSignIn, stick, t }) {
+  const [phase, setPhase] = useState("loading");
+  const [les, setLes] = useState(null);
+  const [attempt, setAttempt] = useState(null);
+  const [at, setAt] = useState(0);
+  const [picked, setPicked] = useState(null);
+  const [wrong, setWrong] = useState(null);
+  const [replay, setReplay] = useState(null);
+  const [fault, setFault] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [strokes, setStrokes] = useState([]);
+  const [png, setPng] = useState(null);
+  const [voice, setVoice] = useState("none");
+  const [broken, setBroken] = useState({});
+  const [doneCourse, setDoneCourse] = useState(null);
+  const [waiting, setWaiting] = useState(false);
+  const [asked, setAsked] = useState(0);
+  const live = useRef(true);
+  const sending = useRef(false);
+  const refreshed = useRef(false);
+  const right = useRef(new Set());
+  const pending = useRef(new Set());
+  const lastSent = useRef(0);
+  const timer = useRef(null);
+  const attemptRef = useRef(null);
+  attemptRef.current = attempt;
+  const hold = useRef(null);
+  const review = !!publicSetup || !!askedReview || !!(les && les.review);
+  const steps = les ? playerSteps(les) : [];
+  const step = replay ? { kind: "screen", key: replay.keys[replay.at], n: les ? les.screens.findIndex(s => s.key === replay.keys[replay.at]) + 1 : 0 } : steps[at] || null;
+  const screen = les && step && step.kind === "screen" ? les.screens.find(s => s.key === step.key) || null : null;
+  const check = les && step && step.kind === "check" && !replay ? les.checks.find(c => c.key === step.key) || null : null;
+  useEffect(() => () => { live.current = false; }, []);
+  useBusy("training player", phase === "sign" || busy);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [phase, at, replay ? replay.at : -1]);
+  // The lesson, read in the language asked for, signed out for the setup
+  // page and as a review when watching again.
+  const readLesson = async (locale) => {
+    if (publicSetup) return playerLessonOf(await api("/api/public/training/setup?locale=" + encodeURIComponent(locale)));
+    return playerLessonOf(await api("/api/training/lesson-versions/" + encodeURIComponent(versionId) + "?locale=" + encodeURIComponent(locale) + (askedReview ? "&review=true" : ""), { token }));
+  };
+  // Where an attempt picks up: the first screen not watched, else the
+  // first check not answered right.
+  const startAt = (l, a) => {
+    const list = playerSteps(l);
+    const p = a ? a.progress : null;
+    if (!p) return 0;
+    const key = p.nextScreen || p.nextCheck;
+    const i = key ? list.findIndex(s => s.key === key && s.kind === (p.nextScreen ? "screen" : "check")) : -1;
+    return i === -1 ? 0 : i;
+  };
+  const standOn = (a, l) => {
+    const lesson = l || les;
+    setAttempt(a);
+    right.current = new Set(a && a.progress ? a.progress.right : []);
+    if (a && a.voidedAt) { setAsked(n => n + 1); return; }
+    if (a && a.passed === true && a.acknowledgedAt) { finished(a); return; }
+    if (a && a.passed === true) { setPhase("sign"); return; }
+    setAt(startAt(lesson, a)); setPhase("play");
+  };
+  useEffect(() => {
+    let on = true;
+    (async () => {
+      setPhase("loading"); setFault(null); setPicked(null); setWrong(null); setReplay(null); setStrokes([]); setPng(null);
+      try {
+        const want = isOffered(languageToSend()) ? languageToSend() : "en";
+        const l = await readLesson(want);
+        if (!l) throw new Error(ERR_GENERIC);
+        if (!on) return;
+        setLes(l);
+        if (publicSetup || askedReview || l.review) { setAttempt(null); right.current = new Set(); setAt(0); setPhase("play"); return; }
+        const a = playerAttemptOf((await api("/api/training/attempts", { method: "POST", body: { versionId: versionId, locale: l.locale }, token }) || {}).attempt);
+        if (!a) throw new Error(ERR_GENERIC);
+        if (on) standOn(a, l);
+      } catch (err) {
+        if (on) { setFault(fkFaultWords(err, "This lesson did not open. Try again.")); setPhase("fault"); }
+      }
+    })();
+    return () => { on = false; };
+  }, [asked]);
+  // Watched screens, sent at most every few seconds and on leaving.
+  const flush = useCallback(() => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    const a = attemptRef.current;
+    if (review || !a || pending.current.size === 0) return;
+    const list = Array.from(pending.current);
+    pending.current.clear();
+    lastSent.current = Date.now();
+    api("/api/training/attempts/" + encodeURIComponent(a.id) + "/progress", { method: "POST", body: { watched: list }, token })
+      .then(d => { const got = playerAttemptOf(d && d.attempt); if (got && live.current) setAttempt(prev => (prev && prev.id === got.id ? { ...prev, progress: got.progress } : prev)); })
+      .catch(err => { if (!(err && (err.status === 409 || err.status === 400))) list.forEach(k => pending.current.add(k)); });
+  }, [review, token]);
+  const watched = (key) => {
+    if (review || !attemptRef.current) return;
+    if (attemptRef.current.progress && attemptRef.current.progress.watched.indexOf(key) !== -1) return;
+    pending.current.add(key);
+    const wait = PLAYER_PROGRESS_MS - (Date.now() - lastSent.current);
+    if (wait <= 0) flush();
+    else if (!timer.current) timer.current = setTimeout(flush, wait);
+  };
+  useEffect(() => {
+    const hidden = () => { if (document.visibilityState === "hidden") flush(); };
+    document.addEventListener("visibilitychange", hidden);
+    window.addEventListener("pagehide", flush);
+    return () => { document.removeEventListener("visibilitychange", hidden); window.removeEventListener("pagehide", flush); flush(); };
+  }, [flush]);
+  // The voice follows the screen: it plays on its own as the screen
+  // opens, stops when the screen goes, and says so.
+  const voiceUrl = phase === "play" && screen ? screen.audio : "";
+  useEffect(() => {
+    const a = playerVoice();
+    if (!a) { setVoice("none"); return undefined; }
+    const say = () => setVoice(a.ended ? "ended" : a.paused ? "paused" : "playing");
+    const failed = () => { if (voiceUrl && a.src === voiceUrl) { setVoice("broken"); mediaFailed("voice"); } };
+    a.addEventListener("play", say); a.addEventListener("playing", say); a.addEventListener("pause", say); a.addEventListener("ended", say); a.addEventListener("error", failed);
+    if (!voiceUrl) { try { a.pause(); } catch (e) {} setVoice("none"); }
+    else {
+      try {
+        if (a.src !== voiceUrl) a.src = voiceUrl;
+        a.currentTime = 0;
+        const p = a.play();
+        setVoice("playing");
+        if (p && p.catch) p.catch(() => { if (live.current) setVoice("blocked"); });
+      } catch (e) { setVoice("blocked"); }
+    }
+    return () => { a.removeEventListener("play", say); a.removeEventListener("playing", say); a.removeEventListener("pause", say); a.removeEventListener("ended", say); a.removeEventListener("error", failed); };
+  }, [voiceUrl]);
+  useEffect(() => () => { const a = playerVoice(); if (a) { try { a.pause(); } catch (e) {} } try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {} }, []);
+  const voicePlay = () => { const a = playerVoice(); if (!a || !voiceUrl) return; try { if (a.src !== voiceUrl) a.src = voiceUrl; const p = a.play(); if (p && p.catch) p.catch(() => setVoice("blocked")); } catch (e) {} };
+  const voicePause = () => { const a = playerVoice(); if (a) { try { a.pause(); } catch (e) {} } };
+  const voiceAgain = () => { const a = playerVoice(); if (!a || !voiceUrl) return; try { if (a.src !== voiceUrl) a.src = voiceUrl; a.currentTime = 0; const p = a.play(); if (p && p.catch) p.catch(() => setVoice("blocked")); } catch (e) {} };
+  // A media link signed for twelve hours that did not load: the lesson is
+  // read again once, in the same language, and its links used; a second
+  // failure shows the words alone.
+  const mediaFailed = (what) => {
+    if (!les) return;
+    if (refreshed.current) { setBroken(prev => ({ ...prev, [what]: true })); return; }
+    refreshed.current = true;
+    readLesson(les.locale).then(l => { if (l && live.current) setLes(l); }).catch(() => { if (live.current) setBroken(prev => ({ ...prev, [what]: true })); });
+  };
+  const switchTo = async (loc) => {
+    if (busy || !les || loc === les.locale) return;
+    setBusy(true); setFault(null);
+    try { const l = await readLesson(loc); if (!l) throw new Error(ERR_GENERIC); if (live.current) setLes(l); }
+    catch (err) { if (live.current) setFault(fkFaultWords(err, "This lesson did not open. Try again.")); }
+    finally { if (live.current) setBusy(false); }
+  };
+  // The next place after the step at i: the next screen, or a check not
+  // yet answered right; past the end, the first check still to answer.
+  const goOn = (i) => {
+    let n = i + 1;
+    while (n < steps.length && steps[n].kind === "check" && !review && right.current.has(steps[n].key)) n += 1;
+    setPicked(null); setFault(null);
+    if (n < steps.length) { setAt(n); return; }
+    if (review) { setPhase("watched"); return; }
+    const open = steps.findIndex(s => s.kind === "check" && !right.current.has(s.key));
+    if (open !== -1) { setAt(open); return; }
+    if (attemptRef.current && attemptRef.current.passed) setPhase("sign");
+    else setPhase("watched");
+  };
+  const next = () => {
+    unlockVoice();
+    if (!screen) return;
+    if (replay) {
+      if (replay.at + 1 < replay.keys.length) setReplay({ ...replay, at: replay.at + 1 });
+      else { setReplay(null); setPicked(null); }
+      return;
+    }
+    watched(screen.key);
+    goOn(at);
+  };
+  const answer = async () => {
+    if (!check || picked === null || busy || sending.current) return;
+    sending.current = true; setBusy(true); setFault(null);
+    const body = check.kind === "tap" ? { x: picked.x, y: picked.y } : { value: picked };
+    try {
+      const path = publicSetup ? "/api/public/training/setup/checks/" + encodeURIComponent(check.key)
+        : review ? "/api/training/lesson-versions/" + encodeURIComponent(versionId) + "/checks/" + encodeURIComponent(check.key)
+        : "/api/training/attempts/" + encodeURIComponent(attempt.id) + "/checks/" + encodeURIComponent(check.key);
+      const d = await api(path, publicSetup ? { method: "POST", body: body } : { method: "POST", body: body, token });
+      if (!live.current) return;
+      const a = d && d.attempt ? playerAttemptOf(d.attempt) : null;
+      if (a) { setAttempt(a); attemptRef.current = a; right.current = new Set(a.progress ? a.progress.right : []); }
+      if (d && d.right === true) {
+        if (review) right.current.add(check.key);
+        if (d.passed === true && !review) { flush(); setPhase("sign"); return; }
+        goOn(at);
+        return;
+      }
+      const keys = Array.isArray(d && d.replay) ? d.replay.map(String).filter(k => les.screens.some(s => s.key === k)) : [];
+      setWrong({ check: check.key, keys: keys });
+    } catch (err) {
+      // The attempt was already finished (409 training.attemptClosed): its
+      // state as the API sends it, and the lesson moves on from it.
+      const closed = err && err.status === 409 && err.code === "training.attemptClosed" ? playerAttemptOf(err.body && err.body.attempt) : null;
+      if (closed && live.current) standOn(closed);
+      else if (live.current) setFault(fkFaultWords(err, "Your answer was not sent. Try again."));
+    } finally { sending.current = false; if (live.current) setBusy(false); }
+  };
+  // The chapter done: the course read again for n of m and what is next.
+  const finished = async (a) => {
+    setWaiting(!!(a && a.awaitingTrainer));
+    try { if (typeof navigator !== "undefined" && navigator.vibrate && !reducesMotion()) navigator.vibrate(40); } catch (e) {}
+    setPhase("done");
+    if (!course) return;
+    try {
+      const c = courseOf((await api("/api/training/courses/" + encodeURIComponent(course.id), { token }) || {}).course);
+      if (c && live.current) { setDoneCourse(c); if (onCourse) onCourse(c); }
+    } catch (e) {}
+  };
+  const sign = async () => {
+    if (busy || sending.current || !attempt) return;
+    if (!png) { setFault(tr("Sign before you send.")); return; }
+    sending.current = true; setBusy(true); setFault(null);
+    try {
+      const d = await api("/api/training/attempts/" + encodeURIComponent(attempt.id) + "/acknowledge", { method: "POST", body: { signature: png }, token });
+      const a = playerAttemptOf(d && d.attempt) || attempt;
+      if (live.current) { setAttempt(a); await finished({ ...a, awaitingTrainer: a.awaitingTrainer || (!(d && d.record) && les && les.needsTrainer) }); }
+    } catch (err) {
+      if (live.current && err && err.code === "training.signatureNotStored") { setStrokes([]); setPng(null); }
+      if (live.current) setFault(fkFaultWords(err, "This was not signed. Try again."));
+    } finally { sending.current = false; if (live.current) setBusy(false); }
+  };
+  const title = les && les.title ? les.title : chapter ? chapter.name : "";
+  const bigWords = { fontSize: 22, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const lineSt = { fontSize: 15, color: t.textSec, marginTop: 6, lineHeight: 1.5, overflowWrap: "anywhere" };
+  const stickSt = { position: "sticky", bottom: stick || "calc(var(--ocsa-bar, 76px) + 8px)", zIndex: 2, marginTop: 16, paddingTop: 8, background: t.bg };
+  const bigBtn = (off) => ({ ...wsMainBtn(t, off), width: "100%", minHeight: 56, fontSize: 17, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 });
+  const roundBtn = { width: 56, height: 56, flexShrink: 0, borderRadius: R.lg, border: "1px solid " + t.borderSolid, background: t.card, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 };
+  const langSwitch = les && les.locales.length > 1 && (
+    <div role="group" aria-label={tr("Language")} data-player-languages={les.locales.join(",")} style={{ display: "inline-flex", flexShrink: 0, padding: 3, gap: 3, borderRadius: R.pill, background: t.cardAlt, border: "1px solid " + t.borderSolid }}>
+      {les.locales.map(loc => <button key={loc} type="button" aria-pressed={loc === les.locale} data-player-language={loc} disabled={busy} onClick={() => switchTo(loc)} style={{ minWidth: TAP, minHeight: 36, padding: "0 12px", borderRadius: R.pill, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: FONT_HEAD, background: loc === les.locale ? t.card : "transparent", color: loc === les.locale ? t.text : t.textSec, boxShadow: loc === les.locale ? t.shadow : "none" }}>{loc.toUpperCase()}</button>)}
+    </div>
+  );
+  const head = (
+    <div>
+      {onBack && <WsBack label={backLabel || tr("My training")} onBack={() => { flush(); onBack(); }} t={t} />}
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div role="heading" aria-level={1} data-player-title="1" style={{ flex: 1, minWidth: 0, fontSize: 18, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{title}</div>
+        {langSwitch}
+      </div>
+    </div>
+  );
+  const wrap = (kind, body, extra) => <div data-player={kind} data-player-review={review ? "1" : "0"} {...(extra || {})} style={{ padding: "14px 16px 24px" }}>{body}</div>;
+  if (phase === "loading" || phase === "fault") {
+    return wrap(phase, (
+      <div>
+        {onBack && <WsBack label={backLabel || tr("My training")} onBack={onBack} t={t} />}
+        {chapter && <div role="heading" aria-level={1} style={{ fontSize: 18, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{chapter.name}</div>}
+        {phase === "loading" && <div style={{ ...wsQuiet(t), marginTop: 12 }}>{tr("Loading...")}</div>}
+        {phase === "fault" && <div style={{ marginTop: 12 }}><WsFault text={fault} t={t} /><div style={{ display: "flex", gap: 8, marginTop: 12 }}><button type="button" onClick={() => setAsked(n => n + 1)} style={wsMainBtn(t, false)}>{tr("Try again")}</button>{onBack && <button type="button" onClick={onBack} style={wsPlainBtn(t)}>{tr("Back")}</button>}</div></div>}
+      </div>
+    ));
+  }
+  // A wrong answer (board 5): never a score, never a fail.
+  if (wrong && !replay) {
+    const pics = wrong.keys.map(k => les.screens.find(s => s.key === k)).filter(Boolean);
+    return wrap("wrong", (
+      <div>
+        {head}
+        <div data-player-wrong={wrong.check} style={{ marginTop: 14, padding: "20px 16px", borderRadius: R.lg, background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, textAlign: "center" }}>
+          <div aria-hidden="true" style={{ width: 52, height: 52, margin: "0 auto 10px", borderRadius: "50%", background: t.card, display: "flex", alignItems: "center", justifyContent: "center" }}><ReplayIco sz={26} c={ink(t, ORANGE)} /></div>
+          <div role="heading" aria-level={2} style={{ fontSize: 22, fontWeight: 700, color: ink(t, ORANGE), fontFamily: FONT_HEAD }}>{tr("Not quite. That is okay.")}</div>
+          <div style={{ ...lineSt, color: t.text }}>{pics.length > 0 ? tr("Let's watch that part one more time. Then try again.") : tr("Look at the question again and try again.")} {tr("You can try as many times as you need.")}</div>
+        </div>
+        {pics.length > 0 && <div style={{ ...fkHeadSt(t), marginTop: 18 }}>{tr("Watch again")}</div>}
+        {pics.map(s => {
+          const n = les.screens.findIndex(x => x.key === s.key) + 1;
+          return (
+            <div key={s.key} data-player-replay-screen={s.key} style={{ ...fkRowSt(t), display: "flex", alignItems: "center", gap: 12 }}>
+              {s.media.kind === "image" && !broken[s.key] ? <img src={s.media.src} alt="" style={{ width: 64, height: 48, objectFit: "cover", borderRadius: R.sm, flexShrink: 0, background: t.cardAlt }} /> : <span aria-hidden="true" style={{ width: 64, height: 48, borderRadius: R.sm, flexShrink: 0, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center" }}><PlayIco sz={16} c={t.textMut} /></span>}
+              <span style={{ minWidth: 0 }}><span style={{ display: "block", fontSize: 15, fontWeight: 600, color: t.text, lineHeight: 1.35, overflowWrap: "anywhere" }}>{s.caption || s.say}</span><span style={{ display: "block", fontSize: 13, color: t.textMut, marginTop: 2 }}>{tr("Step {n} of {total}", { n: n, total: les.screens.length })}</span></span>
+            </div>
+          );
+        })}
+        <div style={stickSt}>
+          {pics.length > 0 && <button type="button" data-player-watch-again="1" onClick={() => { unlockVoice(); setReplay({ keys: pics.map(s => s.key), at: 0, check: wrong.check }); setWrong(null); }} style={bigBtn(false)}><PlayIco sz={16} c={NAVY} />{tr("Watch it again")}</button>}
+          <button type="button" data-player-try-again="1" onClick={() => { setWrong(null); setPicked(null); }} style={{ ...wsPlainBtn(t), width: "100%", minHeight: 52, marginTop: 10, fontSize: 16 }}>{tr("Try the question again")}</button>
+        </div>
+      </div>
+    ));
+  }
+  if (phase === "play" && screen) {
+    const total = les.screens.length;
+    const words = screen.caption || screen.say;
+    return wrap("screen", (
+      <div>
+        {head}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 10 }}>
+          <div data-player-step-label={step.n + "/" + total} style={{ fontSize: 13, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>{replay ? tr("Watching again") + ". " : ""}{tr("Step {n} of {total}", { n: step.n, total: total })}</div>
+        </div>
+        <div role="progressbar" aria-valuemin={1} aria-valuemax={total} aria-valuenow={step.n} aria-label={tr("Step {n} of {total}", { n: step.n, total: total })} style={{ display: "flex", gap: 3, marginTop: 6 }}>
+          {les.screens.map((s, i) => <span key={s.key} aria-hidden="true" style={{ flex: 1, height: 5, borderRadius: R.pill, background: i < step.n - 1 ? GOLD : i === step.n - 1 ? (t === LIGHT ? NAVY : "#FFFFFF") : t.border }} />)}
+        </div>
+        {screen.media.kind !== "none" && (
+          <div data-player-media={screen.media.kind} style={{ position: "relative", marginTop: 12, borderRadius: R.lg, overflow: "hidden", background: "#0F1B2D", border: "1px solid " + t.borderSolid }}>
+            {screen.media.kind === "image" && !broken[screen.key] && <img key={screen.media.src} src={screen.media.src} alt="" data-player-image={screen.key} onError={() => mediaFailed(screen.key)} style={{ display: "block", width: "100%", maxHeight: "44vh", objectFit: "contain", background: "#DCE6F2" }} />}
+            {screen.media.kind === "video" && !broken[screen.key] && <video key={screen.media.src} src={screen.media.src} poster={screen.media.poster || undefined} data-player-video={screen.key} muted playsInline autoPlay loop preload="auto" onError={() => mediaFailed(screen.key)} style={{ display: "block", width: "100%", maxHeight: "44vh", background: "#0F1B2D" }} />}
+            {broken[screen.key] && <div data-player-media-broken="1" style={{ padding: "32px 16px", textAlign: "center", fontSize: 13, color: "#DCE6F2" }}>{tr("The picture did not load.")}</div>}
+            {voice === "playing" && <div data-player-voice-chip="1" style={{ position: "absolute", left: 10, bottom: 10, display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: R.pill, background: "rgba(15,27,45,0.82)", color: "#FFFFFF", fontSize: 12, fontWeight: 600 }}><SpeakerIco sz={14} c="#FFFFFF" />{tr("Listen along")}</div>}
+          </div>
+        )}
+        <div data-player-words={screen.key} lang={les.locale} style={{ ...bigWords, marginTop: 16 }}>{words}</div>
+        {!screen.audio && <div data-player-no-voice="1" style={{ ...lineSt, fontSize: 13 }}>{tr("This step has no voice. Read the words.")}</div>}
+        {screen.audio && voice === "blocked" && <div data-player-voice-blocked="1" style={{ ...lineSt, fontSize: 13 }}>{tr("Tap play to hear it.")}</div>}
+        <div style={{ ...stickSt, display: "flex", alignItems: "center", gap: 10 }}>
+          {screen.audio && <button type="button" aria-label={tr("Play from the start")} data-player-voice-again="1" onClick={voiceAgain} style={roundBtn}><ReplayIco sz={22} c={t.text} /></button>}
+          {screen.audio && <button type="button" aria-label={voice === "playing" ? tr("Pause") : tr("Play")} data-player-voice={voice} data-player-voice-src={screen.audio} onClick={() => (voice === "playing" ? voicePause() : voicePlay())} style={roundBtn}>{voice === "playing" ? <PauseIco sz={22} c={t.text} /> : <PlayIco sz={20} c={t.text} />}</button>}
+          <button type="button" data-player-next={screen.key} onClick={next} style={{ ...bigBtn(false), flex: 1 }}>{tr("Next")}<ChevIco sz={18} c={NAVY} /></button>
+        </div>
+      </div>
+    ), { "data-player-step": screen.key });
+  }
+  if (phase === "play" && check) {
+    const total = steps.filter(s => s.kind === "check").length;
+    const optBtn = (on) => ({ display: "flex", alignItems: "center", gap: 12, width: "100%", minHeight: 56, padding: "10px 14px", marginBottom: 10, borderRadius: R.lg, cursor: "pointer", textAlign: "left", fontFamily: FONT_BODY, fontSize: 17, fontWeight: 600, color: t.text, background: on ? t.goldBg : t.card, border: on ? "2px solid " + GOLD : "1px solid " + t.borderSolid });
+    const num = (n) => <span aria-hidden="true" style={{ width: 30, height: 30, flexShrink: 0, borderRadius: "50%", background: NAVY, color: "#FFFFFF", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_HEAD }}>{n}</span>;
+    const holdStart = (alt) => { if (hold.current) clearTimeout(hold.current); hold.current = setTimeout(() => { hold.current = null; speakWords(alt, les.locale); }, 500); };
+    const holdEnd = () => { if (hold.current) { clearTimeout(hold.current); hold.current = null; } };
+    return wrap("check", (
+      <div>
+        {head}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 12 }}>
+          <span style={{ ...mkLabel(t), marginBottom: 0 }}>{tr("Show what you learned")}</span>
+          <span data-player-question={step.n + "/" + total} style={{ fontSize: 13, color: t.textSec, fontFamily: FONT_HEAD }}>{tr("Question {n} of {total}", { n: step.n, total: total })}</span>
+        </div>
+        <div data-player-prompt={check.key} lang={les.locale} style={{ ...bigWords, marginTop: 8 }}>{check.prompt}</div>
+        {canSpeak() && <button type="button" data-player-hear={check.key} onClick={() => speakWords(check.prompt, les.locale)} style={{ display: "flex", alignItems: "center", gap: 8, minHeight: TAP, padding: 0, marginTop: 4, background: "none", border: "none", cursor: "pointer", color: t.textSec, fontSize: 14, fontFamily: FONT_BODY }}><SpeakerIco sz={18} c={t.textSec} />{tr("Hear the question")}</button>}
+        <div data-player-check={check.kind} style={{ marginTop: 12 }}>
+          {check.kind === "choice" && check.options.map((o, i) => <button key={o.value} type="button" aria-pressed={picked === o.value} data-player-option={o.value} onClick={() => { setPicked(o.value); setFault(null); }} style={optBtn(picked === o.value)}>{num(i + 1)}<span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{o.text}</span></button>)}
+          {check.kind === "picture" && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+              {check.options.map(o => <button key={o.value} type="button" aria-pressed={picked === o.value} aria-label={o.alt || undefined} data-player-option={o.value} onClick={() => { setPicked(o.value); setFault(null); }} onPointerDown={() => holdStart(o.alt)} onPointerUp={holdEnd} onPointerLeave={holdEnd} onContextMenu={(e) => e.preventDefault()} style={{ padding: 6, borderRadius: R.lg, cursor: "pointer", background: picked === o.value ? t.goldBg : t.card, border: picked === o.value ? "3px solid " + GOLD : "1px solid " + t.borderSolid }}><img src={o.src} alt="" onError={() => mediaFailed(check.key + ":" + o.value)} style={{ display: "block", width: "100%", aspectRatio: "4 / 3", objectFit: "contain", borderRadius: R.md, background: "#DCE6F2", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }} /></button>)}
+            </div>
+          )}
+          {check.kind === "picture" && canSpeak() && <div style={{ ...lineSt, fontSize: 13 }}>{tr("Touch and hold a picture to hear what it shows.")}</div>}
+          {check.kind === "tap" && (
+            <div style={{ position: "relative", borderRadius: R.lg, overflow: "hidden", border: "1px solid " + t.borderSolid, background: "#DCE6F2", cursor: "crosshair" }}>
+              <img src={check.image} alt="" data-player-tap-image={check.key} onError={() => mediaFailed(check.key)} onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); if (!r.width || !r.height) return; const x = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), y = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)); setPicked({ x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000 }); setFault(null); }} style={{ display: "block", width: "100%", WebkitUserSelect: "none", userSelect: "none" }} />
+              {picked && typeof picked === "object" && (
+                <div data-player-tap-ring={picked.x + "," + picked.y} aria-hidden="true" style={{ position: "absolute", left: (picked.x * 100) + "%", top: (picked.y * 100) + "%", transform: "translate(-50%, -50%)", pointerEvents: "none" }}>
+                  <div style={{ width: 44, height: 44, borderRadius: "50%", border: "4px solid " + GOLD, boxShadow: "0 0 0 3px rgba(15,27,45,0.5)" }} />
+                </div>
+              )}
+              {picked && typeof picked === "object" && <div data-player-tapped="1" style={{ position: "absolute", left: 8, top: 8, padding: "4px 10px", borderRadius: R.pill, background: NAVY, color: "#FFFFFF", fontSize: 12, fontWeight: 600, pointerEvents: "none" }}>{tr("You tapped here")}</div>}
+            </div>
+          )}
+          {check.kind === "tap" && <div style={{ ...lineSt, fontSize: 13 }}>{tr("Tap the spot on the picture.")}</div>}
+        </div>
+        {fault && <WsFault text={fault} t={t} />}
+        <div style={stickSt}>
+          <button type="button" data-player-check-answer={check.key} disabled={picked === null || busy} onClick={answer} style={bigBtn(picked === null || busy)}>{busy ? tr("Sending...") : tr("Check my answer")}</button>
+        </div>
+      </div>
+    ), { "data-player-step": check.key });
+  }
+  if (phase === "sign") {
+    return wrap("sign", (
+      <div>
+        {head}
+        <div role="heading" aria-level={2} style={{ fontSize: 20, fontWeight: 700, color: ink(t, GREEN), fontFamily: FONT_HEAD, marginTop: 14 }}>{tr("You got every answer right.")}</div>
+        {les && les.acknowledgement && <div style={{ fontSize: 16, color: t.text, lineHeight: 1.55, marginTop: 10, overflowWrap: "anywhere" }}>{les.acknowledgement}</div>}
+        <div data-lesson-signature="1" style={{ marginTop: 12 }}>
+          <div style={mkLabel(t)}>{tr("Your signature")}</div>
+          <div style={{ borderRadius: R.md, border: fault ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+            <SignatureBox strokes={strokes} onStroke={(stroke, size) => { const all = strokes.concat([stroke]); setStrokes(all); setPng(signaturePng(all, size.w, size.h)); setFault(null); }} height={SIGN_BOX_HEIGHT} />
+          </div>
+          <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+          <button type="button" onClick={() => { setStrokes([]); setPng(null); }} disabled={strokes.length === 0 || busy} style={{ ...wsPlainBtn(t), flex: "none", marginTop: 8, opacity: strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+        </div>
+        {fault && <WsFault text={fault} t={t} />}
+        <div style={stickSt}><button type="button" data-player-sign="1" disabled={busy} onClick={sign} style={bigBtn(busy)}>{busy ? tr("Sending...") : tr("Sign")}</button></div>
+      </div>
+    ));
+  }
+  // Watched through: a review, or the setup page signed out.
+  if (phase === "watched") {
+    return wrap("watched", (
+      <div>
+        {head}
+        <div style={{ textAlign: "center", padding: "28px 8px" }}>
+          <CheckIco sz={40} c={ink(t, GREEN)} />
+          <div role="heading" aria-level={2} style={{ fontSize: 22, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, marginTop: 8 }}>{tr("You watched it all.")}</div>
+          {!publicSetup && review && <div style={lineSt}>{tr("Nothing was saved. Your training stays done.")}</div>}
+        </div>
+        <div style={stickSt}>
+          {publicSetup && onSignIn && <button type="button" data-player-sign-in="1" onClick={onSignIn} style={bigBtn(false)}>{tr("Sign in")}</button>}
+          <button type="button" data-player-again="1" onClick={() => { unlockVoice(); right.current = new Set(); setAt(0); setPicked(null); setPhase("play"); }} style={{ ...wsPlainBtn(t), width: "100%", minHeight: 52, marginTop: 10, fontSize: 16 }}>{tr("Watch it again")}</button>
+          {onBack && <button type="button" onClick={onBack} style={{ ...wsPlainBtn(t), width: "100%", minHeight: 52, marginTop: 10, fontSize: 16 }}>{backLabel ? tr("Back") : tr("Back to My training")}</button>}
+        </div>
+      </div>
+    ));
+  }
+  // Chapter done (board 6), with what comes next in the course.
+  const c = doneCourse || course;
+  const upNext = c ? courseNext(c) : null;
+  const still = reducesMotion();
+  return (
+    <div data-player="done" data-player-waiting={waiting ? "1" : "0"} style={{ padding: "14px 16px 24px" }}>
+      <style>{"@keyframes ocsaCheckDraw { to { stroke-dashoffset: 0 } }"}</style>
+      <div style={{ borderRadius: R.lg, background: NAVY, padding: "32px 20px 20px", textAlign: "center", color: "#FFFFFF" }}>
+        <svg width="96" height="96" viewBox="0 0 96 96" aria-hidden="true" data-player-check-draw={still ? "still" : "draw"} style={{ display: "block", margin: "0 auto" }}>
+          <circle cx="48" cy="48" r="44" fill={GOLD} stroke={GOLD_LIGHT} strokeWidth="4" />
+          <path d="M28 50 L42 64 L68 34" fill="none" stroke={NAVY} strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="70" strokeDashoffset={still ? 0 : 70} style={still ? undefined : { animation: "ocsaCheckDraw 0.7s ease-out 0.2s forwards" }} />
+        </svg>
+        <div role="heading" aria-level={1} style={{ fontSize: 28, fontWeight: 700, fontFamily: FONT_HEAD, marginTop: 14 }}>{waiting ? tr("Almost done") : tr("Chapter done!")}</div>
+        <div data-player-done-name="1" style={{ fontSize: 16, color: "rgba(255,255,255,0.85)", marginTop: 6, lineHeight: 1.45, overflowWrap: "anywhere" }}>{waiting ? tr("Waiting for your trainer. Show them you can do it, and they sign it off.") : tr("You finished {name}.", { name: title })}</div>
+        {c && <div data-player-done-count={c.chaptersDone + "/" + c.chaptersTotal} style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 16, padding: "8px 16px", borderRadius: R.pill, background: "rgba(255,255,255,0.12)", fontSize: 15, fontWeight: 600 }}>{chaptersDoneWords(c.chaptersDone, c.chaptersTotal)}</div>}
+      </div>
+      {upNext && chapterTakeable(upNext) && (
+        <div data-player-up-next={upNext.topicId} style={{ ...fkRowSt(t), marginTop: 14, padding: "16px 14px" }}>
+          <div style={mkLabel(t)}>{tr("Up next")}</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{upNext.name}</div>
+          <button type="button" data-player-start-next={upNext.topicId} onClick={() => { unlockVoice(); onNext(c, upNext); }} style={{ ...bigBtn(false), marginTop: 12 }}><PlayIco sz={16} c={NAVY} />{tr("Start next chapter")}</button>
+          <button type="button" data-player-later="1" onClick={onBack} style={{ ...wsPlainBtn(t), width: "100%", minHeight: 48, marginTop: 8, border: "none" }}>{tr("I'll do it later")}</button>
+        </div>
+      )}
+      {!(upNext && chapterTakeable(upNext)) && onBack && <div style={{ marginTop: 14 }}><button type="button" data-player-back="1" onClick={onBack} style={{ ...wsPlainBtn(t), width: "100%", minHeight: 52 }}>{c ? tr("Back to the course") : tr("Back to My training")}</button></div>}
+    </div>
+  );
+}
+
 function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   // Read again each time the screen opens, and each time a lesson is
   // left; a read that fails keeps what is on the screen and says so,
@@ -12223,12 +12738,18 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   const [certs, setCerts] = useState(null);
   const [coursePage, setCoursePage] = useState(null);
   const [pickupShare, setPickupShare] = useState(null);
+  // Part 418 (section 2): the chapter playing, { course, ch, review,
+  // versionId, opened }, an entry of its own in the phone's history; and
+  // a count bumped as it closes, which reads the course again.
+  const [playing, setPlaying] = useState(null);
+  const [courseReread, setCourseReread] = useState(0);
   const openCourse = (c) => { setCoursePage(c); try { window.history.pushState({ trainingCourse: c.id }, "", "/"); } catch (e) {} };
   const closeCourse = () => { setCoursePage(null); try { if (window.history.state && window.history.state.trainingCourse) window.history.back(); } catch (e) {} };
   useEffect(() => {
     const onPop = () => {
       setCat(window.history.state && window.history.state.trainingCategory ? String(window.history.state.trainingCategory) : null);
       if (!(window.history.state && window.history.state.trainingCourse)) setCoursePage(null);
+      if (!(window.history.state && window.history.state.trainingPlayer)) { setPlaying(null); setCourseReread(n => n + 1); }
     };
     window.addEventListener("popstate", onPop);
     return () => { window.removeEventListener("popstate", onPop); try { if (window.history.state && window.history.state.trainingCategory) window.history.replaceState({}, "", "/"); } catch (e) {} };
@@ -12290,13 +12811,23 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   // Training always has, from an item made of the chapter.
   const playChapter = (c, ch, review) => {
     if (!ch || !ch.lesson) return;
-    if (ch.lesson.kind === "quiz" && !review) {
+    unlockVoice();
+    if (review || ch.lesson.kind === "player") {
+      const versionId = review && ch.version ? ch.version.id : ch.lesson.versionId;
+      const entry = { trainingCourse: c.id, trainingPlayer: 1 };
+      try { if (window.history.state && window.history.state.trainingPlayer) window.history.replaceState(entry, "", "/"); else window.history.pushState(entry, "", "/"); } catch (e) {}
+      setPlaying({ course: c, ch: ch, review: !!review, versionId: versionId, opened: Date.now() });
+      return;
+    }
+    if (ch.lesson.kind === "quiz") {
       const own = items.find(i => i.topicId === ch.topicId && i.lesson) || null;
       openLesson(own || { id: ch.topicId + ":", topicId: ch.topicId, siteId: "", name: ch.name, docCode: "", docSection: "", safetyCritical: false, siteName: "", status: ch.status, completedDate: ch.completedDate, expiresOn: ch.expiresOn, linkUrl: "", attemptId: ch.attemptId, recordId: ch.recordId, lesson: { versionId: ch.lesson.versionId, kind: "quiz", attemptsUsed: ch.lesson.attemptsUsed, attemptsLeft: ch.lesson.attemptsLeft === null ? 1 : ch.lesson.attemptsLeft }, category: "other", sortOrder: null, needsTrainer: false, signoffBy: null, outsideCourse: false, findingFollowUp: null });
     }
   };
   if (coursePage) {
-    return <CoursePage key={coursePage.id} token={token} course={coursePage} onBack={() => { closeCourse(); setAsked(n => n + 1); }} onPlay={playChapter} onCertificate={() => {}} playing={null} t={t} />;
+    const closePlayer = () => { try { if (window.history.state && window.history.state.trainingPlayer) { window.history.back(); return; } } catch (e) {} setPlaying(null); setCourseReread(n => n + 1); };
+    const playerNode = playing ? <CoursePlayer key={playing.versionId + ":" + playing.opened} token={token} versionId={playing.versionId} review={playing.review} course={playing.course} chapter={playing.ch} backLabel={coursePage.name} onBack={closePlayer} onNext={(c, ch) => playChapter(c, ch, false)} t={t} /> : null;
+    return <CoursePage key={coursePage.id} token={token} course={coursePage} onBack={() => { closeCourse(); setAsked(n => n + 1); }} onPlay={playChapter} onCertificate={() => {}} playing={playing ? { topicId: playing.ch.topicId, node: playerNode } : null} reread={courseReread} t={t} />;
   }
   const coursesPart = <CoursesPart courses={courses} certs={certs} pickup={pickup ? { ...pickup, share: pickupShare } : null} onCourse={openCourse} onChapter={(c, ch) => { openCourse(c); playChapter(c, ch, false); }} t={t} />;
   // Part 383: a certificate the API took. The item reads done at once,

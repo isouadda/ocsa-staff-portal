@@ -2479,6 +2479,48 @@ journeys, in English and Spanish, each failing on the main of part 414:
   a required chapter's state and the trainer's line, the button at the
   bottom, and the phone's back to My Training.
 
+## The player (part 418, section 2)
+
+A player lesson (`kind: "player"`) plays its screens in order, each check
+after the screen its `after` names. A screen draws its picture or video
+large (a video muted, looping and inline, with its poster), its words
+(`caption`, else `say`) in big type, **Step n of m** with a bar, the
+lesson's languages (EN, ES), and **Next** at the thumb. Its voice
+(`audio.url`) plays on its own as the screen opens, through one audio
+element every tap into the player starts, with play, pause and play from
+the start; a screen with `audio` null reads its words alone. A check is
+big buttons (choice), a grid of pictures each read aloud on a touch and
+hold (picture), or the picture with a ring where the finger landed
+(tap, sent as fractions); the question is heard through the phone's own
+speech. A wrong answer reads **Not quite. That is okay.** with **Watch it
+again** (its `replay` screens) and **Try the question again**; no score is
+ever drawn. The last right answer passes it, signed as a quiz is, and
+**Chapter done!** draws a check that draws (still for reduce motion), n of
+m and **Up next**. Watched screens go to `POST
+/api/training/attempts/:id/progress` at most every 4 seconds and on
+leaving. A review (Watch again) reads `?review=true`, writes nothing and
+tries its checks through the review route. A media link that does not
+load reads the lesson once more; 409 `training.attemptClosed` moves on
+from the attempt it carries.
+
+Five journeys, in English and Spanish, each failing on the main of part
+414:
+
+- `playerlesson`: the setup chapter from Begin to chapter done: the
+  attempt started with its locale, an image screen and its voice fetched
+  with no tap, a choice, a video, a picture check, a screen with no voice,
+  a tap check as fractions, the batches of watched screens, no score, the
+  signature, Chapter done with 1 of 2 and Up next, and Start next chapter.
+- `playerwrong`: a wrong choice watched again and answered right, and a
+  tap off the spot tried again.
+- `playerresume`: another device's progress: the same attempt opens at
+  its next screen and skips the checks answered right.
+- `playerreview`: Watch again on a done chapter writes nothing and tries
+  its checks through `POST /api/training/lesson-versions/:id/checks/:key`.
+- `playerfaults`: a media link that ran out read again once, 409
+  `training.attemptClosed` moving on to signing, and a 404 in the API's
+  words.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names
