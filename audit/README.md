@@ -2445,6 +2445,179 @@ dm-inbox (TEST_CHAT_PEOPLE, TEST_CHAT_LINES), and the two open routes.
 Two journeys, in English and Spanish, fail on the main of part 408:
 `chattestoffice` and `chattestlines`; `chatreopen` passes on both.
 
+## My Training and courses (part 418, section 1)
+
+ocsa-api Round 20 (part 415, isouadda/ocsa-api#170) answers the person's
+courses at `GET /api/training/courses`, a course at `GET
+/api/training/courses/:id` and the Watch again list, each chapter with its
+published version, at `GET /api/training/courses/library`. My Training
+draws them above the older trainings, which stay as they were: the first
+required chapter still due, **Pick up where you left off** (the chapter in
+progress, its course and place, and the share of its attempt done from
+`GET /api/training/attempts/:id`), and **Your courses** with a promoted
+course not yet complete first and marked **New**, each with its ring. A
+course page lists the chapters: a done one with **Watch again** where the
+library holds a player, the next with **Continue** or **Begin**, the rest
+numbered, a required one's due state in words, and the next one's button
+at the bottom.
+
+The stub answers every route of Round 20 the staff app reads behind
+`courses` (see `r418StateOf`): The Staff App, promoted, and Cleaning
+Skills, with a chapter a trainer watches; player lessons with an image, a
+video and a screen with no voice, and a choice, a picture and a tap check;
+attempts with their progress; course certificates; the signed-out setup
+chapter; and the media links, a real WebM video and MP3 voice
+(`audit/media/`), which a case can make run out (`mediaStale`). Two
+journeys, in English and Spanish, each failing on the main of part 414:
+
+- `coursesmytraining`: the required chapter, Pick up where you left off
+  with its share, the promoted course first and marked New, each ring,
+  the names as the API stores them, the older trainings still there; an
+  API with no courses route draws none.
+- `coursepage`: the course and the library read, the summary, n of m and
+  the certificate line, Continue on the next, Watch again on a done one,
+  a required chapter's state and the trainer's line, the button at the
+  bottom, and the phone's back to My Training.
+
+## The player (part 418, section 2)
+
+A player lesson (`kind: "player"`) plays its screens in order, each check
+after the screen its `after` names. A screen draws its picture or video
+large (a video muted, looping and inline, with its poster), its words
+(`caption`, else `say`) in big type, **Step n of m** with a bar, the
+lesson's languages (EN, ES), and **Next** at the thumb. Its voice
+(`audio.url`) plays on its own as the screen opens, through one audio
+element every tap into the player starts, with play, pause and play from
+the start; a screen with `audio` null reads its words alone. A check is
+big buttons (choice), a grid of pictures each read aloud on a touch and
+hold (picture), or the picture with a ring where the finger landed
+(tap, sent as fractions); the question is heard through the phone's own
+speech. A wrong answer reads **Not quite. That is okay.** with **Watch it
+again** (its `replay` screens) and **Try the question again**; no score is
+ever drawn. The last right answer passes it, signed as a quiz is, and
+**Chapter done!** draws a check that draws (still for reduce motion), n of
+m and **Up next**. Watched screens go to `POST
+/api/training/attempts/:id/progress` at most every 4 seconds and on
+leaving. A review (Watch again) reads `?review=true`, writes nothing and
+tries its checks through the review route. A media link that does not
+load reads the lesson once more; 409 `training.attemptClosed` moves on
+from the attempt it carries.
+
+Five journeys, in English and Spanish, each failing on the main of part
+414:
+
+- `playerlesson`: the setup chapter from Begin to chapter done: the
+  attempt started with its locale, an image screen and its voice fetched
+  with no tap, a choice, a video, a picture check, a screen with no voice,
+  a tap check as fractions, the batches of watched screens, no score, the
+  signature, Chapter done with 1 of 2 and Up next, and Start next chapter.
+- `playerwrong`: a wrong choice watched again and answered right, and a
+  tap off the spot tried again.
+- `playerresume`: another device's progress: the same attempt opens at
+  its next screen and skips the checks answered right.
+- `playerreview`: Watch again on a done chapter writes nothing and tries
+  its checks through `POST /api/training/lesson-versions/:id/checks/:key`.
+- `playerfaults`: a media link that ran out read again once, 409
+  `training.attemptClosed` moving on to signing, and a 404 in the API's
+  words.
+
+## Certificates (part 418, section 3)
+
+A chapter signed that completes a course with a certificate ends on
+**You did it!**: the course, **Saved to your HR file**, the mail as
+`mailStatus` says (**We emailed you a copy**; **We could not email it** with
+**Send it again** for `failed` and `no_email`; while it is still going,
+`GET /api/training/certificates/mine` read again every 3 seconds, five
+times at most), **Open my certificate** and **Print or share**, each
+opening `GET /api/training/certificates/:id/pdf` the way every PDF opens
+here. **My certificates (n)** on My Training opens the list, newest
+first; **Send it again** is `POST .../resend`, and 409
+`training.certificateSending` reads in the API's words. The bell's
+`training_certificate` opens the list on the certificate it names.
+
+Three journeys, in English and Spanish, each failing on the main of part
+414:
+
+- `coursedone`: the last chapter of The Staff App played and signed, once
+  for each `mailStatus` (sent, failed, no_email, and still going), with
+  Send it again where it failed and both PDF buttons.
+- `mycertificates`: the count on My Training, newest first, a resend met
+  with 409 and then sent, a PDF opened, and the phone's back.
+- `certificatebell`: `/?open=training_certificate:<id>` on that
+  certificate.
+
+## The setup page (part 418, section 4)
+
+`/setup`, from the welcome email and from the sign-in screen's **New here?
+Watch how to set up your account**, needs no sign-in. It reads `GET
+/api/public/training/setup?locale=en|es` and draws the chapter's name as
+the API stores it, its steps, one line, **English** and **Espanol**,
+**Start the video** and **I already have an account. Sign in.**; the
+chapter plays in the player as a review, its checks through `POST
+/api/public/training/setup/checks/:key` with no token, and ends on **Sign
+in**. 404 `training.noSetupChapter` and 429 `customer.tooManyRequests` say
+the API's words beside Sign in. The inventory lists the screen.
+
+Three journeys, in English and Spanish, each failing on the main of part
+414: `setuppage` (read in the page's language and again in the other,
+played through with a wrong answer watched again, no token and nothing
+written, Sign in at the end), `setupnone` (the 404 and the 429), and
+`setuplink` (the sign-in screen's link and the phone's back).
+
+## The training site (part 418, section 5)
+
+The same build serves training.ocsaco.com: a host name starting with
+`training.`, or `?site=training` for local work and previews (kept for
+the tab; `?site=staff` leaves it). Sign-in sends `app: "training"` on
+`POST /api/auth/login` and on the second step, whose code screen never
+remembers the computer; the token lives in the tab's own storage and is
+renewed with `POST /api/auth/renew` while the person is active; after 10
+idle minutes on the computer's own clock, warned a minute before, it signs
+out and says why. Only training shows: a header with Training, the
+language and Sign out, then My Training, courses, the player and
+certificates, with no bottom bar. At 900 pixels and wider a course's
+chapters sit on the left and the player, or the next chapter's button,
+on the right. The idle warning is the training site's own dialog, drawn
+with `inset: 0`, outside the staff app's sweep of sheets.
+
+Three journeys, in English and Spanish, each failing on the main of part
+414: `trainingsite` (the two sign-ins, only training, the token in the tab
+alone and nothing kept after sign-out), `trainingidle` (the warning, Keep
+working, renewal while active, and the idle sign-out) and
+`trainingdesktop` (1280 wide, then 390).
+
+## What API Round 21 gave the staff app (part 418, section 6)
+
+From ocsa-api Round 21 (part 416, isouadda/ocsa-api#171, "For the staff
+app"): the time off form shows the preview's `notice.insideNoticeText`
+before the request is sent, and the refusal's notice keeps it, with no
+sentence of the app's own anywhere; the shout-out picker reads `GET
+/api/recognition/shoutouts/people` page by page in place of each site's
+staff and posts with one of the person's `sites[].id`; leave shows
+`person.leaveClassText`; a shout-out taken down twice reads 409
+`recognition.shoutoutAlreadyRemoved` in the API's words and leaves the
+list; and the Employee of the Month certificate names `?locale=` in its
+path. The stub answers each (`R418_CLASS_TEXT`, `peoplePage`,
+`removedElsewhere`, the notice's words on the preview and the refusal).
+Part 414's `leaveclassline` and `shoutoutspost` now read the API's line and
+the people route.
+
+Five journeys, in English and Spanish: `insidenoticeform`,
+`shoutoutpeople`, `shoutoutgone` and `leaveclasstext` fail on the main of
+part 414. `awardcertlocale` passes there too: every request already asks
+in the screen's language (`inScreenLanguage`), so the certificate was
+already drawn in it; the journey holds it.
+
+## Pictures for this round's guide entries (part 418, section 7)
+
+`audit/shots.js` takes the pictures of the nine new entries against the
+stub's courses: `courses-my-training`, `course-page`, `chapter-screen`,
+`chapter-question` (the tap check with its ring), `chapter-wrong`,
+`chapter-watch-again`, `chapter-done`, `course-done`, `my-certificates`,
+`setup-page` and `training-site`, the last at 1280 by 900 (a shot may name
+its own `size`). The stub's `passed` opens a chapter on its signature.
+The time off rows the shots draw carry the API's inside-notice line.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

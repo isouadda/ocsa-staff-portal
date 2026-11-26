@@ -1871,6 +1871,9 @@ function readEntryFromUrl() {
     // closet: /sds, or /sds/<code> for one sheet. No token, no sign-in.
     var sds = /^\/sds(?:\/([A-Za-z0-9_.-]+))?$/i.exec(String(window.location.pathname || "").replace(/\/+$/, ""));
     if (sds) return { screen: "sds", token: null, code: sds[1] || null };
+    // The account setup video (part 418, section 4), from the welcome
+    // email, before the person has signed in: /setup. No token.
+    if (path === "/setup") return { screen: "setup", token: null };
     return null;
   } catch (e) { return null; }
 }
@@ -2724,7 +2727,235 @@ export class LastResort extends Component {
   }
 }
 
-export default function OCSAStaffPortal() {
+// ------------------------------------------------------------
+// The training site (part 418, section 5; ocsa-api Round 20, part 415,
+// section 7): training.ocsaco.com is this same build on a second
+// address, for new hires on an office computer. It is chosen by the host
+// name starting with training., or by ?site=training for local work and
+// previews (kept for the tab; ?site=staff leaves it). Sign-in carries
+// app: "training" on POST /api/auth/login and on the second step, for a
+// token of 2 hours, renewed with POST /api/auth/renew while the person
+// is active; after 10 idle minutes on this computer's own clock, with a
+// warning a minute before, it signs out. The token lives in this tab
+// alone and nothing about the person stays on the computer after
+// sign-out: no stay signed in, no badge kept, no device remembered for
+// the code. Only training shows: My Training, courses, the player,
+// certificates and the language; no bottom bar, no other place. At 900
+// pixels and wider a course and its chapters sit on the left and the
+// player on the right. Links in training mails and notices stay the
+// staff app's (the API writes them).
+// ------------------------------------------------------------
+const TRAINING_SITE_KEY = "ocsa-site";
+const TRAINING_AUTH_KEY = "ocsa-training-auth";
+function readTrainingSite() {
+  try {
+    if (String(window.location.hostname || "").toLowerCase().indexOf("training.") === 0) return true;
+    const asked = new URLSearchParams(window.location.search || "").get("site");
+    if (asked === "training") { sessionSet(TRAINING_SITE_KEY, "training"); return true; }
+    if (asked === "staff") { sessionDrop(TRAINING_SITE_KEY); return false; }
+    return sessionGet(TRAINING_SITE_KEY) === "training";
+  } catch (e) { return false; }
+}
+const TRAINING_SITE = readTrainingSite();
+const TRAINING_IDLE_MS = 10 * 60 * 1000;
+const TRAINING_WARN_MS = 60 * 1000;
+const TRAINING_RENEW_MS = 15 * 60 * 1000;
+const TRAINING_WIDE_PX = 900;
+const TRAINING_ACTIVITY = ["pointerdown", "keydown", "wheel", "touchstart", "scroll"];
+const trainingAuthRead = () => { try { const p = JSON.parse(sessionGet(TRAINING_AUTH_KEY) || "null"); return p && typeof p.token === "string" && p.token ? p : null; } catch (e) { return null; } };
+const trainingAuthSave = (tok) => sessionSet(TRAINING_AUTH_KEY, JSON.stringify({ token: tok, savedAt: Date.now() }));
+const trainingAuthDrop = () => sessionDrop(TRAINING_AUTH_KEY);
+const isWide = () => { try { return window.innerWidth >= TRAINING_WIDE_PX; } catch (e) { return false; } };
+
+function TrainingSiteApp() {
+  const [themeMode, setThemeMode] = useState(firstTheme);
+  const t = themeMode === "light" ? LIGHT : DARK;
+  // The language and the text size are this visit's own: nothing is kept.
+  const [language, setLanguage] = useState(firstLanguage);
+  const [languages, setLanguages] = useState(offeredLanguages);
+  useEffect(() => {
+    let alive = true;
+    askLanguages().then((list) => { if (!alive || list === undefined) return; setLanguages(offeredLanguages()); setLanguage(prev => (isOffered(prev) ? prev : firstLanguage())); });
+    return () => { alive = false; };
+  }, []);
+  setWordsLanguage(language);
+  const [textSize, setTextSize] = useState(readTextSize);
+  const zoom = zoomOf(textSize);
+  const [token, setToken] = useState(() => { const a = trainingAuthRead(); return a ? a.token : null; });
+  const [user, setUser] = useState(null);
+  const [stage, setStage] = useState(() => (trainingAuthRead() ? "boot" : "login"));
+  const [loading, setLoading] = useState(false);
+  const [fault, setFault] = useState(null);
+  const [step, setStep] = useState(null);
+  const [codeFault, setCodeFault] = useState(null);
+  const [note, setNote] = useState(null);
+  const [training, setTraining] = useState(null);
+  const [trainingAt, setTrainingAt] = useState(null);
+  const [warnLeft, setWarnLeft] = useState(null);
+  const [wide, setWide] = useState(isWide);
+  const lastActive = useRef(Date.now());
+  const renewing = useRef(false);
+  const busy = useRef(false);
+  useEffect(() => {
+    try { document.documentElement.lang = language; document.title = tr("{brand} Training", { brand: clientConfig.company.brandTag }); } catch (e) {}
+  }, [language]);
+  useEffect(() => {
+    try { const meta = document.querySelector('meta[name="theme-color"]'); if (meta) meta.setAttribute("content", t.headerBg); document.body.style.background = t.bg; } catch (e) {}
+  }, [t]);
+  useEffect(() => {
+    const onSize = () => setWide(isWide());
+    window.addEventListener("resize", onSize);
+    return () => window.removeEventListener("resize", onSize);
+  }, []);
+  // Signing out forgets everything of the person on this computer.
+  const signOut = useCallback((why) => {
+    trainingAuthDrop();
+    setToken(null); setUser(null); setTraining(null); setTrainingAt(null); setStep(null); setCodeFault(null); setFault(null); setWarnLeft(null);
+    setNote(why || null); setStage("login");
+    try { const a = playerVoice(); if (a) a.pause(); } catch (e) {}
+    try { window.history.replaceState({}, "", window.location.pathname === "/" ? "/" : "/"); } catch (e) {}
+  }, []);
+  const enter = async (tok) => {
+    const me = await api("/api/auth/me", { token: tok });
+    setUser(me.user);
+    lastActive.current = Date.now();
+    setStage(me.mustSetPin === true ? "setpin" : "main");
+  };
+  useEffect(() => {
+    if (stage !== "boot" || !token) return;
+    renewToken(token).then((r) => {
+      if (r && r.expired) { signOut(); return null; }
+      if (r && r.mustSetPin) { setStage("setpin"); return null; }
+      const use = r && r.token ? r.token : token;
+      if (use !== token) { trainingAuthSave(use); setToken(use); }
+      return enter(use);
+    }).catch(() => signOut());
+  }, [stage]);
+  useEffect(() => {
+    const expired = () => signOut();
+    window.addEventListener("ocsa-session-expired", expired);
+    return () => window.removeEventListener("ocsa-session-expired", expired);
+  }, [signOut]);
+  const refused = (err) => {
+    const said = err && err.body && err.body.error ? String(err.body.error) : "";
+    const code = err && err.code ? String(err.code) : "";
+    const own = ownRefusal(code, err && err.body);
+    return { text: own ? tr(own) : !said && wentNowhere(err) ? tr(ERR_OFFLINE) : said ? tr(said) : tr("That sign-in did not match. Check your badge, phone or email and your PIN."), lock: code === "auth.locked" };
+  };
+  const handleLogin = async (phone, pin) => {
+    if (busy.current) return;
+    busy.current = true; setLoading(true); setFault(null); setNote(null);
+    try {
+      const data = await api(signedOut("/api/auth/login", language), { method: "POST", body: { phone, pin, deviceId: deviceId(), app: "training" }, noAuthEvent: true });
+      if (data && data.secondStep === true && data.challengeId) { setCodeFault(null); setStep({ challengeId: String(data.challengeId), emailHint: typeof data.emailHint === "string" ? data.emailHint : "", sentAt: Date.now() }); return; }
+      trainingAuthSave(data.token); setToken(data.token);
+      await enter(data.token);
+    } catch (err) { setFault(refused(err)); }
+    finally { busy.current = false; setLoading(false); }
+  };
+  // The code screen: this computer is never remembered.
+  const handleCode = async (code) => {
+    if (!step || busy.current) return;
+    busy.current = true; setLoading(true); setCodeFault(null);
+    try {
+      const data = await api(signedOut("/api/auth/second-step", language), { method: "POST", body: { challengeId: step.challengeId, code: code, deviceId: deviceId(), rememberDevice: false, app: "training" }, noAuthEvent: true });
+      setStep(null); trainingAuthSave(data.token); setToken(data.token);
+      await enter(data.token);
+    } catch (err) {
+      const c = err && err.code ? String(err.code) : "";
+      if (c === "auth.codeExpired" || c === "auth.codeTooMany" || c === "auth.sendLimit") { setStep(null); setFault(refused(err)); }
+      else { const left = c === "auth.codeWrong" && err.body ? Number(err.body.attemptsLeft) : NaN; setCodeFault({ text: refused(err).text, left: Number.isFinite(left) ? left : null }); }
+    } finally { busy.current = false; setLoading(false); }
+  };
+  const handleResend = async () => {
+    if (!step || busy.current) return;
+    try { await api(signedOut("/api/auth/second-step/resend", language), { method: "POST", body: { challengeId: step.challengeId }, noAuthEvent: true }); setStep(prev => (prev ? { ...prev, sentAt: Date.now() } : prev)); }
+    catch (err) { setCodeFault({ text: refused(err).text, left: null }); }
+  };
+  // Activity keeps the session: the idle clock starts over, the warning
+  // closes, and a token older than 15 minutes is renewed.
+  useEffect(() => {
+    if (stage !== "main") return undefined;
+    const seen = () => { lastActive.current = Date.now(); };
+    TRAINING_ACTIVITY.forEach(ev => window.addEventListener(ev, seen, { passive: true, capture: true }));
+    const tick = setInterval(() => {
+      const idle = Date.now() - lastActive.current;
+      if (idle >= TRAINING_IDLE_MS) { signOut(tr("You were signed out after 10 minutes with nothing done. Sign in again to go on.")); return; }
+      setWarnLeft(idle >= TRAINING_IDLE_MS - TRAINING_WARN_MS ? Math.max(1, Math.ceil((TRAINING_IDLE_MS - idle) / 1000)) : null);
+      const held = trainingAuthRead();
+      if (held && idle < TRAINING_WARN_MS && Date.now() - Number(held.savedAt || 0) >= TRAINING_RENEW_MS && !renewing.current) {
+        renewing.current = true;
+        renewToken(held.token).then((r) => {
+          renewing.current = false;
+          if (r && r.token) { trainingAuthSave(r.token); setToken(r.token); }
+          else if (r && r.expired) signOut();
+        });
+      }
+    }, 1000);
+    return () => { clearInterval(tick); TRAINING_ACTIVITY.forEach(ev => window.removeEventListener(ev, seen, { capture: true })); };
+  }, [stage, signOut]);
+  const showToast = (msg) => setNote(msg);
+  const pick = (code) => { setLanguage(code); };
+  let body = null;
+  if (stage === "boot") body = <BootSplash t={t} themeMode={themeMode} fault={null} onRetry={() => {}} />;
+  else if (stage === "login") body = (
+    <div data-training-site="signin">
+      {note && <div role="status" data-training-site-note="1" style={{ maxWidth: 420, margin: "16px auto 0", padding: "10px 14px", borderRadius: R.md, background: t.goldBg, border: "1px solid " + t.goldBorder, color: t.text, fontSize: 14, lineHeight: 1.45 }}>{note}</div>}
+      <LoginScreen site="training" onLogin={handleLogin} onGoForgot={() => setStage("forgot")} loading={loading} fault={fault} onTyped={() => { if (fault) setFault(null); }} step={step} codeFault={codeFault} onCode={handleCode} onResend={handleResend} onBackToPin={() => { setStep(null); setCodeFault(null); }} showToast={showToast} t={t} toggleTheme={() => setThemeMode(m => (m === "dark" ? "light" : "dark"))} themeMode={themeMode} />
+    </div>
+  );
+  else if (stage === "forgot") body = <ForgotScreen onGoLogin={() => setStage("login")} showToast={showToast} t={t} />;
+  else if (stage === "setpin") body = <SetPinScreen token={token} user={user} onDone={(d) => { const fresh = d && typeof d.token === "string" && d.token ? d.token : null; if (fresh) { trainingAuthSave(fresh); setToken(fresh); } enter(fresh || token).catch(() => signOut()); }} onSignOut={() => signOut()} showToast={showToast} t={t} />;
+  else if (stage === "main") body = (
+    <div data-training-site="main" data-training-site-wide={wide ? "1" : "0"} style={{ minHeight: "var(--ocsa-vh)", display: "flex", flexDirection: "column" }}>
+      <div style={{ background: NAVY, borderBottom: "3px solid " + GOLD, padding: "10px 16px" }}>
+        <div style={{ maxWidth: 1280, margin: "0 auto", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ flexShrink: 0, padding: "6px 10px", background: "rgba(255,255,255,0.95)", borderRadius: R.md }}><img src={LOGO_SM} alt={clientConfig.company.shortName} style={{ display: "block", height: 28, maxWidth: 140, objectFit: "contain" }} /></div>
+          <div role="heading" aria-level={1} style={{ flex: "1 1 auto", minWidth: 0, fontSize: 18, fontWeight: 700, color: "#FFFFFF", fontFamily: FONT_HEAD }}>{tr("Training")}</div>
+          <div role="group" aria-label={tr("Language")} data-training-site-languages="1" style={{ display: "inline-flex", padding: 3, gap: 3, borderRadius: R.md, background: "rgba(255,255,255,0.12)" }}>
+            {languages.map(code => <button key={code} type="button" lang={code} aria-pressed={language === code} data-training-site-language={code} onClick={() => pick(code)} style={{ minHeight: 36, minWidth: TAP, padding: "0 12px", borderRadius: R.sm, border: "none", cursor: "pointer", fontSize: 14, fontWeight: 700, fontFamily: FONT_HEAD, background: language === code ? "#FFFFFF" : "transparent", color: language === code ? NAVY : "#FFFFFF" }}>{LANGUAGE_NAMES[code]}</button>)}
+          </div>
+          <div aria-hidden="true" style={{ width: 38, height: 38, borderRadius: "50%", background: "#FFFFFF", color: NAVY, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, fontFamily: FONT_HEAD, flexShrink: 0 }}>{user && user.firstName ? user.firstName[0] : ""}{user && user.lastName ? user.lastName[0] : ""}</div>
+          <button type="button" data-training-site-sign-out="1" onClick={() => signOut()} aria-label={tr("Sign out")} style={mkTapFrame({ background: "rgba(255,255,255,0.12)", borderRadius: R.sm })}><LogOutIco sz={18} c="#FFFFFF" /></button>
+        </div>
+      </div>
+      <div className="sp-content" style={{ width: "100%", maxWidth: wide ? 1280 : 960, margin: "0 auto", flex: 1 }}>
+        <TrainingView token={token} data={training} onData={setTraining} at={trainingAt} onAt={setTrainingAt} shiftSiteId={null} wide={wide} t={t} />
+      </div>
+      {warnLeft !== null && (
+        // The training site's own dialog, outside the staff app's sweep of
+        // sheets; the trainingidle journey drives it.
+        <div role="alertdialog" aria-modal="true" aria-labelledby="ocsa-idle-title" data-training-site-idle={warnLeft} style={{ position: "fixed", inset: 0, zIndex: 2000, background: t.modalOverlay, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div style={{ width: "100%", maxWidth: 420, background: t.card, borderRadius: R.lg, padding: "22px 20px", boxShadow: t.popShadow, border: "1px solid " + t.border }}>
+            <div id="ocsa-idle-title" role="heading" aria-level={2} style={{ fontSize: 18, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{tr("Are you still here?")}</div>
+            <div style={{ fontSize: 15, color: t.textSec, marginTop: 8, lineHeight: 1.5 }}>{tr("For your safety on a shared computer, you will be signed out in {n} seconds.", { n: warnLeft })}</div>
+            <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
+              <button type="button" data-training-site-keep="1" onClick={() => { lastActive.current = Date.now(); setWarnLeft(null); }} style={wsMainBtn(t, false)}>{tr("Keep working")}</button>
+              <button type="button" onClick={() => signOut()} style={wsPlainBtn(t)}>{tr("Sign out")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+  return (
+    <TextSizeCtx.Provider value={{ textSize, setTextSize }}>
+    <LanguageCtx.Provider value={{ language, setLanguage, languages }}>
+    <div data-training-site-root="1" style={{ width: "100%", minHeight: "var(--ocsa-vh)", background: t.bg, fontFamily: FONT_BODY, color: t.text, zoom: zoom, ...viewportVars(zoom), "--ocsa-bar": "0px" }}>
+      <style>{"* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; } html { -webkit-text-size-adjust: 100%; } input::placeholder { color: " + t.textMut + "; }"}</style>
+      {body}
+    </div>
+    </LanguageCtx.Provider>
+    </TextSizeCtx.Provider>
+  );
+}
+
+// The staff app, or the training site on its own address.
+export default function PortalRoot() {
+  return TRAINING_SITE ? <TrainingSiteApp /> : <OCSAStaffPortal />;
+}
+
+function OCSAStaffPortal() {
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
   const [sites, setSites] = useState([]);
@@ -3351,6 +3582,15 @@ export default function OCSAStaffPortal() {
     return () => window.removeEventListener("ocsa-must-set-pin", ask);
   }, []);
   const goLogin = () => { leaveEntryPath(); setScreen("login"); };
+  // Part 418 (section 4): the setup page and the sign-in screen lead to
+  // each other. A phone that holds a session goes into the app.
+  const goSignInFromSetup = () => {
+    if (readAuth()) { try { window.location.replace("/"); } catch (e) {} return; }
+    leaveEntryPath();
+    try { window.history.replaceState({}, "", "/"); } catch (e) {}
+    setScreen("login");
+  };
+  const goSetup = () => { try { window.history.pushState({ setup: 1 }, "", "/setup"); } catch (e) {} setScreen("setup"); };
 
   const handleRegister = async (firstName, lastName, phone, email, pin) => {
     setLoading(true);
@@ -4023,7 +4263,7 @@ export default function OCSAStaffPortal() {
       if (!isAdmin) { setActiveTab("training"); setShowMore(false); return; }
       setFieldKitAt(at => ({ siteId: at && at.siteId ? at.siteId : null, tile: place.signoff ? "signoff" : null }));
     }
-    if (place.tab === "training") setTrainingAt(place.join ? { join: String(place.join) } : place.doc ? { doc: { docCode: String(place.doc), title: String(place.doc) } } : place.category ? { category: String(place.category) } : place.topic ? { topic: String(place.topic) } : null);
+    if (place.tab === "training") setTrainingAt(place.join ? { join: String(place.join) } : place.doc ? { doc: { docCode: String(place.doc), title: String(place.doc) } } : place.category ? { category: String(place.category) } : place.topic ? { topic: String(place.topic) } : place.certificate !== undefined ? { certificate: String(place.certificate) } : null);
     if (place.tab === "inspect") setInspectAt(place.inspection ? { id: String(place.inspection), at: Date.now() } : null);
     if (place.tab === "tasks") setTaskFocus(place.task ? { id: String(place.task), at: Date.now() } : null);
     if (place.tab === "forms" && place.draft) setFormsDraft(String(place.draft));
@@ -4980,7 +5220,7 @@ export default function OCSAStaffPortal() {
       )}
 
       {booting && <BootSplash t={t} themeMode={themeMode} fault={bootFault} onRetry={() => { if (token) bootWith(token); }} />}
-      {!booting && screen === "login" && <LoginScreen onLogin={handleLogin} onGoRegister={() => { backToPin(); setScreen("register"); }} onGoForgot={() => { backToPin(); setScreen("forgot"); }} loading={loading} fault={loginFault} onTyped={() => { if (loginFault) setLoginFault(null); }} step={secondStep} codeFault={codeFault} onCode={handleCode} onResend={handleResend} onBackToPin={backToPin} showToast={showToast} t={t} toggleTheme={toggleTheme} themeMode={themeMode} />}
+      {!booting && screen === "login" && <LoginScreen onSetup={goSetup} onLogin={handleLogin} onGoRegister={() => { backToPin(); setScreen("register"); }} onGoForgot={() => { backToPin(); setScreen("forgot"); }} loading={loading} fault={loginFault} onTyped={() => { if (loginFault) setLoginFault(null); }} step={secondStep} codeFault={codeFault} onCode={handleCode} onResend={handleResend} onBackToPin={backToPin} showToast={showToast} t={t} toggleTheme={toggleTheme} themeMode={themeMode} />}
       {screen === "register" && <RegisterScreen onRegister={handleRegister} onBack={() => setScreen("login")} loading={loading} t={t} />}
       {screen === "activate" && <ActivateScreen token={ENTRY ? ENTRY.token : null} onActivated={handleAuthSuccess} onGoLogin={goLogin} showToast={showToast} t={t} />}
       {screen === "reset" && <ResetScreen token={ENTRY ? ENTRY.token : null} onReset={handleAuthSuccess} onGoLogin={goLogin} onGoForgot={() => setScreen("forgot")} showToast={showToast} t={t} />}
@@ -4990,6 +5230,7 @@ export default function OCSAStaffPortal() {
       {screen === "supply" && <SupplyScreen code={ENTRY ? ENTRY.code : null} token={token} onSignIn={() => { returnTo.current = "supply"; setScreen("login"); }} onMustSetPin={() => mustSetPinRef.current()} showToast={showToast} t={t} themeMode={themeMode} />}
       {screen === "acknowledge" && <AcknowledgeScreen token={ENTRY ? ENTRY.token : null} t={t} themeMode={themeMode} />}
       {screen === "sds" && <SdsPublicScreen code={ENTRY ? ENTRY.code : null} t={t} themeMode={themeMode} />}
+      {screen === "setup" && <SetupScreen t={t} themeMode={themeMode} onSignIn={goSignInFromSetup} />}
       {screen === "setpin" && <SetPinScreen token={token} user={user} onDone={handlePinSet} onSignOut={handleLogout} showToast={showToast} t={t} />}
       {!booting && screen === "main" && (
         <>
@@ -5227,7 +5468,7 @@ export default function OCSAStaffPortal() {
   );
 }
 
-function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, fault, onTyped, step, codeFault, onCode, onResend, onBackToPin, showToast, t, toggleTheme, themeMode }) {
+function LoginScreen({ onSetup, site, onLogin, onGoRegister, onGoForgot, loading, fault, onTyped, step, codeFault, onCode, onResend, onBackToPin, showToast, t, toggleTheme, themeMode }) {
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
   const labelSt = mkLabel(t);
@@ -5250,7 +5491,7 @@ function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, fault, onType
     const iv = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(iv);
   }, [step ? step.sentAt : null]);
-  const verify = (v) => { const c = String(v || "").replace(/\D/g, "").slice(0, 6); if (c.length === 6 && !loading) onCode(c, remember); };
+  const verify = (v) => { const c = String(v || "").replace(/\D/g, "").slice(0, 6); if (c.length === 6 && !loading) onCode(c, site === "training" ? false : remember); };
   // App support's contact (Step 290), read with no token from GET
   // /api/support/contact; the line under Sign In shows only once it
   // answers an email.
@@ -5268,7 +5509,7 @@ function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, fault, onType
   const logo = (
     <div style={{ textAlign: "center", marginBottom: step ? 24 : 40 }}>
       <div style={{ display: "inline-block", maxWidth: "100%", boxSizing: "border-box", padding: themeMode === "dark" ? "12px 20px" : "0", background: themeMode === "dark" ? "rgba(255,255,255,0.95)" : "transparent", borderRadius: 12 }}><img src={LOGO_LG} alt={clientConfig.company.shortName} style={{ height: 70, maxWidth: "100%", objectFit: "contain" }} /></div>
-      <div style={{ fontSize: 11, color: t.textMut, marginTop: 16, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD, fontWeight: 600 }}>{tr("Staff Operations Portal")}</div>
+      <div style={{ fontSize: 11, color: t.textMut, marginTop: 16, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD, fontWeight: 600 }}>{site === "training" ? tr("Training") : tr("Staff Operations Portal")}</div>
     </div>
   );
   if (step) return (
@@ -5281,10 +5522,10 @@ function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, fault, onType
           {codeFault && <div role="alert" style={errSt}>{codeFault.text}</div>}
           {codeFault && codeFault.left !== null && <div style={errSt}>{codeFault.left === 1 ? tr("1 try left") : tr("{n} tries left", { n: codeFault.left })}</div>}
         </div>
-        <button type="button" role="checkbox" aria-checked={remember} onClick={() => setRemember(v => !v)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: TAP, marginBottom: 16, padding: "0 2px", background: "none", border: "none", cursor: "pointer", fontSize: 13, color: t.text, lineHeight: 1.4, textAlign: "left", fontFamily: FONT_BODY }}>
+        {site !== "training" && <button type="button" role="checkbox" aria-checked={remember} onClick={() => setRemember(v => !v)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: TAP, marginBottom: 16, padding: "0 2px", background: "none", border: "none", cursor: "pointer", fontSize: 13, color: t.text, lineHeight: 1.4, textAlign: "left", fontFamily: FONT_BODY }}>
           <span aria-hidden="true" style={{ width: 20, height: 20, flexShrink: 0, borderRadius: R.sm, border: "2px solid " + (remember ? GOLD : t.textMut), background: remember ? GOLD : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{remember && <CheckIco sz={12} c={NAVY} />}</span>
           <span style={{ minWidth: 0 }}>{tr("Remember this device for 30 days")}</span>
-        </button>
+        </button>}
         <button onClick={() => verify(code)} disabled={loading || code.length !== 6} style={{ width: "100%", minHeight: TAP, padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", opacity: loading || code.length !== 6 ? 0.6 : 1, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Signing in...") : tr("Verify")}</button>
         <button onClick={onResend} disabled={wait > 0 || loading} style={{ ...mkGhostBtn(t), opacity: wait > 0 ? 0.6 : 1, cursor: wait > 0 ? "default" : "pointer", fontVariantNumeric: "tabular-nums" }}>{tr("Send a new code")}{wait > 0 ? " (" + wait + ")" : ""}</button>
         <button onClick={onBackToPin} disabled={loading} style={mkGhostBtn(t)}>{tr("Back")}</button>
@@ -5297,7 +5538,7 @@ function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, fault, onType
         <div style={{ textAlign: "center", marginBottom: 40 }}>
           <div style={{ display: "inline-block", maxWidth: "100%", boxSizing: "border-box", padding: themeMode === "dark" ? "12px 20px" : "0", background: themeMode === "dark" ? "rgba(255,255,255,0.95)" : "transparent", borderRadius: 12 }}><img src={LOGO_LG} alt={clientConfig.company.shortName} style={{ height: 70, maxWidth: "100%", objectFit: "contain" }} /></div>
           
-          <div style={{ fontSize: 11, color: t.textMut, marginTop: 16, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD, fontWeight: 600 }}>{tr("Staff Operations Portal")}</div>
+          <div style={{ fontSize: 11, color: t.textMut, marginTop: 16, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD, fontWeight: 600 }}>{site === "training" ? tr("Training") : tr("Staff Operations Portal")}</div>
         </div>
         <div style={{ marginBottom: 16 }}><label style={labelSt}>{tr("Badge Number, Phone or Email")}</label><input value={phone} onChange={e => { setPhone(e.target.value); onTyped(); }} placeholder={tr("9001, 2155550101 or name@email.com")} autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} style={inputSt} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} /></div>
         {/* The refusal sits under the PIN box until the person types again:
@@ -5306,7 +5547,8 @@ function LoginScreen({ onLogin, onGoRegister, onGoForgot, loading, fault, onType
         <div style={{ marginBottom: 8 }}><label style={labelSt}>{tr("PIN")}</label><input value={pin} onChange={e => { setPin(e.target.value); onTyped(); }} placeholder={tr("4-digit PIN")} type="password" inputMode="numeric" pattern="[0-9]*" autoComplete="off" maxLength={4} style={{ ...inputSt, letterSpacing: "8px", textAlign: "center", fontSize: 20 }} onKeyDown={e => e.key === "Enter" && onLogin(phone, pin)} />{fault && <div role="alert" style={errSt}>{fault.text}</div>}{fault && fault.lock && <div style={errSt}>{tr("After too many wrong tries, sign-in stops for a while. Ask your supervisor for help.")}</div>}</div>
         <div style={{ textAlign: "right", marginBottom: 24 }}><button onClick={onGoForgot} style={{ background: "none", border: "none", minHeight: TAP, padding: "4px 0", color: t.textSec, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>{tr("Forgot your PIN?")}</button></div>
         <button onClick={() => onLogin(phone, pin)} disabled={loading} style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, " + GOLD + ", " + GOLD_LIGHT + ")", color: NAVY, fontSize: 15, fontWeight: 600, cursor: "pointer", textTransform: "uppercase", letterSpacing: "1px", opacity: loading ? 0.6 : 1, boxShadow: "0 6px 18px rgba(231,176,23,0.30)", fontFamily: FONT_HEAD }}>{loading ? tr("Signing in...") : tr("Sign In")}</button>
-        <button onClick={onGoRegister} style={mkGhostBtn(t)}>{tr("New Employee? Register Here")}</button>
+        {onGoRegister && <button onClick={onGoRegister} style={mkGhostBtn(t)}>{tr("New Employee? Register Here")}</button>}
+        {onSetup && <button type="button" data-setup-link="1" onClick={onSetup} style={{ ...mkGhostBtn(t), display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><PlayIco sz={14} c={t.goldText} />{tr("New here? Watch how to set up your account")}</button>}
         {cantSignIn}
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 20 }}><button onClick={toggleTheme} style={mkTapFrame()}><span style={mkSmallPill(t)}>{themeMode === "dark" ? <SunIco sz={14} c={t.textMut} /> : <MoonIco sz={14} c={t.textMut} />}{themeMode === "dark" ? tr("Light Mode") : tr("Dark Mode")}</span></button><TextSizeButton t={t} /><LanguageButton t={t} /></div>
       </div>
@@ -5790,14 +6032,10 @@ function leaveBalancesOf(d) {
 // (person.leaveClass, union included), and the kinds not offered them
 // (notOffered, as GET /api/time-off/types answers it, each with kindName),
 // grouped by the API's reason.
-const LEAVE_CLASS_LINES = {
-  full_time: "Your time off follows the rules for full-time staff.",
-  part_time: "Your time off follows the rules for part-time staff.",
-  supplemental: "Your time off follows the rules for supplemental staff.",
-  union: "Your time off follows the rules for staff at a union site.",
-  none: "Your employment class is not on file. The office has to set it.",
-};
-const leaveClassOf = (d) => { const c = d && plainOf(d.person) ? d.person.leaveClass : null; return typeof c === "string" && Object.prototype.hasOwnProperty.call(LEAVE_CLASS_LINES, c) ? c : null; };
+// Part 418 (section 6.3, ocsa-api Round 21, part 416, 4.3): the line is
+// person.leaveClassText, in the API's words and the request's language;
+// the app's own five sentences are gone, and none shows with no line.
+const leaveClassOf = (d) => (d && plainOf(d.person) ? fkText(d.person, ["leaveClassText"]) : "") || null;
 function leaveNotOfferedOf(d) {
   const groups = [];
   (d && Array.isArray(d.notOffered) ? d.notOffered : []).forEach((x) => {
@@ -5819,9 +6057,12 @@ function leaveAdpOf(d) {
   return "";
 }
 // Part 414 (section 4.5, ocsa-api part 410, 3.3): a request asked inside
-// its notice carries insideNoticeText, in the request's language; an API
-// from before it answers none, and the app's own sentence shows.
-const insideNoticeLine = (r) => fkText(r, ["insideNoticeText"]) || tr("Asked with less notice than the policy asks. The office decides it case by case.");
+// its notice carries insideNoticeText, in the request's language. Part 418
+// (section 6.1, ocsa-api Round 21, part 416): the app's own sentence is
+// gone; the line is the API's or none. The preview and the refusal of a
+// reason inside the notice carry it on their notice too.
+const insideNoticeLine = (r) => fkText(r, ["insideNoticeText"]);
+const noticeText = (n) => (n && typeof n === "object" && n.insideNotice === true ? fkText(n, ["insideNoticeText"]) : "");
 const leaveDays = (n) => (n === 1 ? tr("{n} day", { n: String(n) }) : tr("{n} days", { n: String(n) }));
 const leaveUsableLater = (b) => !!b && !!b.usableFrom && b.usableFrom > ymdLocal(todayLocal());
 // A balance's amount as the screen says it: days for a kind kept in days
@@ -6212,7 +6453,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
         if (live) setPreview({ ask: previewAsk, state: "ok", leave: d && d.leave && typeof d.leave === "object" ? d.leave : null, notice: d && d.notice && typeof d.notice === "object" ? d.notice : null });
       }).catch((err) => {
         if (!live) return;
-        if (err && (err.status === 400 || err.status === 409) && err.message) setPreview({ ask: previewAsk, state: "refused", said: tr(err.message), code: err.code || null, keys: err.body && Array.isArray(err.body.keys) ? err.body.keys : [] });
+        if (err && (err.status === 400 || err.status === 409) && err.message) setPreview({ ask: previewAsk, state: "refused", said: tr(err.message), code: err.code || null, keys: err.body && Array.isArray(err.body.keys) ? err.body.keys : [], notice: err.body && err.body.notice && typeof err.body.notice === "object" ? err.body.notice : null });
         else setPreview({ ask: previewAsk, state: err && err.status === 404 ? "none" : "failed" });
       });
     }, 400);
@@ -6234,6 +6475,9 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
   const insideNow = !!((previewRefused && insideRefusal(previewRefused.code)) || (sentNow && insideRefusal(sentNow.code)) || (previewNow && previewNow.state === "ok" && previewNow.notice && previewNow.notice.insideNotice === true));
   useEffect(() => { if (insideNow && reqDayKey) setReasonAsk(reqDayKey); }, [insideNow, reqDayKey]);
   const reasonNeeded = !!reqForm && (insideNow || reasonAsk === reqDayKey);
+  // The API's line about the notice, before the request is sent: from the
+  // preview, else from the refusal that asked for a reason.
+  const insideLine = noticeText(previewNow && previewNow.state === "ok" ? previewNow.notice : null) || noticeText(sentNow ? sentNow.notice : null) || noticeText(previewRefused ? previewRefused.notice : null);
 
   const sendRequest = async () => {
     if (reqBusy) return;
@@ -6255,7 +6499,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
     } catch (err) {
       // A refusal naming a field the form draws is said under it (part 399).
       const keys = err && err.body && Array.isArray(err.body.keys) ? err.body.keys : [];
-      if (err && err.status === 400 && fieldOf(keys, form)) setReqRefused({ ask: JSON.stringify(body), said: tr(err.message), code: err.code || null, keys: keys });
+      if (err && err.status === 400 && fieldOf(keys, form)) setReqRefused({ ask: JSON.stringify(body), said: tr(err.message), code: err.code || null, keys: keys, notice: err.body && err.body.notice && typeof err.body.notice === "object" ? err.body.notice : null });
       else setReqErr(tr(err.message));
     }
     setReqBusy(false);
@@ -6493,7 +6737,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
               kinds not offered them, each named as the API names it. */}
           {leaveMe && leaveMe.state === "ok" && (leaveMe.cls || (leaveMe.notOffered && leaveMe.notOffered.length > 0)) && (
             <div data-leave-class={leaveMe.cls || ""} style={{ marginBottom: 12 }}>
-              {leaveMe.cls && <div data-leave-class-line="1" style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{tr(LEAVE_CLASS_LINES[leaveMe.cls])}</div>}
+              {leaveMe.cls && <div data-leave-class-line="1" style={{ fontSize: 12, color: t.textSec, lineHeight: 1.45, overflowWrap: "anywhere" }}>{leaveMe.cls}</div>}
               {(leaveMe.notOffered || []).map(g => (
                 <div key={g.code + g.names.join()} data-leave-notoffered={g.code} style={{ fontSize: 12, color: t.textMut, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" }}>
                   <span>{tr("Not offered to you: {types}.", { types: g.names.join(", ") })}</span>{g.reason && <span>{" " + g.reason}</span>}
@@ -6514,7 +6758,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
                     <div style={{ fontSize: 11, color: t.textSec, marginTop: 3, overflowWrap: "anywhere" }}>{timeOffDates(r.startsOn, r.endsOn)}</div>
                     {r.partDay && r.startTime && r.endTime && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{fmtTm(r.startTime)} - {fmtTm(r.endTime)}</div>}
                     {hrs && <div style={{ fontSize: 11, color: t.textMut, marginTop: 2 }}>{hrs}</div>}
-                    {r.insideNotice === true && <div data-timeoff-inside="row" style={{ fontSize: 11, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" }}>{insideNoticeLine(r)}</div>}
+                    {r.insideNotice === true && insideNoticeLine(r) && <div data-timeoff-inside="row" style={{ fontSize: 11, color: t.textSec, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" }}>{insideNoticeLine(r)}</div>}
                   </div>
                   <span style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px", color: timeOffStatusColor(r.status, t), flexShrink: 0, fontFamily: FONT_HEAD }}>{timeOffStatusWord(r.status)}</span>
                 </div>
@@ -6700,6 +6944,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
                     </div>
                   )}
 
+                  {insideLine && <div data-timeoff-inside="form" role="status" style={{ marginBottom: 10, padding: "10px 12px", borderRadius: R.md, background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, fontSize: 13, color: t.text, lineHeight: 1.5, overflowWrap: "anywhere" }}>{insideLine}</div>}
                   <div style={{ marginBottom: 10 }}>
                     <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
                       <label style={mkLabel(t)}>{reasonNeeded ? tr("Reason") : tr("Reason (optional)")}</label>
@@ -6748,7 +6993,7 @@ function MyScheduleSection({ token, user, t, compact, showToast, getOpts, lkHasO
             </div>
             {/* Part 399 (API part 395): vacation or a personal day asked
                 inside its notice, which the office decides case by case. */}
-            {offDetail.insideNotice === true && <div data-timeoff-inside="sheet" role="status" style={{ marginBottom: 14, padding: "10px 12px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.borderSolid, fontSize: 13, color: t.text, lineHeight: 1.5, overflowWrap: "anywhere" }}>{insideNoticeLine(offDetail)}</div>}
+            {offDetail.insideNotice === true && insideNoticeLine(offDetail) && <div data-timeoff-inside="sheet" role="status" style={{ marginBottom: 14, padding: "10px 12px", borderRadius: R.md, background: t.hover, border: "1px solid " + t.borderSolid, fontSize: 13, color: t.text, lineHeight: 1.5, overflowWrap: "anywhere" }}>{insideNoticeLine(offDetail)}</div>}
             <TimeOffLeave leave={offDetail.leave} status={offDetail.status} t={t} />
 
             <div style={{ marginBottom: 14 }}>
@@ -11930,7 +12175,915 @@ function TrainingCertificate({ token, item, onSent, t }) {
   );
 }
 
-function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
+// ------------------------------------------------------------
+// Courses (part 418, section 1; ocsa-api Round 20, part 415, #170).
+// GET /api/training/courses answers the person's courses, each a set of
+// chapters (training topics) in order, with every chapter's status as
+// the training gaps read it: done when current or dueSoon. My Training
+// draws them above what it drew before: a required chapter still due,
+// Pick up where you left off, Your courses (a promoted course not yet
+// complete first, marked New), and My certificates. A course page lists
+// the chapters, done ones with Watch again (their published version from
+// GET /api/training/courses/library), the next with Continue or Start,
+// and the rest numbered, with a button at the bottom for the next. Names
+// are drawn exactly as the API stores them. An API without the route
+// answers no list, and My Training stays as it was.
+// ------------------------------------------------------------
+const CHAPTER_STATUSES = ["missing", "expired", "refresherDue", "dueSoon", "current", "inProgress", "awaitingTrainer"];
+const CHAPTER_DUE = ["missing", "expired", "refresherDue", "dueSoon"];
+function courseChapterOf(x, i) {
+  if (!x || typeof x !== "object") return null;
+  const topicId = trainingId(x, ["topicId"]);
+  const name = typeof x.name === "string" ? x.name.trim() : "";
+  if (!topicId || !name) return null;
+  const str = (k, o) => { const v = (o || x)[k]; return typeof v === "string" ? v.trim() : ""; };
+  const l = x.lesson && typeof x.lesson === "object" ? x.lesson : null;
+  const v = x.version && typeof x.version === "object" ? x.version : null;
+  const left = l ? trainingNum(l.attemptsLeft) : null;
+  return {
+    topicId: topicId, key: str("key"), name: name, n: i + 1,
+    status: CHAPTER_STATUSES.indexOf(x.status) !== -1 ? x.status : "missing",
+    done: x.done === true, required: x.required === true,
+    completedDate: str("completedDate"), expiresOn: str("expiresOn"), recordId: trainingId(x, ["recordId"]), attemptId: trainingId(x, ["attemptId"]),
+    // attemptsLeft null is a lesson with no limit, as a player always is.
+    lesson: l && trainingId(l, ["versionId"]) ? { versionId: trainingId(l, ["versionId"]), kind: ["player", "quiz", "observation"].indexOf(l.kind) !== -1 ? l.kind : "", attemptsUsed: Math.max(0, trainingNum(l.attemptsUsed) || 0), attemptsLeft: left === null ? null : Math.max(0, left) } : null,
+    // The library's published version (section 1.3), or null.
+    version: v && trainingId(v, ["id"]) ? { id: trainingId(v, ["id"]), kind: v.kind === "player" || v.kind === "quiz" ? v.kind : "", title: str("title", v), screens: Math.max(0, trainingNum(v.screens) || 0), checks: Math.max(0, trainingNum(v.checks) || 0) } : null,
+  };
+}
+function courseOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = trainingId(x, ["id"]);
+  const name = typeof x.name === "string" ? x.name.trim() : "";
+  if (!id || !name) return null;
+  const chapters = (Array.isArray(x.chapters) ? x.chapters : []).map(courseChapterOf).filter(Boolean).map((c, i) => ({ ...c, n: i + 1 }));
+  const total = trainingNum(x.chaptersTotal), done = trainingNum(x.chaptersDone);
+  return {
+    id: id, key: trainingId(x, ["key"]), name: name, summary: typeof x.summary === "string" ? x.summary.trim() : "",
+    certificate: x.certificate === true, promoted: x.promoted === true,
+    status: x.status === "complete" || x.status === "inProgress" ? x.status : "notStarted",
+    chaptersTotal: total === null ? chapters.length : Math.max(0, total), chaptersDone: done === null ? chapters.filter(c => c.done).length : Math.max(0, done),
+    certificateId: trainingId(x, ["certificateId"]), certificateNumber: typeof x.certificateNumber === "string" ? x.certificateNumber : "",
+    chapters: chapters,
+  };
+}
+const coursesOf = (d) => { const rows = wsRows(d, "courses"); return rows && !Array.isArray(d) ? rows.map(courseOf).filter(Boolean) : null; };
+async function readCourses(token) {
+  try { return coursesOf(await api("/api/training/courses", { token })); } catch (e) { return null; }
+}
+// A course certificate as GET /api/training/certificates/mine answers
+// it (section 3), newest first. mailStatus null is a mail still going.
+const CERT_MAIL = ["sent", "failed", "no_email"];
+function courseCertificateOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const id = trainingId(x, ["id"]);
+  if (!id) return null;
+  const str = (k) => (typeof x[k] === "string" ? x[k].trim() : "");
+  return { id: id, number: str("number"), courseId: trainingId(x, ["courseId"]), courseKey: str("courseKey"), courseName: str("courseName"), completedOn: str("completedOn").slice(0, 10), locale: str("locale"), filed: x.filed === true, mailStatus: CERT_MAIL.indexOf(x.mailStatus) !== -1 ? x.mailStatus : null, mailedAt: str("mailedAt"), createdAt: str("createdAt"), isTest: x.isTest === true };
+}
+const courseCertificatesOf = (d) => { const rows = wsRows(d, "certificates"); return rows && !Array.isArray(d) ? rows.map(courseCertificateOf).filter(Boolean) : null; };
+async function readMyCertificates(token) {
+  try { return courseCertificatesOf(await api("/api/training/certificates/mine", { token })); } catch (e) { return null; }
+}
+// The chapter a course goes on with: the first not done.
+const courseNext = (c) => (c ? c.chapters.find(x => !x.done) || null : null);
+// Whether a chapter can be taken here: a player or a quiz with a try
+// left, not done and not waiting for a trainer. A watched checklist is
+// the trainer's to run.
+const chapterTakeable = (ch) => !!ch && !!ch.lesson && (ch.lesson.kind === "player" || ch.lesson.kind === "quiz") && !ch.done && ch.status !== "awaitingTrainer" && (ch.lesson.attemptsLeft === null || ch.lesson.attemptsLeft > 0);
+// A chapter's state in plain words, from the API's status.
+function chapterDueWords(ch) {
+  if (ch.status === "missing") return tr("Not done yet");
+  if (ch.status === "expired") return ch.expiresOn ? tr("Expired {date}", { date: trainingDay(ch.expiresOn) }) : tr("Expired");
+  if (ch.status === "refresherDue") return tr("Refresher due");
+  if (ch.status === "dueSoon") return ch.expiresOn ? tr("Expires {date}", { date: trainingDay(ch.expiresOn) }) : tr("Expires soon");
+  if (ch.status === "inProgress") return tr("In progress");
+  if (ch.status === "awaitingTrainer") return tr("Waiting for your trainer. Show them you can do it, and they sign it off.");
+  return ch.completedDate ? tr("Done {date}", { date: trainingDay(ch.completedDate) }) : tr("Done");
+}
+const chaptersDoneWords = (done, total) => (total === 1 ? tr("{done} of 1 chapter done", { done: done }) : tr("{done} of {total} chapters done", { done: done, total: total }));
+// A course's ring: the share of chapters done, gold, and green with Done
+// once every chapter is.
+function CourseRing({ done, total, size, label, t }) {
+  const sz = size || 52;
+  const all = total > 0 && done >= total;
+  const pct = total > 0 ? Math.min(1, done / total) : 0;
+  const r = sz / 2 - 4, c = 2 * Math.PI * r;
+  return (
+    <div role="img" aria-label={all ? tr("Done") : chaptersDoneWords(done, total)} data-course-ring={done + "/" + total} style={{ position: "relative", width: sz, height: sz, flexShrink: 0 }}>
+      <svg width={sz} height={sz} viewBox={"0 0 " + sz + " " + sz} aria-hidden="true" style={{ display: "block", transform: "rotate(-90deg)" }}>
+        <circle cx={sz / 2} cy={sz / 2} r={r} fill="none" stroke={t.border} strokeWidth="5" />
+        <circle cx={sz / 2} cy={sz / 2} r={r} fill="none" stroke={all ? GREEN : GOLD} strokeWidth="5" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - (all ? 1 : pct))} />
+      </svg>
+      <div aria-hidden="true" style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: sz < 48 ? 10 : 12, fontWeight: 700, color: all ? ink(t, GREEN) : t.text, fontFamily: FONT_HEAD, fontVariantNumeric: "tabular-nums" }}>{label || (all ? tr("Done") : Math.round(pct * 100) + "%")}</div>
+    </div>
+  );
+}
+// The play mark on a gold disc, the check on a green one, and a number in
+// a ring: how a chapter row starts.
+const PlayIco = (p) => <Ico d="M7 4l13 8-13 8z" {...p} />;
+function ChapterMark({ ch, next, t }) {
+  const disc = { width: 34, height: 34, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" };
+  if (ch.done) return <span aria-hidden="true" style={{ ...disc, background: "#1E7A46" }}><CheckIco sz={16} c="#FFFFFF" /></span>;
+  if (next) return <span aria-hidden="true" style={{ ...disc, background: GOLD }}><PlayIco sz={14} c={NAVY} /></span>;
+  return <span aria-hidden="true" style={{ ...disc, border: "2px solid " + t.borderSolid, color: t.textSec, fontSize: 13, fontWeight: 700, fontFamily: FONT_HEAD }}>{ch.n}</span>;
+}
+
+// My Training's part above the older trainings (board 1).
+function CoursesPart({ courses, certs, pickup, onCourse, onChapter, onCertificates, t }) {
+  if (!courses) return null;
+  const nameSt = { fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const lineSt = { fontSize: 13, color: t.textSec, marginTop: 3, lineHeight: 1.45, overflowWrap: "anywhere" };
+  // A required chapter still due, the first the courses hold.
+  let due = null;
+  courses.some(c => c.chapters.some(ch => { if (ch.required && !ch.done && CHAPTER_DUE.indexOf(ch.status) !== -1) { due = { course: c, ch: ch }; return true; } return false; }));
+  const ordered = courses.filter(c => c.promoted && c.status !== "complete").concat(courses.filter(c => !(c.promoted && c.status !== "complete")));
+  return (
+    <div data-courses={courses.length} style={{ marginTop: 8 }}>
+      {due && (
+        <button type="button" data-course-due={due.ch.topicId} onClick={() => onCourse(due.course)} style={{ ...fkRowSt(t), width: "100%", minHeight: TAP, textAlign: "left", cursor: "pointer", display: "flex", gap: 12, alignItems: "flex-start", background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, color: t.text, fontFamily: FONT_BODY }}>
+          <ShieldIco sz={22} c={ink(t, ORANGE)} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ ...nameSt, display: "block", color: ink(t, ORANGE) }}>{tr("Required: {name}", { name: due.ch.name })}</span>
+            <span style={{ ...lineSt, display: "block" }}>{chapterDueWords(due.ch)}</span>
+          </span>
+        </button>
+      )}
+      {pickup && (
+        <div data-course-pickup={pickup.ch.topicId} style={{ ...fkRowSt(t), padding: "14px 14px", background: t.headerBg, border: "1px solid " + t.goldBorder }}>
+          <div style={{ ...mkLabel(t), color: GOLD }}>{tr("Pick up where you left off")}</div>
+          <div style={{ ...nameSt, fontSize: 18, color: "#FFFFFF" }}>{pickup.ch.name}</div>
+          <div style={{ ...lineSt, color: "rgba(255,255,255,0.82)" }}>{tr("{course}, chapter {n} of {total}", { course: pickup.course.name, n: pickup.ch.n, total: pickup.course.chapters.length })}</div>
+          {pickup.share !== null && <div role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pickup.share * 100)} data-course-pickup-bar={Math.round(pickup.share * 100)} style={{ height: 6, borderRadius: R.pill, background: "rgba(255,255,255,0.2)", marginTop: 12, overflow: "hidden" }}><div style={{ width: Math.round(pickup.share * 100) + "%", height: "100%", background: GOLD }} /></div>}
+          <button type="button" data-course-pickup-go={pickup.ch.topicId} onClick={() => onChapter(pickup.course, pickup.ch)} style={{ display: "flex", alignItems: "center", gap: 8, minHeight: TAP, marginTop: 8, padding: 0, background: "none", border: "none", color: "#FFFFFF", fontSize: 15, fontWeight: 600, fontFamily: FONT_HEAD, cursor: "pointer" }}><PlayIco sz={14} c={GOLD} />{tr("Keep going")}</button>
+        </div>
+      )}
+      <div role="heading" aria-level={3} data-training-group="courses" style={fkHeadSt(t)}>{tr("Your courses")}</div>
+      {ordered.map(c => {
+        const isNew = c.promoted && c.status !== "complete";
+        return (
+          <button key={c.id} type="button" data-course={c.id} data-course-new={isNew ? "1" : "0"} onClick={() => onCourse(c)} style={{ ...fkRowSt(t), width: "100%", minHeight: TAP, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, color: t.text, fontFamily: FONT_BODY, border: "1px solid " + (isNew ? t.goldBorder : t.borderSolid) }}>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              {isNew && <span data-course-new-mark="1" style={{ display: "inline-block", marginBottom: 4, padding: "2px 8px", borderRadius: R.pill, background: GOLD, color: NAVY, fontSize: 10, fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", fontFamily: FONT_HEAD }}>{tr("New")}</span>}
+              <span style={{ ...nameSt, display: "block" }}>{c.name}</span>
+              <span style={{ ...lineSt, display: "block" }}>{chaptersDoneWords(c.chaptersDone, c.chaptersTotal)}</span>
+            </span>
+            <CourseRing done={c.chaptersDone} total={c.chaptersTotal} t={t} />
+          </button>
+        );
+      })}
+      {Array.isArray(certs) && onCertificates && (
+        <button type="button" data-certificates-open={certs.length} onClick={onCertificates} style={{ ...fkRowSt(t), width: "100%", minHeight: TAP, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, color: t.text, fontFamily: FONT_BODY, background: "transparent", boxShadow: "none" }}>
+          <AwardIco sz={20} c={t.goldText} style={{ flexShrink: 0 }} />
+          <span style={{ ...nameSt, flex: 1, minWidth: 0, color: t.goldText }}>{tr("My certificates ({n})", { n: certs.length })}</span>
+          <ChevIco sz={16} c={t.textMut} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+// A course page (board 2). The course is read again as it opens, and the
+// library beside it for Watch again; either failing keeps what the list
+// held. wide (the training site on a computer, section 5) puts the
+// player on the right of the chapters.
+function CoursePage({ token, course: first, onBack, onPlay, onCertificate, playing, reread, wide, t }) {
+  const [course, setCourse] = useState(first);
+  const [versions, setVersions] = useState({});
+  const [fault, setFault] = useState(null);
+  useEffect(() => {
+    let on = true;
+    api("/api/training/courses/" + encodeURIComponent(first.id), { token }).then(d => { const c = courseOf(d && d.course); if (on && c) { setCourse(c); setFault(null); } }).catch(err => { if (on) setFault(fkFaultWords(err, "This course did not load.")); });
+    api("/api/training/courses/library", { token }).then(d => {
+      const c = (coursesOf(d) || []).find(x => x.id === first.id);
+      if (!on || !c) return;
+      const m = {};
+      c.chapters.forEach(ch => { if (ch.version) m[ch.topicId] = ch.version; });
+      setVersions(m);
+    }).catch(() => {});
+    return () => { on = false; };
+  }, [first.id, reread]);
+  const next = courseNext(course);
+  const nameSt = { fontSize: 15, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" };
+  const lineSt = { fontSize: 13, color: t.textSec, marginTop: 3, lineHeight: 1.45, overflowWrap: "anywhere" };
+  const playable = (ch) => chapterTakeable(ch);
+  const watchable = (ch) => ch.done && versions[ch.topicId] && versions[ch.topicId].kind === "player";
+  const go = (ch) => { unlockVoice(); if (playable(ch)) onPlay(course, ch, false); else if (watchable(ch)) onPlay(course, { ...ch, version: versions[ch.topicId] }, true); };
+  const chapterRow = (ch) => {
+    const isNext = !!next && next.topicId === ch.topicId;
+    const on = playing && playing.topicId === ch.topicId;
+    const word = ch.done ? (watchable(ch) ? tr("Watch again") : "") : playable(ch) ? (ch.status === "inProgress" || ch.attemptId ? tr("Continue") : tr("Begin")) : "";
+    const tappable = playable(ch) || watchable(ch);
+    const body = (
+      <>
+        <ChapterMark ch={ch} next={isNext} t={t} />
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ ...nameSt, display: "block" }}>{ch.name}</span>
+          {ch.required && !ch.done && <span data-chapter-required={ch.status} style={{ ...lineSt, display: "block", fontWeight: 600, color: ch.status === "awaitingTrainer" ? ink(t, BLUE) : CHAPTER_DUE.indexOf(ch.status) !== -1 ? wsLateInk(t) : t.textSec }}>{tr("Required")}. {chapterDueWords(ch)}</span>}
+          {!ch.required && ch.status === "awaitingTrainer" && <span style={{ ...lineSt, display: "block", color: ink(t, BLUE) }}>{chapterDueWords(ch)}</span>}
+          {!ch.done && !playable(ch) && ch.status !== "awaitingTrainer" && <span data-training-trainer="1" style={{ ...lineSt, display: "block" }}>{tr("Your trainer goes over this one with you.")}</span>}
+        </span>
+        {word && <span style={{ flexShrink: 0, fontSize: 13, fontWeight: 600, color: ch.done ? ink(t, GREEN) : t.goldText, fontFamily: FONT_HEAD }}>{word}</span>}
+      </>
+    );
+    const st = { ...fkRowSt(t), width: "100%", minHeight: TAP, textAlign: "left", display: "flex", alignItems: "center", gap: 12, color: t.text, fontFamily: FONT_BODY, border: (isNext || on ? "2px solid " + GOLD : "1px solid " + t.borderSolid), background: on ? t.goldBg : t.card };
+    return tappable
+      ? <button key={ch.topicId} type="button" data-chapter={ch.topicId} data-chapter-state={ch.done ? "done" : isNext ? "next" : "later"} data-chapter-action={ch.done ? "watch" : "take"} aria-current={on ? "step" : undefined} onClick={() => go(ch)} style={{ ...st, cursor: "pointer" }}>{body}</button>
+      : <div key={ch.topicId} data-chapter={ch.topicId} data-chapter-state={ch.done ? "done" : isNext ? "next" : "later"} style={st}>{body}</div>;
+  };
+  const headPart = (
+    <div>
+      <WsBack label={tr("My training")} onBack={onBack} t={t} />
+      <div role="heading" aria-level={2} data-course-title={course.id} style={{ fontSize: 20, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{course.name}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10 }}>
+        <CourseRing done={course.chaptersDone} total={course.chaptersTotal} size={56} label={course.chaptersDone + "/" + course.chaptersTotal} t={t} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {course.summary && <div data-course-summary="1" style={{ ...lineSt, marginTop: 0, fontSize: 14, color: t.text }}>{course.summary}</div>}
+          <div style={lineSt}>{chaptersDoneWords(course.chaptersDone, course.chaptersTotal)}</div>
+          {course.certificate && course.status !== "complete" && <div data-course-certificate-line="1" style={{ ...lineSt, color: t.goldText, fontWeight: 600 }}>{course.chaptersTotal === 1 ? tr("You get a certificate when you finish it.") : tr("You get a certificate when you finish all {n}.", { n: course.chaptersTotal })}</div>}
+        </div>
+      </div>
+      {course.certificate && course.status === "complete" && course.certificateId && (
+        <button type="button" data-course-certificate={course.certificateId} onClick={() => onCertificate(course.certificateId)} style={{ ...fkRowSt(t), width: "100%", minHeight: TAP, marginTop: 12, display: "flex", alignItems: "center", gap: 10, cursor: "pointer", color: t.text, fontFamily: FONT_BODY, textAlign: "left", background: t.greenSubtle, border: "1px solid " + t.greenBorder }}>
+          <AwardIco sz={20} c={ink(t, GREEN)} style={{ flexShrink: 0 }} /><span style={{ ...nameSt, flex: 1, minWidth: 0 }}>{tr("Open my certificate")}</span><ChevIco sz={16} c={t.textMut} />
+        </button>
+      )}
+      {fault && <WsFault text={fault} t={t} />}
+    </div>
+  );
+  const list = <div data-course-chapters={course.chapters.length} style={{ marginTop: 14 }}>{course.chapters.map(chapterRow)}</div>;
+  const stickyNext = next && playable(next) && !playing && (
+    <div style={{ position: "sticky", bottom: "calc(var(--ocsa-bar, 76px) + 8px)", marginTop: 12, zIndex: 2 }}>
+      <button type="button" data-course-next={next.topicId} onClick={() => go(next)} style={{ ...trainingGoldBtn, width: "100%", minHeight: 52, fontSize: 16, gap: 10 }}><PlayIco sz={14} c={NAVY} /><span style={{ overflowWrap: "anywhere" }}>{next.status === "inProgress" || next.attemptId ? tr("Continue: {name}", { name: next.name }) : tr("Start: {name}", { name: next.name })}</span></button>
+    </div>
+  );
+  if (wide) {
+    const panel = playing ? playing.node : (
+      <div data-course-panel="1" style={{ ...fkRowSt(t), padding: "28px 24px", borderRadius: R.lg, textAlign: "center" }}>
+        {next && playable(next) ? (
+          <div>
+            <div style={mkLabel(t)}>{tr("Up next")}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{next.name}</div>
+            <button type="button" data-course-next={next.topicId} onClick={() => go(next)} style={{ ...trainingGoldBtn, minHeight: 52, fontSize: 16, gap: 10, margin: "18px auto 0" }}><PlayIco sz={14} c={NAVY} />{next.status === "inProgress" || next.attemptId ? tr("Continue: {name}", { name: next.name }) : tr("Start: {name}", { name: next.name })}</button>
+          </div>
+        ) : <div style={{ fontSize: 16, color: t.textSec }}>{course.status === "complete" ? tr("You finished every chapter.") : tr("Your trainer goes over this one with you.")}</div>}
+      </div>
+    );
+    return (
+      <div data-course-page={course.id} data-course-wide="1" style={{ padding: "20px 24px 40px", display: "grid", gridTemplateColumns: "minmax(260px, 340px) minmax(0, 1fr)", gap: 24, alignItems: "start" }}>
+        <div style={{ ...fkRowSt(t), padding: "16px 16px 8px", borderRadius: R.lg }}>{headPart}{list}</div>
+        <div data-course-player-side="1" style={{ minWidth: 0, background: t.card, borderRadius: R.lg, border: "1px solid " + t.border }}>{panel}</div>
+      </div>
+    );
+  }
+  if (playing) return playing.node;
+  return (
+    <div data-course-page={course.id} style={{ padding: "14px 16px 100px" }}>
+      {headPart}
+      {list}
+      {stickyNext}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Certificates (part 418, section 3; ocsa-api Round 20, part 415, #170).
+// A course with a certificate ends in one, filed in the person's HR file
+// and emailed to them (mailStatus: sent, failed, no_email, or null while
+// the mail is still going). Its PDF, GET
+// /api/training/certificates/:id/pdf, opens the way the app opens every
+// PDF on a phone, which also prints or shares it. A mail that did not go
+// is sent again with POST .../resend; 409 training.certificateSending is
+// said in the API's words. My certificates lists GET
+// /api/training/certificates/mine, newest first, and the bell's
+// training_certificate opens it on that certificate.
+// ------------------------------------------------------------
+const certPdfPath = (id) => "/api/training/certificates/" + encodeURIComponent(id) + "/pdf";
+function CertificateCard({ token, cert: first, big, focus, t }) {
+  const [cert, setCert] = useState(first);
+  const [busy, setBusy] = useState(false);
+  const [fault, setFault] = useState(null);
+  const box = useRef(null);
+  useEffect(() => { setCert(first); }, [first]);
+  useEffect(() => { if (focus && box.current) { try { box.current.scrollIntoView({ block: "center" }); } catch (e) {} } }, [focus]);
+  // Opened straight from the tap, as every PDF here is.
+  const open = async () => {
+    setFault(null);
+    try { await openApiPdf(certPdfPath(cert.id), "certificate-" + (cert.number || cert.id) + ".pdf", token); }
+    catch (err) { setFault(fkFaultWords(err, "Your certificate did not open. Try again.")); }
+  };
+  const resend = async () => {
+    if (busy) return;
+    setBusy(true); setFault(null);
+    try {
+      const d = await api("/api/training/certificates/" + encodeURIComponent(cert.id) + "/resend", { method: "POST", body: {}, token });
+      const got = courseCertificateOf(d && d.certificate);
+      setCert(prev => ({ ...(got || prev), mailStatus: d && CERT_MAIL.indexOf(d.mailStatus) !== -1 ? d.mailStatus : (got ? got.mailStatus : prev.mailStatus) }));
+    } catch (err) { setFault(fkFaultWords(err, "Your copy was not sent. Try again.")); }
+    finally { setBusy(false); }
+  };
+  const lost = cert.mailStatus === "failed" || cert.mailStatus === "no_email";
+  const lineSt = { display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 600, lineHeight: 1.4, overflowWrap: "anywhere" };
+  return (
+    <div ref={box} data-cert={cert.id} data-cert-mail={cert.mailStatus || "sending"} data-cert-focus={focus ? "1" : "0"} style={{ ...fkRowSt(t), padding: big ? "16px 14px" : "12px 12px", border: focus ? "2px solid " + GOLD : "1px solid " + t.borderSolid }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+        <span aria-hidden="true" style={{ width: 40, height: 40, flexShrink: 0, borderRadius: "50%", background: t.goldBg, border: "1px solid " + t.goldBorder, display: "flex", alignItems: "center", justifyContent: "center" }}><AwardIco sz={20} c={t.goldText} /></span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: big ? 17 : 15, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{cert.courseName}</div>
+          {cert.number && <div data-cert-number="1" style={{ fontSize: 13, color: t.textSec, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{cert.number}</div>}
+          {cert.completedOn && <div style={{ fontSize: 13, color: t.textSec, marginTop: 2 }}>{tr("Finished {date}", { date: trainingDay(cert.completedOn) })}</div>}
+        </div>
+      </div>
+      <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: R.md, background: lost ? t.orangeSubtle : t.greenSubtle, border: "1px solid " + (lost ? t.orangeBorder : t.greenBorder), display: "flex", flexDirection: "column", gap: 6 }}>
+        {cert.filed && <div data-cert-filed="1" style={{ ...lineSt, color: ink(t, GREEN) }}><CheckIco sz={16} c={ink(t, GREEN)} />{tr("Saved to your HR file")}</div>}
+        {cert.mailStatus === "sent" && <div data-cert-mail-line="sent" style={{ ...lineSt, color: ink(t, GREEN) }}><CheckIco sz={16} c={ink(t, GREEN)} />{tr("We emailed you a copy")}</div>}
+        {!cert.mailStatus && <div data-cert-mail-line="sending" style={{ ...lineSt, color: t.textSec }}>{tr("We are emailing you a copy.")}</div>}
+        {lost && <div data-cert-mail-line={cert.mailStatus} style={{ ...lineSt, color: ink(t, ORANGE) }}><AlertIco sz={16} c={ink(t, ORANGE)} />{tr("We could not email it")}</div>}
+        {lost && <button type="button" data-cert-resend={cert.id} disabled={busy} onClick={resend} style={{ ...wsPlainBtn(t), flex: "none", alignSelf: "flex-start", minHeight: TAP }}>{busy ? tr("Sending...") : tr("Send it again")}</button>}
+      </div>
+      {fault && <WsFault text={fault} t={t} />}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+        <button type="button" data-cert-open={cert.id} onClick={open} style={{ ...wsMainBtn(t, false), display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><AwardIco sz={16} c={NAVY} />{tr("Open my certificate")}</button>
+        {big && <button type="button" data-cert-print={cert.id} onClick={open} style={{ ...wsPlainBtn(t), display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>{tr("Print or share")}</button>}
+      </div>
+    </div>
+  );
+}
+// Course done (board 7): the course's certificate, read from
+// GET /api/training/certificates/mine, and read again a few times while
+// it is still being made or mailed.
+const CERT_WAIT_MS = 3000, CERT_WAIT_TRIES = 5;
+function CourseDone({ token, course, onBack, t }) {
+  const [cert, setCert] = useState(null);
+  const [tries, setTries] = useState(0);
+  useEffect(() => {
+    let on = true, timer = null;
+    readMyCertificates(token).then(list => {
+      if (!on) return;
+      const mine = (list || []).find(x => x.courseId === course.id) || null;
+      if (mine) setCert(mine);
+      if ((!mine || !mine.mailStatus) && tries < CERT_WAIT_TRIES) timer = setTimeout(() => { if (on) setTries(n => n + 1); }, CERT_WAIT_MS);
+    });
+    return () => { on = false; if (timer) clearTimeout(timer); };
+  }, [tries]);
+  return (
+    <div data-course-done={course.id} style={{ padding: "14px 16px 24px" }}>
+      <div style={{ textAlign: "center", padding: "12px 8px 4px" }}>
+        <div role="heading" aria-level={1} style={{ fontSize: 28, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{tr("You did it!")}</div>
+        <div style={{ fontSize: 16, color: t.textSec, marginTop: 6, lineHeight: 1.5, overflowWrap: "anywhere" }}>{tr("You finished {name}. Here is your certificate.", { name: course.name })}</div>
+      </div>
+      <div style={{ marginTop: 14 }}>
+        {cert ? <CertificateCard token={token} cert={cert} big t={t} /> : <div data-cert-waiting="1" style={{ ...wsQuiet(t), marginTop: 8 }}>{tr("Your certificate is being made.")}</div>}
+      </div>
+      {onBack && <div style={{ marginTop: 12 }}><button type="button" data-course-done-back="1" onClick={onBack} style={{ ...wsPlainBtn(t), width: "100%", minHeight: 52 }}>{tr("Back to the course")}</button></div>}
+    </div>
+  );
+}
+// My certificates: every course certificate of the person, newest first,
+// one of them in focus when the bell opened it.
+function CertificatesPage({ token, focus, onBack, t }) {
+  const [list, setList] = useState(null);
+  const [fault, setFault] = useState(false);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    let on = true;
+    readMyCertificates(token).then(l => { if (!on) return; if (l) { setList(l); setFault(false); } else setFault(true); });
+    return () => { on = false; };
+  }, [asked]);
+  return (
+    <div data-certificates={list ? list.length : "waiting"} style={{ padding: "14px 16px 100px" }}>
+      <WsBack label={tr("My training")} onBack={onBack} t={t} />
+      <div role="heading" aria-level={2} style={{ fontSize: 18, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, marginBottom: 10 }}>{tr("My certificates")}</div>
+      {fault && <ListFault icon={AwardIco} text={tr("This list did not load.")} onRetry={() => setAsked(n => n + 1)} t={t} />}
+      {!list && !fault && <div style={wsQuiet(t)}>{tr("Loading...")}</div>}
+      {list && list.length === 0 && <div data-certificates-none="1" style={wsQuiet(t)}>{tr("No certificates yet. Finish a course to earn one.")}</div>}
+      {list && list.map(c => <CertificateCard key={c.id} token={token} cert={c} focus={focus === c.id} t={t} />)}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// The player (part 418, section 2; ocsa-api Round 20, part 415, #170).
+// A player lesson is short screens, each a picture, a video or nothing
+// with its words in big type, read aloud by its voice (audio.url) where
+// it has one, and simple checks after the screens they test. A wrong
+// answer is never final: the screens it names are watched again and the
+// question tried again, as many times as needed, and no score is ever
+// shown. The last right answer passes the lesson, which is signed as a
+// quiz is, and the chapter is done. GET
+// /api/training/lesson-versions/:id reads the lesson; POST
+// /api/training/attempts starts or resumes the attempt (the same one on
+// any device) at progress.nextScreen, else nextCheck; watched screens go
+// to POST .../progress at most every few seconds and on leaving. A
+// review (watching again, or the setup page signed out) writes nothing
+// and its checks are tried through the review route.
+// ------------------------------------------------------------
+const playerPicture = (v) => (typeof v === "string" && /^(https:\/\/|data:image\/)/i.test(v.trim()) ? v.trim() : "");
+const playerHttps = (v) => (typeof v === "string" && /^https:\/\//i.test(v.trim()) ? v.trim() : "");
+function playerLessonOf(d) {
+  const l = d && typeof d === "object" && d.lesson && typeof d.lesson === "object" ? d.lesson : null;
+  if (!l || l.kind !== "player") return null;
+  const str = (v) => (typeof v === "string" ? v.trim() : "");
+  const locale = str(l.locale) || "en";
+  const locales = (Array.isArray(l.locales) ? l.locales : []).filter(x => typeof x === "string" && Object.prototype.hasOwnProperty.call(LANGUAGE_NAMES, x));
+  const screens = (Array.isArray(l.screens) ? l.screens : []).map((s) => {
+    if (!s || typeof s !== "object" || !trainingId(s, ["key"])) return null;
+    const m = s.media && typeof s.media === "object" ? s.media : {};
+    const media = m.kind === "image" && playerPicture(m.src) ? { kind: "image", src: playerPicture(m.src) } : m.kind === "video" && playerHttps(m.src) ? { kind: "video", src: playerHttps(m.src), poster: playerPicture(m.poster) } : { kind: "none" };
+    return { key: trainingId(s, ["key"]), media: media, say: str(s.say), caption: str(s.caption), audio: s.audio && typeof s.audio === "object" ? playerHttps(s.audio.url) : "" };
+  }).filter(Boolean);
+  const checks = (Array.isArray(l.checks) ? l.checks : []).map((c) => {
+    if (!c || typeof c !== "object" || !trainingId(c, ["key"])) return null;
+    const base = { key: trainingId(c, ["key"]), after: trainingId(c, ["after"]), kind: c.kind, prompt: str(c.prompt) };
+    if (c.kind === "choice") { const options = (Array.isArray(c.options) ? c.options : []).map(o => (o && o.value !== undefined && o.value !== null && str(o.text) ? { value: String(o.value), text: str(o.text) } : null)).filter(Boolean); return options.length >= 2 ? { ...base, options: options } : null; }
+    if (c.kind === "picture") { const options = (Array.isArray(c.options) ? c.options : []).map(o => (o && o.value !== undefined && o.value !== null && playerPicture(o.src) ? { value: String(o.value), src: playerPicture(o.src), alt: str(o.alt) } : null)).filter(Boolean); return options.length >= 2 ? { ...base, options: options } : null; }
+    if (c.kind === "tap") { const src = c.image && typeof c.image === "object" ? playerPicture(c.image.src) : ""; return src ? { ...base, image: src } : null; }
+    return null;
+  }).filter(Boolean);
+  if (screens.length === 0) return null;
+  return { versionId: trainingId(l, ["versionId"]), topicId: trainingId(l, ["topicId"]), title: str(l.title), locale: locale, locales: locales.length > 0 ? locales : [locale], review: l.review === true, acknowledgement: str(l.acknowledgement), needsTrainer: l.needsTrainer === true, screens: screens, checks: checks };
+}
+// The order a lesson plays in: each screen, then the checks after it; a
+// check naming no screen goes last.
+function playerSteps(les) {
+  const out = [];
+  let q = 0;
+  les.screens.forEach((s, i) => {
+    out.push({ kind: "screen", key: s.key, n: i + 1 });
+    les.checks.forEach((c) => { if (c.after === s.key) { q += 1; out.push({ kind: "check", key: c.key, n: q }); } });
+  });
+  les.checks.forEach((c) => { if (!les.screens.some(s => s.key === c.after)) { q += 1; out.push({ kind: "check", key: c.key, n: q }); } });
+  return out;
+}
+// An attempt's progress as the API answers it on a player (null on any
+// other kind).
+function playerProgressOf(a) {
+  const p = a && a.progress && typeof a.progress === "object" ? a.progress : null;
+  if (!p) return null;
+  const keys = (v) => (Array.isArray(v) ? v.map(String) : []);
+  return { watched: keys(p.watched), right: keys(p.right), nextScreen: typeof p.nextScreen === "string" ? p.nextScreen : "", nextCheck: typeof p.nextCheck === "string" ? p.nextCheck : "" };
+}
+const playerAttemptOf = (x) => { const a = trainingAttemptOf(x); return a ? { ...a, progress: playerProgressOf(x) } : null; };
+// The voice. One audio element for every screen, so a phone that lets
+// sound play only from a tap lets it play once a tap has started it:
+// every tap that leads into the player starts it on a silent sound.
+const PLAYER_SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+let playerVoiceEl = null;
+const playerVoice = () => { if (!playerVoiceEl) { try { if (typeof Audio === "function") { playerVoiceEl = new Audio(); playerVoiceEl.preload = "auto"; } } catch (e) { playerVoiceEl = null; } } return playerVoiceEl; };
+function unlockVoice() {
+  const a = playerVoice();
+  if (!a || a.dataset.ocsaUnlocked) return;
+  try { a.dataset.ocsaUnlocked = "1"; if (!a.getAttribute("src")) a.src = PLAYER_SILENT; const p = a.play(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+}
+const playerSpeakLang = (locale) => (locale === "es" ? "es-US" : locale === "fr" ? "fr-FR" : "en-US");
+// The device's own speech, for a question's words and a picture's alt
+// text: nothing is asked of the API.
+function speakWords(text, locale) {
+  try {
+    if (!text || !window.speechSynthesis || typeof window.SpeechSynthesisUtterance !== "function") return false;
+    window.speechSynthesis.cancel();
+    const u = new window.SpeechSynthesisUtterance(text);
+    u.lang = playerSpeakLang(locale);
+    window.speechSynthesis.speak(u);
+    return true;
+  } catch (e) { return false; }
+}
+const canSpeak = () => { try { return !!window.speechSynthesis && typeof window.SpeechSynthesisUtterance === "function"; } catch (e) { return false; } };
+const PauseIco = (p) => <Ico d="M7 4h4v16H7zM13 4h4v16h-4z" {...p} />;
+const ReplayIco = (p) => <Ico d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5" {...p} />;
+const SpeakerIco = (p) => <Ico d="M11 5L6 9H3v6h3l5 4V5zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" {...p} />;
+// How often watched screens are sent, at most.
+const PLAYER_PROGRESS_MS = 4000;
+
+function CoursePlayer({ token, versionId, review: askedReview, publicSetup, course, chapter, backLabel, onBack, onNext, onCourse, onSignIn, stick, t }) {
+  const [phase, setPhase] = useState("loading");
+  const [les, setLes] = useState(null);
+  const [attempt, setAttempt] = useState(null);
+  const [at, setAt] = useState(0);
+  const [picked, setPicked] = useState(null);
+  const [wrong, setWrong] = useState(null);
+  const [replay, setReplay] = useState(null);
+  const [fault, setFault] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [strokes, setStrokes] = useState([]);
+  const [png, setPng] = useState(null);
+  const [voice, setVoice] = useState("none");
+  const [broken, setBroken] = useState({});
+  const [doneCourse, setDoneCourse] = useState(null);
+  const [waiting, setWaiting] = useState(false);
+  const [asked, setAsked] = useState(0);
+  const live = useRef(true);
+  const sending = useRef(false);
+  const refreshed = useRef(false);
+  const right = useRef(new Set());
+  const pending = useRef(new Set());
+  const lastSent = useRef(0);
+  const timer = useRef(null);
+  const attemptRef = useRef(null);
+  attemptRef.current = attempt;
+  const hold = useRef(null);
+  const review = !!publicSetup || !!askedReview || !!(les && les.review);
+  const steps = les ? playerSteps(les) : [];
+  const step = replay ? { kind: "screen", key: replay.keys[replay.at], n: les ? les.screens.findIndex(s => s.key === replay.keys[replay.at]) + 1 : 0 } : steps[at] || null;
+  const screen = les && step && step.kind === "screen" ? les.screens.find(s => s.key === step.key) || null : null;
+  const check = les && step && step.kind === "check" && !replay ? les.checks.find(c => c.key === step.key) || null : null;
+  useEffect(() => () => { live.current = false; }, []);
+  useBusy("training player", phase === "sign" || busy);
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [phase, at, replay ? replay.at : -1]);
+  // The lesson, read in the language asked for, signed out for the setup
+  // page and as a review when watching again.
+  const readLesson = async (locale) => {
+    if (publicSetup) return playerLessonOf(await api("/api/public/training/setup?locale=" + encodeURIComponent(locale)));
+    return playerLessonOf(await api("/api/training/lesson-versions/" + encodeURIComponent(versionId) + "?locale=" + encodeURIComponent(locale) + (askedReview ? "&review=true" : ""), { token }));
+  };
+  // Where an attempt picks up: the first screen not watched, else the
+  // first check not answered right.
+  const startAt = (l, a) => {
+    const list = playerSteps(l);
+    const p = a ? a.progress : null;
+    if (!p) return 0;
+    const key = p.nextScreen || p.nextCheck;
+    const i = key ? list.findIndex(s => s.key === key && s.kind === (p.nextScreen ? "screen" : "check")) : -1;
+    return i === -1 ? 0 : i;
+  };
+  const standOn = (a, l) => {
+    const lesson = l || les;
+    setAttempt(a);
+    right.current = new Set(a && a.progress ? a.progress.right : []);
+    if (a && a.voidedAt) { setAsked(n => n + 1); return; }
+    if (a && a.passed === true && a.acknowledgedAt) { finished(a); return; }
+    if (a && a.passed === true) { setPhase("sign"); return; }
+    setAt(startAt(lesson, a)); setPhase("play");
+  };
+  useEffect(() => {
+    let on = true;
+    (async () => {
+      setPhase("loading"); setFault(null); setPicked(null); setWrong(null); setReplay(null); setStrokes([]); setPng(null);
+      try {
+        const want = isOffered(languageToSend()) ? languageToSend() : "en";
+        const l = await readLesson(want);
+        if (!l) throw new Error(ERR_GENERIC);
+        if (!on) return;
+        setLes(l);
+        if (publicSetup || askedReview || l.review) { setAttempt(null); right.current = new Set(); setAt(0); setPhase("play"); return; }
+        const a = playerAttemptOf((await api("/api/training/attempts", { method: "POST", body: { versionId: versionId, locale: l.locale }, token }) || {}).attempt);
+        if (!a) throw new Error(ERR_GENERIC);
+        if (on) standOn(a, l);
+      } catch (err) {
+        if (on) { setFault(fkFaultWords(err, "This lesson did not open. Try again.")); setPhase("fault"); }
+      }
+    })();
+    return () => { on = false; };
+  }, [asked]);
+  // Watched screens, sent at most every few seconds and on leaving.
+  const flush = useCallback(() => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    const a = attemptRef.current;
+    if (review || !a || pending.current.size === 0) return;
+    const list = Array.from(pending.current);
+    pending.current.clear();
+    lastSent.current = Date.now();
+    api("/api/training/attempts/" + encodeURIComponent(a.id) + "/progress", { method: "POST", body: { watched: list }, token })
+      .then(d => { const got = playerAttemptOf(d && d.attempt); if (got && live.current) setAttempt(prev => (prev && prev.id === got.id ? { ...prev, progress: got.progress } : prev)); })
+      .catch(err => { if (!(err && (err.status === 409 || err.status === 400))) list.forEach(k => pending.current.add(k)); });
+  }, [review, token]);
+  const watched = (key) => {
+    if (review || !attemptRef.current) return;
+    if (attemptRef.current.progress && attemptRef.current.progress.watched.indexOf(key) !== -1) return;
+    pending.current.add(key);
+    const wait = PLAYER_PROGRESS_MS - (Date.now() - lastSent.current);
+    if (wait <= 0) flush();
+    else if (!timer.current) timer.current = setTimeout(flush, wait);
+  };
+  useEffect(() => {
+    const hidden = () => { if (document.visibilityState === "hidden") flush(); };
+    document.addEventListener("visibilitychange", hidden);
+    window.addEventListener("pagehide", flush);
+    return () => { document.removeEventListener("visibilitychange", hidden); window.removeEventListener("pagehide", flush); flush(); };
+  }, [flush]);
+  // The voice follows the screen: it plays on its own as the screen
+  // opens, stops when the screen goes, and says so.
+  const voiceUrl = phase === "play" && screen ? screen.audio : "";
+  useEffect(() => {
+    const a = playerVoice();
+    if (!a) { setVoice("none"); return undefined; }
+    const say = () => setVoice(a.ended ? "ended" : a.paused ? "paused" : "playing");
+    const failed = () => { if (voiceUrl && a.src === voiceUrl) { setVoice("broken"); mediaFailed("voice"); } };
+    a.addEventListener("play", say); a.addEventListener("playing", say); a.addEventListener("pause", say); a.addEventListener("ended", say); a.addEventListener("error", failed);
+    if (!voiceUrl) { try { a.pause(); } catch (e) {} setVoice("none"); }
+    else {
+      try {
+        if (a.src !== voiceUrl) a.src = voiceUrl;
+        a.currentTime = 0;
+        const p = a.play();
+        setVoice("playing");
+        if (p && p.catch) p.catch(() => { if (live.current) setVoice("blocked"); });
+      } catch (e) { setVoice("blocked"); }
+    }
+    return () => { a.removeEventListener("play", say); a.removeEventListener("playing", say); a.removeEventListener("pause", say); a.removeEventListener("ended", say); a.removeEventListener("error", failed); };
+  }, [voiceUrl]);
+  useEffect(() => () => { const a = playerVoice(); if (a) { try { a.pause(); } catch (e) {} } try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {} }, []);
+  const voicePlay = () => { const a = playerVoice(); if (!a || !voiceUrl) return; try { if (a.src !== voiceUrl) a.src = voiceUrl; const p = a.play(); if (p && p.catch) p.catch(() => setVoice("blocked")); } catch (e) {} };
+  const voicePause = () => { const a = playerVoice(); if (a) { try { a.pause(); } catch (e) {} } };
+  const voiceAgain = () => { const a = playerVoice(); if (!a || !voiceUrl) return; try { if (a.src !== voiceUrl) a.src = voiceUrl; a.currentTime = 0; const p = a.play(); if (p && p.catch) p.catch(() => setVoice("blocked")); } catch (e) {} };
+  // A media link signed for twelve hours that did not load: the lesson is
+  // read again once, in the same language, and its links used; a second
+  // failure shows the words alone.
+  const mediaFailed = (what) => {
+    if (!les) return;
+    if (refreshed.current) { setBroken(prev => ({ ...prev, [what]: true })); return; }
+    refreshed.current = true;
+    readLesson(les.locale).then(l => { if (l && live.current) setLes(l); }).catch(() => { if (live.current) setBroken(prev => ({ ...prev, [what]: true })); });
+  };
+  const switchTo = async (loc) => {
+    if (busy || !les || loc === les.locale) return;
+    setBusy(true); setFault(null);
+    try { const l = await readLesson(loc); if (!l) throw new Error(ERR_GENERIC); if (live.current) setLes(l); }
+    catch (err) { if (live.current) setFault(fkFaultWords(err, "This lesson did not open. Try again.")); }
+    finally { if (live.current) setBusy(false); }
+  };
+  // The next place after the step at i: the next screen, or a check not
+  // yet answered right; past the end, the first check still to answer.
+  const goOn = (i) => {
+    let n = i + 1;
+    while (n < steps.length && steps[n].kind === "check" && !review && right.current.has(steps[n].key)) n += 1;
+    setPicked(null); setFault(null);
+    if (n < steps.length) { setAt(n); return; }
+    if (review) { setPhase("watched"); return; }
+    const open = steps.findIndex(s => s.kind === "check" && !right.current.has(s.key));
+    if (open !== -1) { setAt(open); return; }
+    if (attemptRef.current && attemptRef.current.passed) setPhase("sign");
+    else setPhase("watched");
+  };
+  const next = () => {
+    unlockVoice();
+    if (!screen) return;
+    if (replay) {
+      if (replay.at + 1 < replay.keys.length) setReplay({ ...replay, at: replay.at + 1 });
+      else { setReplay(null); setPicked(null); }
+      return;
+    }
+    watched(screen.key);
+    goOn(at);
+  };
+  const answer = async () => {
+    if (!check || picked === null || busy || sending.current) return;
+    sending.current = true; setBusy(true); setFault(null);
+    const body = check.kind === "tap" ? { x: picked.x, y: picked.y } : { value: picked };
+    try {
+      const path = publicSetup ? "/api/public/training/setup/checks/" + encodeURIComponent(check.key)
+        : review ? "/api/training/lesson-versions/" + encodeURIComponent(versionId) + "/checks/" + encodeURIComponent(check.key)
+        : "/api/training/attempts/" + encodeURIComponent(attempt.id) + "/checks/" + encodeURIComponent(check.key);
+      const d = await api(path, publicSetup ? { method: "POST", body: body } : { method: "POST", body: body, token });
+      if (!live.current) return;
+      const a = d && d.attempt ? playerAttemptOf(d.attempt) : null;
+      if (a) { setAttempt(a); attemptRef.current = a; right.current = new Set(a.progress ? a.progress.right : []); }
+      if (d && d.right === true) {
+        if (review) right.current.add(check.key);
+        if (d.passed === true && !review) { flush(); setPhase("sign"); return; }
+        goOn(at);
+        return;
+      }
+      const keys = Array.isArray(d && d.replay) ? d.replay.map(String).filter(k => les.screens.some(s => s.key === k)) : [];
+      setWrong({ check: check.key, keys: keys });
+    } catch (err) {
+      // The attempt was already finished (409 training.attemptClosed): its
+      // state as the API sends it, and the lesson moves on from it.
+      const closed = err && err.status === 409 && err.code === "training.attemptClosed" ? playerAttemptOf(err.body && err.body.attempt) : null;
+      if (closed && live.current) standOn(closed);
+      else if (live.current) setFault(fkFaultWords(err, "Your answer was not sent. Try again."));
+    } finally { sending.current = false; if (live.current) setBusy(false); }
+  };
+  // The chapter done: the course read again for n of m and what is next.
+  const finished = async (a) => {
+    setWaiting(!!(a && a.awaitingTrainer));
+    try { if (typeof navigator !== "undefined" && navigator.vibrate && !reducesMotion()) navigator.vibrate(40); } catch (e) {}
+    setPhase("done");
+    if (!course) return;
+    try {
+      const c = courseOf((await api("/api/training/courses/" + encodeURIComponent(course.id), { token }) || {}).course);
+      if (c && live.current) {
+        setDoneCourse(c);
+        if (onCourse) onCourse(c);
+        // The course finished with this chapter: its certificate (section 3).
+        if (c.status === "complete" && c.certificate) setPhase("course");
+      }
+    } catch (e) {}
+  };
+  const sign = async () => {
+    if (busy || sending.current || !attempt) return;
+    if (!png) { setFault(tr("Sign before you send.")); return; }
+    sending.current = true; setBusy(true); setFault(null);
+    try {
+      const d = await api("/api/training/attempts/" + encodeURIComponent(attempt.id) + "/acknowledge", { method: "POST", body: { signature: png }, token });
+      const a = playerAttemptOf(d && d.attempt) || attempt;
+      if (live.current) { setAttempt(a); await finished({ ...a, awaitingTrainer: a.awaitingTrainer || (!(d && d.record) && les && les.needsTrainer) }); }
+    } catch (err) {
+      if (live.current && err && err.code === "training.signatureNotStored") { setStrokes([]); setPng(null); }
+      if (live.current) setFault(fkFaultWords(err, "This was not signed. Try again."));
+    } finally { sending.current = false; if (live.current) setBusy(false); }
+  };
+  const title = les && les.title ? les.title : chapter ? chapter.name : "";
+  const bigWords = { fontSize: 22, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.4, overflowWrap: "anywhere" };
+  const lineSt = { fontSize: 15, color: t.textSec, marginTop: 6, lineHeight: 1.5, overflowWrap: "anywhere" };
+  const stickSt = { position: "sticky", bottom: stick || "calc(var(--ocsa-bar, 76px) + 8px)", zIndex: 2, marginTop: 16, paddingTop: 8, background: t.bg };
+  const bigBtn = (off) => ({ ...wsMainBtn(t, off), width: "100%", minHeight: 56, fontSize: 17, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 });
+  const roundBtn = { width: 56, height: 56, flexShrink: 0, borderRadius: R.lg, border: "1px solid " + t.borderSolid, background: t.card, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 };
+  const langSwitch = les && les.locales.length > 1 && (
+    <div role="group" aria-label={tr("Language")} data-player-languages={les.locales.join(",")} style={{ display: "inline-flex", flexShrink: 0, padding: 3, gap: 3, borderRadius: R.pill, background: t.cardAlt, border: "1px solid " + t.borderSolid }}>
+      {les.locales.map(loc => <button key={loc} type="button" aria-pressed={loc === les.locale} data-player-language={loc} disabled={busy} onClick={() => switchTo(loc)} style={{ minWidth: TAP, minHeight: 36, padding: "0 12px", borderRadius: R.pill, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: FONT_HEAD, background: loc === les.locale ? t.card : "transparent", color: loc === les.locale ? t.text : t.textSec, boxShadow: loc === les.locale ? t.shadow : "none" }}>{loc.toUpperCase()}</button>)}
+    </div>
+  );
+  const head = (
+    <div>
+      {onBack && <WsBack label={backLabel || tr("My training")} onBack={() => { flush(); onBack(); }} t={t} />}
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div role="heading" aria-level={1} data-player-title="1" style={{ flex: 1, minWidth: 0, fontSize: 18, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.3, overflowWrap: "anywhere" }}>{title}</div>
+        {langSwitch}
+      </div>
+    </div>
+  );
+  const wrap = (kind, body, extra) => <div data-player={kind} data-player-review={review ? "1" : "0"} {...(extra || {})} style={{ padding: "14px 16px 24px" }}>{body}</div>;
+  if (phase === "loading" || phase === "fault") {
+    return wrap(phase, (
+      <div>
+        {onBack && <WsBack label={backLabel || tr("My training")} onBack={onBack} t={t} />}
+        {chapter && <div role="heading" aria-level={1} style={{ fontSize: 18, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD }}>{chapter.name}</div>}
+        {phase === "loading" && <div style={{ ...wsQuiet(t), marginTop: 12 }}>{tr("Loading...")}</div>}
+        {phase === "fault" && <div style={{ marginTop: 12 }}><WsFault text={fault} t={t} /><div style={{ display: "flex", gap: 8, marginTop: 12 }}><button type="button" onClick={() => setAsked(n => n + 1)} style={wsMainBtn(t, false)}>{tr("Try again")}</button>{onBack && <button type="button" onClick={onBack} style={wsPlainBtn(t)}>{tr("Back")}</button>}</div></div>}
+      </div>
+    ));
+  }
+  // A wrong answer (board 5): never a score, never a fail.
+  if (wrong && !replay) {
+    const pics = wrong.keys.map(k => les.screens.find(s => s.key === k)).filter(Boolean);
+    return wrap("wrong", (
+      <div>
+        {head}
+        <div data-player-wrong={wrong.check} style={{ marginTop: 14, padding: "20px 16px", borderRadius: R.lg, background: t.orangeSubtle, border: "1px solid " + t.orangeBorder, textAlign: "center" }}>
+          <div aria-hidden="true" style={{ width: 52, height: 52, margin: "0 auto 10px", borderRadius: "50%", background: t.card, display: "flex", alignItems: "center", justifyContent: "center" }}><ReplayIco sz={26} c={ink(t, ORANGE)} /></div>
+          <div role="heading" aria-level={2} style={{ fontSize: 22, fontWeight: 700, color: ink(t, ORANGE), fontFamily: FONT_HEAD }}>{tr("Not quite. That is okay.")}</div>
+          <div style={{ ...lineSt, color: t.text }}>{pics.length > 0 ? tr("Let's watch that part one more time. Then try again.") : tr("Look at the question again and try again.")} {tr("You can try as many times as you need.")}</div>
+        </div>
+        {pics.length > 0 && <div style={{ ...fkHeadSt(t), marginTop: 18 }}>{tr("Watch again")}</div>}
+        {pics.map(s => {
+          const n = les.screens.findIndex(x => x.key === s.key) + 1;
+          return (
+            <div key={s.key} data-player-replay-screen={s.key} style={{ ...fkRowSt(t), display: "flex", alignItems: "center", gap: 12 }}>
+              {s.media.kind === "image" && !broken[s.key] ? <img src={s.media.src} alt="" style={{ width: 64, height: 48, objectFit: "cover", borderRadius: R.sm, flexShrink: 0, background: t.cardAlt }} /> : <span aria-hidden="true" style={{ width: 64, height: 48, borderRadius: R.sm, flexShrink: 0, background: t.cardAlt, display: "flex", alignItems: "center", justifyContent: "center" }}><PlayIco sz={16} c={t.textMut} /></span>}
+              <span style={{ minWidth: 0 }}><span style={{ display: "block", fontSize: 15, fontWeight: 600, color: t.text, lineHeight: 1.35, overflowWrap: "anywhere" }}>{s.caption || s.say}</span><span style={{ display: "block", fontSize: 13, color: t.textMut, marginTop: 2 }}>{tr("Step {n} of {total}", { n: n, total: les.screens.length })}</span></span>
+            </div>
+          );
+        })}
+        <div style={stickSt}>
+          {pics.length > 0 && <button type="button" data-player-watch-again="1" onClick={() => { unlockVoice(); setReplay({ keys: pics.map(s => s.key), at: 0, check: wrong.check }); setWrong(null); }} style={bigBtn(false)}><PlayIco sz={16} c={NAVY} />{tr("Watch it again")}</button>}
+          <button type="button" data-player-try-again="1" onClick={() => { setWrong(null); setPicked(null); }} style={{ ...wsPlainBtn(t), width: "100%", minHeight: 52, marginTop: 10, fontSize: 16 }}>{tr("Try the question again")}</button>
+        </div>
+      </div>
+    ));
+  }
+  if (phase === "play" && screen) {
+    const total = les.screens.length;
+    const words = screen.caption || screen.say;
+    return wrap("screen", (
+      <div>
+        {head}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 10 }}>
+          <div data-player-step-label={step.n + "/" + total} style={{ fontSize: 13, fontWeight: 600, color: t.textSec, fontFamily: FONT_HEAD }}>{replay ? tr("Watching again") + ". " : ""}{tr("Step {n} of {total}", { n: step.n, total: total })}</div>
+        </div>
+        <div role="progressbar" aria-valuemin={1} aria-valuemax={total} aria-valuenow={step.n} aria-label={tr("Step {n} of {total}", { n: step.n, total: total })} style={{ display: "flex", gap: 3, marginTop: 6 }}>
+          {les.screens.map((s, i) => <span key={s.key} aria-hidden="true" style={{ flex: 1, height: 5, borderRadius: R.pill, background: i < step.n - 1 ? GOLD : i === step.n - 1 ? (t === LIGHT ? NAVY : "#FFFFFF") : t.border }} />)}
+        </div>
+        {screen.media.kind !== "none" && (
+          <div data-player-media={screen.media.kind} style={{ position: "relative", marginTop: 12, borderRadius: R.lg, overflow: "hidden", background: "#0F1B2D", border: "1px solid " + t.borderSolid }}>
+            {screen.media.kind === "image" && !broken[screen.key] && <img key={screen.media.src} src={screen.media.src} alt="" data-player-image={screen.key} onError={() => mediaFailed(screen.key)} style={{ display: "block", width: "100%", maxHeight: "44vh", objectFit: "contain", background: "#DCE6F2" }} />}
+            {screen.media.kind === "video" && !broken[screen.key] && <video key={screen.media.src} src={screen.media.src} poster={screen.media.poster || undefined} data-player-video={screen.key} muted playsInline autoPlay loop preload="auto" onError={() => mediaFailed(screen.key)} style={{ display: "block", width: "100%", maxHeight: "44vh", background: "#0F1B2D" }} />}
+            {broken[screen.key] && <div data-player-media-broken="1" style={{ padding: "32px 16px", textAlign: "center", fontSize: 13, color: "#DCE6F2" }}>{tr("The picture did not load.")}</div>}
+            {voice === "playing" && <div data-player-voice-chip="1" style={{ position: "absolute", left: 10, bottom: 10, display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: R.pill, background: "rgba(15,27,45,0.82)", color: "#FFFFFF", fontSize: 12, fontWeight: 600 }}><SpeakerIco sz={14} c="#FFFFFF" />{tr("Listen along")}</div>}
+          </div>
+        )}
+        <div data-player-words={screen.key} lang={les.locale} style={{ ...bigWords, marginTop: 16 }}>{words}</div>
+        {!screen.audio && <div data-player-no-voice="1" style={{ ...lineSt, fontSize: 13 }}>{tr("This step has no voice. Read the words.")}</div>}
+        {screen.audio && voice === "blocked" && <div data-player-voice-blocked="1" style={{ ...lineSt, fontSize: 13 }}>{tr("Tap play to hear it.")}</div>}
+        <div style={{ ...stickSt, display: "flex", alignItems: "center", gap: 10 }}>
+          {screen.audio && <button type="button" aria-label={tr("Play from the start")} data-player-voice-again="1" onClick={voiceAgain} style={roundBtn}><ReplayIco sz={22} c={t.text} /></button>}
+          {screen.audio && <button type="button" aria-label={voice === "playing" ? tr("Pause") : tr("Play")} data-player-voice={voice} data-player-voice-src={screen.audio} onClick={() => (voice === "playing" ? voicePause() : voicePlay())} style={roundBtn}>{voice === "playing" ? <PauseIco sz={22} c={t.text} /> : <PlayIco sz={20} c={t.text} />}</button>}
+          <button type="button" data-player-next={screen.key} onClick={next} style={{ ...bigBtn(false), flex: 1 }}>{tr("Next")}<ChevIco sz={18} c={NAVY} /></button>
+        </div>
+      </div>
+    ), { "data-player-step": screen.key });
+  }
+  if (phase === "play" && check) {
+    const total = steps.filter(s => s.kind === "check").length;
+    const optBtn = (on) => ({ display: "flex", alignItems: "center", gap: 12, width: "100%", minHeight: 56, padding: "10px 14px", marginBottom: 10, borderRadius: R.lg, cursor: "pointer", textAlign: "left", fontFamily: FONT_BODY, fontSize: 17, fontWeight: 600, color: t.text, background: on ? t.goldBg : t.card, border: on ? "2px solid " + GOLD : "1px solid " + t.borderSolid });
+    const num = (n) => <span aria-hidden="true" style={{ width: 30, height: 30, flexShrink: 0, borderRadius: "50%", background: NAVY, color: "#FFFFFF", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_HEAD }}>{n}</span>;
+    const holdStart = (alt) => { if (hold.current) clearTimeout(hold.current); hold.current = setTimeout(() => { hold.current = null; speakWords(alt, les.locale); }, 500); };
+    const holdEnd = () => { if (hold.current) { clearTimeout(hold.current); hold.current = null; } };
+    return wrap("check", (
+      <div>
+        {head}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 12 }}>
+          <span style={{ ...mkLabel(t), marginBottom: 0 }}>{tr("Show what you learned")}</span>
+          <span data-player-question={step.n + "/" + total} style={{ fontSize: 13, color: t.textSec, fontFamily: FONT_HEAD }}>{tr("Question {n} of {total}", { n: step.n, total: total })}</span>
+        </div>
+        <div data-player-prompt={check.key} lang={les.locale} style={{ ...bigWords, marginTop: 8 }}>{check.prompt}</div>
+        {canSpeak() && <button type="button" data-player-hear={check.key} onClick={() => speakWords(check.prompt, les.locale)} style={{ display: "flex", alignItems: "center", gap: 8, minHeight: TAP, padding: 0, marginTop: 4, background: "none", border: "none", cursor: "pointer", color: t.textSec, fontSize: 14, fontFamily: FONT_BODY }}><SpeakerIco sz={18} c={t.textSec} />{tr("Hear the question")}</button>}
+        <div data-player-check={check.kind} style={{ marginTop: 12 }}>
+          {check.kind === "choice" && check.options.map((o, i) => <button key={o.value} type="button" aria-pressed={picked === o.value} data-player-option={o.value} onClick={() => { setPicked(o.value); setFault(null); }} style={optBtn(picked === o.value)}>{num(i + 1)}<span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{o.text}</span></button>)}
+          {check.kind === "picture" && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+              {check.options.map(o => <button key={o.value} type="button" aria-pressed={picked === o.value} aria-label={o.alt || undefined} data-player-option={o.value} onClick={() => { setPicked(o.value); setFault(null); }} onPointerDown={() => holdStart(o.alt)} onPointerUp={holdEnd} onPointerLeave={holdEnd} onContextMenu={(e) => e.preventDefault()} style={{ padding: 6, borderRadius: R.lg, cursor: "pointer", background: picked === o.value ? t.goldBg : t.card, border: picked === o.value ? "3px solid " + GOLD : "1px solid " + t.borderSolid }}><img src={o.src} alt="" onError={() => mediaFailed(check.key + ":" + o.value)} style={{ display: "block", width: "100%", aspectRatio: "4 / 3", objectFit: "contain", borderRadius: R.md, background: "#DCE6F2", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }} /></button>)}
+            </div>
+          )}
+          {check.kind === "picture" && canSpeak() && <div style={{ ...lineSt, fontSize: 13 }}>{tr("Touch and hold a picture to hear what it shows.")}</div>}
+          {check.kind === "tap" && (
+            <div style={{ position: "relative", borderRadius: R.lg, overflow: "hidden", border: "1px solid " + t.borderSolid, background: "#DCE6F2", cursor: "crosshair" }}>
+              <img src={check.image} alt="" data-player-tap-image={check.key} onError={() => mediaFailed(check.key)} onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); if (!r.width || !r.height) return; const x = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), y = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)); setPicked({ x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000 }); setFault(null); }} style={{ display: "block", width: "100%", WebkitUserSelect: "none", userSelect: "none" }} />
+              {picked && typeof picked === "object" && (
+                <div data-player-tap-ring={picked.x + "," + picked.y} aria-hidden="true" style={{ position: "absolute", left: (picked.x * 100) + "%", top: (picked.y * 100) + "%", transform: "translate(-50%, -50%)", pointerEvents: "none" }}>
+                  <div style={{ width: 44, height: 44, borderRadius: "50%", border: "4px solid " + GOLD, boxShadow: "0 0 0 3px rgba(15,27,45,0.5)" }} />
+                </div>
+              )}
+              {picked && typeof picked === "object" && <div data-player-tapped="1" style={{ position: "absolute", left: 8, top: 8, padding: "4px 10px", borderRadius: R.pill, background: NAVY, color: "#FFFFFF", fontSize: 12, fontWeight: 600, pointerEvents: "none" }}>{tr("You tapped here")}</div>}
+            </div>
+          )}
+          {check.kind === "tap" && <div style={{ ...lineSt, fontSize: 13 }}>{tr("Tap the spot on the picture.")}</div>}
+        </div>
+        {fault && <WsFault text={fault} t={t} />}
+        <div style={stickSt}>
+          <button type="button" data-player-check-answer={check.key} disabled={picked === null || busy} onClick={answer} style={bigBtn(picked === null || busy)}>{busy ? tr("Sending...") : tr("Check my answer")}</button>
+        </div>
+      </div>
+    ), { "data-player-step": check.key });
+  }
+  if (phase === "sign") {
+    return wrap("sign", (
+      <div>
+        {head}
+        <div role="heading" aria-level={2} style={{ fontSize: 20, fontWeight: 700, color: ink(t, GREEN), fontFamily: FONT_HEAD, marginTop: 14 }}>{tr("You got every answer right.")}</div>
+        {les && les.acknowledgement && <div style={{ fontSize: 16, color: t.text, lineHeight: 1.55, marginTop: 10, overflowWrap: "anywhere" }}>{les.acknowledgement}</div>}
+        <div data-lesson-signature="1" style={{ marginTop: 12 }}>
+          <div style={mkLabel(t)}>{tr("Your signature")}</div>
+          <div style={{ borderRadius: R.md, border: fault ? "2px solid " + RED : "1px solid " + t.borderSolid, background: "#FFFFFF", overflow: "hidden" }}>
+            <SignatureBox strokes={strokes} onStroke={(stroke, size) => { const all = strokes.concat([stroke]); setStrokes(all); setPng(signaturePng(all, size.w, size.h)); setFault(null); }} height={SIGN_BOX_HEIGHT} />
+          </div>
+          <div style={{ fontSize: 12, color: t.textMut, marginTop: 8, lineHeight: 1.4 }}>{tr(FORMS_SIGN_HINT)}</div>
+          <button type="button" onClick={() => { setStrokes([]); setPng(null); }} disabled={strokes.length === 0 || busy} style={{ ...wsPlainBtn(t), flex: "none", marginTop: 8, opacity: strokes.length === 0 ? 0.6 : 1 }}>{tr("Clear")}</button>
+        </div>
+        {fault && <WsFault text={fault} t={t} />}
+        <div style={stickSt}><button type="button" data-player-sign="1" disabled={busy} onClick={sign} style={bigBtn(busy)}>{busy ? tr("Sending...") : tr("Sign")}</button></div>
+      </div>
+    ));
+  }
+  // Watched through: a review, or the setup page signed out.
+  if (phase === "watched") {
+    return wrap("watched", (
+      <div>
+        {head}
+        <div style={{ textAlign: "center", padding: "28px 8px" }}>
+          <CheckIco sz={40} c={ink(t, GREEN)} />
+          <div role="heading" aria-level={2} style={{ fontSize: 22, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, marginTop: 8 }}>{tr("You watched it all.")}</div>
+          {!publicSetup && review && <div style={lineSt}>{tr("Nothing was saved. Your training stays done.")}</div>}
+        </div>
+        <div style={stickSt}>
+          {publicSetup && onSignIn && <button type="button" data-player-sign-in="1" onClick={onSignIn} style={bigBtn(false)}>{tr("Sign in")}</button>}
+          <button type="button" data-player-again="1" onClick={() => { unlockVoice(); right.current = new Set(); setAt(0); setPicked(null); setPhase("play"); }} style={{ ...wsPlainBtn(t), width: "100%", minHeight: 52, marginTop: 10, fontSize: 16 }}>{tr("Watch it again")}</button>
+          {onBack && <button type="button" onClick={onBack} style={{ ...wsPlainBtn(t), width: "100%", minHeight: 52, marginTop: 10, fontSize: 16 }}>{backLabel ? tr("Back") : tr("Back to My training")}</button>}
+        </div>
+      </div>
+    ));
+  }
+  if (phase === "course" && doneCourse) return <CourseDone token={token} course={doneCourse} onBack={onBack} t={t} />;
+  // Chapter done (board 6), with what comes next in the course.
+  const c = doneCourse || course;
+  const upNext = c ? courseNext(c) : null;
+  const still = reducesMotion();
+  return (
+    <div data-player="done" data-player-waiting={waiting ? "1" : "0"} style={{ padding: "14px 16px 24px" }}>
+      <style>{"@keyframes ocsaCheckDraw { to { stroke-dashoffset: 0 } }"}</style>
+      <div style={{ borderRadius: R.lg, background: NAVY, padding: "32px 20px 20px", textAlign: "center", color: "#FFFFFF" }}>
+        <svg width="96" height="96" viewBox="0 0 96 96" aria-hidden="true" data-player-check-draw={still ? "still" : "draw"} style={{ display: "block", margin: "0 auto" }}>
+          <circle cx="48" cy="48" r="44" fill={GOLD} stroke={GOLD_LIGHT} strokeWidth="4" />
+          <path d="M28 50 L42 64 L68 34" fill="none" stroke={NAVY} strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="70" strokeDashoffset={still ? 0 : 70} style={still ? undefined : { animation: "ocsaCheckDraw 0.7s ease-out 0.2s forwards" }} />
+        </svg>
+        <div role="heading" aria-level={1} style={{ fontSize: 28, fontWeight: 700, fontFamily: FONT_HEAD, marginTop: 14 }}>{waiting ? tr("Almost done") : tr("Chapter done!")}</div>
+        <div data-player-done-name="1" style={{ fontSize: 16, color: "rgba(255,255,255,0.85)", marginTop: 6, lineHeight: 1.45, overflowWrap: "anywhere" }}>{waiting ? tr("Waiting for your trainer. Show them you can do it, and they sign it off.") : tr("You finished {name}.", { name: title })}</div>
+        {c && <div data-player-done-count={c.chaptersDone + "/" + c.chaptersTotal} style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 16, padding: "8px 16px", borderRadius: R.pill, background: "rgba(255,255,255,0.12)", fontSize: 15, fontWeight: 600 }}>{chaptersDoneWords(c.chaptersDone, c.chaptersTotal)}</div>}
+      </div>
+      {upNext && chapterTakeable(upNext) && (
+        <div data-player-up-next={upNext.topicId} style={{ ...fkRowSt(t), marginTop: 14, padding: "16px 14px" }}>
+          <div style={mkLabel(t)}>{tr("Up next")}</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, lineHeight: 1.35, overflowWrap: "anywhere" }}>{upNext.name}</div>
+          <button type="button" data-player-start-next={upNext.topicId} onClick={() => { unlockVoice(); onNext(c, upNext); }} style={{ ...bigBtn(false), marginTop: 12 }}><PlayIco sz={16} c={NAVY} />{tr("Start next chapter")}</button>
+          <button type="button" data-player-later="1" onClick={onBack} style={{ ...wsPlainBtn(t), width: "100%", minHeight: 48, marginTop: 8, border: "none" }}>{tr("I'll do it later")}</button>
+        </div>
+      )}
+      {!(upNext && chapterTakeable(upNext)) && onBack && <div style={{ marginTop: 14 }}><button type="button" data-player-back="1" onClick={onBack} style={{ ...wsPlainBtn(t), width: "100%", minHeight: 52 }}>{c ? tr("Back to the course") : tr("Back to My training")}</button></div>}
+    </div>
+  );
+}
+
+function TrainingView({ token, data, onData, at, onAt, shiftSiteId, wide, t }) {
   // Read again each time the screen opens, and each time a lesson is
   // left; a read that fails keeps what is on the screen and says so,
   // with Try again.
@@ -11953,20 +13106,68 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   const portal = !!(data && data.categories && (data.categories.length > 0 || data.items.length === 0));
   const openCat = (key) => { setCat(key); try { window.history.pushState({ trainingCategory: key }, "", "/training/c/" + encodeURIComponent(key)); } catch (e) {} };
   const closeCat = () => { setCat(null); try { if (window.history.state && window.history.state.trainingCategory) window.history.back(); } catch (e) {} };
+  // Part 418 (section 1): the person's courses and certificates, null
+  // until a read answers a list (an API from before Round 20 never does,
+  // and My Training stays as it was); the course page open, an entry in
+  // the phone's history as a category page is; and the chapter Pick up
+  // where you left off names, with the share of it done once its attempt
+  // is read.
+  const [courses, setCourses] = useState(null);
+  const [certs, setCerts] = useState(null);
+  const [coursePage, setCoursePage] = useState(null);
+  const [pickupShare, setPickupShare] = useState(null);
+  // Part 418 (section 2): the chapter playing, { course, ch, review,
+  // versionId, opened }, an entry of its own in the phone's history; and
+  // a count bumped as it closes, which reads the course again.
+  const [playing, setPlaying] = useState(null);
+  const [courseReread, setCourseReread] = useState(0);
+  // Part 418 (section 3): My certificates open, { focus } (the one the
+  // bell named, or ""), an entry of its own in the phone's history.
+  const [certsPage, setCertsPage] = useState(null);
+  const openCerts = (focus) => { setCertsPage({ focus: focus || "" }); try { window.history.pushState({ trainingCertificates: 1 }, "", "/"); } catch (e) {} };
+  const closeCerts = () => { try { if (window.history.state && window.history.state.trainingCertificates) { window.history.back(); return; } } catch (e) {} setCertsPage(null); };
+  const openCourse = (c) => { setCoursePage(c); try { window.history.pushState({ trainingCourse: c.id }, "", "/"); } catch (e) {} };
+  const closeCourse = () => { setCoursePage(null); try { if (window.history.state && window.history.state.trainingCourse) window.history.back(); } catch (e) {} };
   useEffect(() => {
-    const onPop = () => setCat(window.history.state && window.history.state.trainingCategory ? String(window.history.state.trainingCategory) : null);
+    const onPop = () => {
+      setCat(window.history.state && window.history.state.trainingCategory ? String(window.history.state.trainingCategory) : null);
+      if (!(window.history.state && window.history.state.trainingCourse)) setCoursePage(null);
+      if (!(window.history.state && window.history.state.trainingPlayer)) { setPlaying(null); setCourseReread(n => n + 1); }
+      if (!(window.history.state && window.history.state.trainingCertificates)) setCertsPage(null);
+    };
     window.addEventListener("popstate", onPop);
     return () => { window.removeEventListener("popstate", onPop); try { if (window.history.state && window.history.state.trainingCategory) window.history.replaceState({}, "", "/"); } catch (e) {} };
   }, []);
   useEffect(() => {
     let live = true;
     readTraining(token).then(d => { if (!live) return; if (d) { onData(d); setFault(false); } else setFault(true); });
+    readCourses(token).then(list => { if (live && list) setCourses(list); });
+    readMyCertificates(token).then(list => { if (live && list) setCerts(list); });
     return () => { live = false; };
   }, [asked]);
+  // The chapter in progress, first of the courses, and its attempt's
+  // progress read for the bar.
+  let pickup = null;
+  (courses || []).some(c => c.chapters.some(ch => { if (!ch.done && ch.status === "inProgress" && chapterTakeable(ch)) { pickup = { course: c, ch: ch }; return true; } return false; }));
+  const pickupAttempt = pickup && pickup.ch.attemptId ? pickup.ch.attemptId : "";
+  useEffect(() => {
+    let on = true;
+    setPickupShare(null);
+    if (!pickupAttempt) return undefined;
+    api("/api/training/attempts/" + encodeURIComponent(pickupAttempt), { token }).then(d => {
+      const p = d && d.attempt && d.attempt.progress && typeof d.attempt.progress === "object" ? d.attempt.progress : null;
+      if (!on || !p) return;
+      const total = (trainingNum(p.screensTotal) || 0) + (trainingNum(p.checksTotal) || 0);
+      const done = (Array.isArray(p.watched) ? p.watched.length : 0) + (trainingNum(p.checksRight) || 0);
+      if (total > 0) setPickupShare(Math.min(1, done / total));
+    }).catch(() => {});
+    return () => { on = false; };
+  }, [pickupAttempt]);
   // A lesson named from Before you start opens once its item is on the
   // list; a category named by a link, or the category of a topic a notice
   // names, opens its page once the portal is drawn.
   useEffect(() => {
+    if (at && at.certificate !== undefined) { openCerts(at.certificate); onAt(null); return; }
     if (!at || !data || !(at.lesson || at.category || at.topic)) return;
     if (at.lesson) {
       const item = data.items.find(x => x.id === at.lesson) || data.firstDay.find(x => x.id === at.lesson);
@@ -11988,9 +13189,34 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   const cats = portal ? data.categories : [];
   const openCatOf = cat ? cats.find(c => c.key === cat) || null : null;
   if (lesson) {
-    return <TrainingLesson key={lesson.id + ":" + lesson.opened} token={token} item={lesson.item} siteId={lesson.item.siteId || shiftSiteId || null} backLabel={openCatOf ? openCatOf.name : ""} onBack={() => { setLesson(null); setAsked(n => n + 1); }} t={t} />;
+    return <TrainingLesson key={lesson.id + ":" + lesson.opened} token={token} item={lesson.item} siteId={lesson.item.siteId || shiftSiteId || null} backLabel={coursePage ? coursePage.name : openCatOf ? openCatOf.name : ""} onBack={() => { setLesson(null); setAsked(n => n + 1); }} t={t} />;
   }
   const openLesson = (i) => setLesson({ id: i.id, item: i, opened: Date.now() });
+  // A course's chapter taken (part 418): a quiz opens the lesson as My
+  // Training always has, from an item made of the chapter.
+  const playChapter = (c, ch, review) => {
+    if (!ch || !ch.lesson) return;
+    unlockVoice();
+    if (review || ch.lesson.kind === "player") {
+      const versionId = review && ch.version ? ch.version.id : ch.lesson.versionId;
+      const entry = { trainingCourse: c.id, trainingPlayer: 1 };
+      try { if (window.history.state && window.history.state.trainingPlayer) window.history.replaceState(entry, "", "/"); else window.history.pushState(entry, "", "/"); } catch (e) {}
+      setPlaying({ course: c, ch: ch, review: !!review, versionId: versionId, opened: Date.now() });
+      return;
+    }
+    if (ch.lesson.kind === "quiz") {
+      const own = items.find(i => i.topicId === ch.topicId && i.lesson) || null;
+      openLesson(own || { id: ch.topicId + ":", topicId: ch.topicId, siteId: "", name: ch.name, docCode: "", docSection: "", safetyCritical: false, siteName: "", status: ch.status, completedDate: ch.completedDate, expiresOn: ch.expiresOn, linkUrl: "", attemptId: ch.attemptId, recordId: ch.recordId, lesson: { versionId: ch.lesson.versionId, kind: "quiz", attemptsUsed: ch.lesson.attemptsUsed, attemptsLeft: ch.lesson.attemptsLeft === null ? 1 : ch.lesson.attemptsLeft }, category: "other", sortOrder: null, needsTrainer: false, signoffBy: null, outsideCourse: false, findingFollowUp: null });
+    }
+  };
+  if (coursePage) {
+    const closePlayer = () => { try { if (window.history.state && window.history.state.trainingPlayer) { window.history.back(); return; } } catch (e) {} setPlaying(null); setCourseReread(n => n + 1); };
+    const playerNode = playing ? <CoursePlayer key={playing.versionId + ":" + playing.opened} token={token} versionId={playing.versionId} review={playing.review} course={playing.course} chapter={playing.ch} backLabel={coursePage.name} onBack={closePlayer} onNext={(c, ch) => playChapter(c, ch, false)} t={t} /> : null;
+    const openCert = (id) => { openApiPdf(certPdfPath(id), "certificate.pdf", token).catch(() => openCerts(id)); };
+    return <CoursePage key={coursePage.id} token={token} course={coursePage} onBack={() => { closeCourse(); setAsked(n => n + 1); }} onPlay={playChapter} onCertificate={openCert} playing={playing ? { topicId: playing.ch.topicId, node: playerNode } : null} reread={courseReread} wide={!!wide} t={t} />;
+  }
+  if (certsPage) return <CertificatesPage token={token} focus={certsPage.focus} onBack={() => { closeCerts(); setAsked(n => n + 1); }} t={t} />;
+  const coursesPart = <CoursesPart courses={courses} certs={certs} pickup={pickup ? { ...pickup, share: pickupShare } : null} onCourse={openCourse} onChapter={(c, ch) => { openCourse(c); playChapter(c, ch, false); }} onCertificates={() => openCerts("")} t={t} />;
   // Part 383: a certificate the API took. The item reads done at once,
   // its record leads History, and the list is read again.
   const certDone = (item, record, day) => {
@@ -12130,6 +13356,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
     return (
       <div data-training="waiting" style={{ padding: "14px 16px 100px" }}>
         {title}
+        {coursesPart}
         {faultPart || <div style={{ ...wsQuiet(t), marginTop: 8 }}>{tr("Loading...")}</div>}
       </div>
     );
@@ -12191,6 +13418,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
     return (
       <div data-training="portal" style={{ padding: "14px 16px 100px" }}>
         {title}
+        {coursesPart}
         {faultPart}
         {certSentPart}
         {cats.length > 0 && (
@@ -12237,6 +13465,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, t }) {
   return (
     <div data-training="1" style={{ padding: "14px 16px 100px" }}>
       {title}
+      {coursesPart}
       {faultPart}
       {certSentPart}
       {joinPart}
@@ -14508,6 +15737,8 @@ function notifPlace(subjectType, subjectId, subjectKey) {
   // A training notice naming a topic, or an attempt on one (Step 267):
   // the portal, on that topic's category page when the item is known.
   if (subjectType === "training_expiring" || subjectType === "training_reteach") return id ? { tab: tab, topic: id } : { tab: tab };
+  // Part 418 (section 3): a course certificate made, on My certificates.
+  if (subjectType === "training_certificate") return { tab: tab, certificate: id || "" };
   return { tab: tab };
 }
 // Whether this person may read the place a notice opens, by the
@@ -15475,6 +16706,73 @@ function SdsPublicScreen({ code: first, t, themeMode }) {
     <div style={{ padding: 16 }}>
       <PublicHead logo={null} companyName="" siteName="" withPicker={true} locale={languageToSend(language)} setLanguage={setLanguage} t={t} themeMode={themeMode} />
       <SdsBrowser initial={null} onList={null} code={code} onCode={move} t={t} />
+    </div>
+  );
+}
+
+// The account setup page (part 418, section 4; ocsa-api Round 20, part
+// 415, 9.1): /setup, from the welcome email and from the sign-in screen,
+// before the person has an account. It reads the setup chapter from GET
+// /api/public/training/setup?locale=en|es with no sign-in and plays it in
+// the same player as a review, its checks through POST
+// /api/public/training/setup/checks/:key, nothing written. 404
+// training.noSetupChapter (none published yet) and 429 say the API's
+// words with Sign in beside them. Signed in, the same chapter is in The
+// Staff App course and counts there.
+const SETUP_LANGUAGES = ["en", "es"];
+function SetupScreen({ t, themeMode, onSignIn }) {
+  const { language, setLanguage } = useContext(LanguageCtx);
+  const lang = SETUP_LANGUAGES.indexOf(languageToSend(language)) !== -1 ? languageToSend(language) : "en";
+  const [got, setGot] = useState({ phase: "loading" });
+  const [playing, setPlaying] = useState(false);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    let on = true;
+    setGot(prev => (prev.phase === "ready" ? prev : { phase: "loading" }));
+    api("/api/public/training/setup?locale=" + encodeURIComponent(lang)).then(d => {
+      const l = playerLessonOf(d);
+      if (on) setGot(l ? { phase: "ready", lesson: l } : { phase: "fault", said: tr(ERR_GENERIC) });
+    }).catch(err => {
+      if (!on) return;
+      const said = fkFaultWords(err, "The setup video did not load. Try again.");
+      setGot({ phase: err && err.status === 404 ? "none" : err && err.status === 429 ? "limit" : "fault", said: said });
+    });
+    return () => { on = false; };
+  }, [lang, asked]);
+  // The phone's back from /setup, when the sign-in screen opened it.
+  useEffect(() => {
+    const onPop = () => { if (String(window.location.pathname || "").replace(/\/+$/, "").toLowerCase() !== "/setup") onSignIn(); };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  const wrapSt = { width: "100%", maxWidth: 560, margin: "0 auto", padding: "16px 16px 24px", "--ocsa-bar": "0px" };
+  if (playing && got.phase === "ready") {
+    return <div data-setup="playing" style={wrapSt}><CoursePlayer publicSetup backLabel={tr("Set Up Your Account")} onBack={() => setPlaying(false)} onSignIn={onSignIn} stick="12px" t={t} /></div>;
+  }
+  const lesson = got.phase === "ready" ? got.lesson : null;
+  const start = () => { unlockVoice(); setPlaying(true); };
+  const signInBtn = <button type="button" data-setup-sign-in="1" onClick={onSignIn} style={{ display: "block", width: "100%", minHeight: TAP, marginTop: 10, padding: "8px 0", background: "none", border: "none", cursor: "pointer", color: t.goldText, fontSize: 15, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("I already have an account. Sign in.")}</button>;
+  return (
+    <div data-setup={got.phase} style={wrapSt}>
+      <div style={{ textAlign: "center", marginBottom: 14 }}>
+        <div style={{ display: "inline-block", maxWidth: "100%", padding: themeMode === "dark" ? "8px 14px" : 0, background: themeMode === "dark" ? "rgba(255,255,255,0.95)" : "transparent", borderRadius: 12 }}><img src={LOGO_LG} alt={clientConfig.company.shortName} style={{ height: 48, maxWidth: "100%", objectFit: "contain" }} /></div>
+      </div>
+      <button type="button" data-setup-play="1" disabled={!lesson} onClick={start} aria-label={tr("Start the video")} style={{ position: "relative", display: "block", width: "100%", height: 190, borderRadius: R.lg, border: "none", cursor: lesson ? "pointer" : "default", background: NAVY, padding: 0 }}>
+        <span aria-hidden="true" style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", width: 84, height: 84, borderRadius: "50%", background: lesson ? GOLD : "rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}><PlayIco sz={34} c={NAVY} /></span>
+        {lesson && <span data-setup-steps={lesson.screens.length} style={{ position: "absolute", left: 14, bottom: 12, color: "#FFFFFF", fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("{n} short steps", { n: lesson.screens.length })}</span>}
+      </button>
+      <div role="heading" aria-level={1} style={{ fontSize: 26, fontWeight: 700, color: t.text, fontFamily: FONT_HEAD, marginTop: 18, lineHeight: 1.25, overflowWrap: "anywhere" }}>{lesson && lesson.title ? lesson.title : tr("Set Up Your Account")}</div>
+      <div style={{ fontSize: 16, color: t.textSec, marginTop: 8, lineHeight: 1.5 }}>{tr("Watch this before you sign in. It shows the welcome email, your PIN and your first sign-in.")}</div>
+      <div style={{ ...mkLabel(t), marginTop: 18 }}>{tr("Pick your language")}</div>
+      <div role="group" aria-label={tr("Pick your language")} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {SETUP_LANGUAGES.map(code => <button key={code} type="button" lang={code} aria-pressed={lang === code} data-setup-language={code} onClick={() => setLanguage(code)} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 56, borderRadius: R.lg, cursor: "pointer", fontSize: 17, fontWeight: 700, fontFamily: FONT_HEAD, color: t.text, background: lang === code ? t.goldBg : t.card, border: lang === code ? "2px solid " + GOLD : "1px solid " + t.borderSolid }}><GlobeIco sz={18} c={t.text} />{LANGUAGE_NAMES[code]}</button>)}
+      </div>
+      {got.phase === "loading" && <div style={{ ...wsQuiet(t), marginTop: 16 }}>{tr("Loading...")}</div>}
+      {(got.phase === "none" || got.phase === "limit" || got.phase === "fault") && <div data-setup-said={got.phase} style={{ marginTop: 16 }}><WsFault text={got.said} t={t} />{got.phase === "fault" && <button type="button" onClick={() => setAsked(n => n + 1)} style={{ ...wsPlainBtn(t), width: "100%", marginTop: 10 }}>{tr("Try again")}</button>}</div>}
+      <div style={{ marginTop: 20 }}>
+        {lesson && <button type="button" data-setup-start="1" onClick={start} style={{ ...wsMainBtn(t, false), width: "100%", minHeight: 56, fontSize: 17, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}><PlayIco sz={16} c={NAVY} />{tr("Start the video")}</button>}
+        {signInBtn}
+      </div>
     </div>
   );
 }
@@ -22543,7 +23841,9 @@ function AwardReveal({ token, read, motion, onSeen, onClose, reread, t, children
   const up = (e) => { const s = swipe.current; swipe.current = null; if (!s) return; const dx = e.clientX - s.x, dy = e.clientY - s.y; if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) onClose(); };
   const certificate = async () => {
     setCertFault(null);
-    try { await openApiPdf("/api/recognition/awards/" + encodeURIComponent(a.id) + "/certificate.pdf", "employee-of-the-month-" + (a.month || a.id) + ".pdf", token); }
+    // Part 418 (section 6.5, ocsa-api Round 21, part 416, 3): drawn in the
+    // language on the screen.
+    try { await openApiPdf(withLocale("/api/recognition/awards/" + encodeURIComponent(a.id) + "/certificate.pdf", languageToSend()), "employee-of-the-month-" + (a.month || a.id) + ".pdf", token); }
     catch (err) { setCertFault(saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC)); }
   };
   const quiet = { fontSize: 13, color: t.textSec, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" };
@@ -22793,6 +24093,7 @@ function ShoutoutSheet({ token, id, initial, onSeen, onChange, onRemoved, onClos
   const [ask, setAsk] = useState(false);
   const [busy, setBusy] = useState(false);
   const [removeFault, setRemoveFault] = useState(null);
+  const [gone, setGone] = useState(false);
   const seenSent = useRef(false);
   const load = async () => {
     setFault(null);
@@ -22816,13 +24117,20 @@ function ShoutoutSheet({ token, id, initial, onSeen, onChange, onRemoved, onClos
       await api("/api/recognition/shoutouts/" + encodeURIComponent(x.id) + "/remove", { method: "POST", body: {}, token });
       if (onRemoved) onRemoved(x.id);
       onClose();
-    } catch (err) { setRemoveFault(saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC)); }
+    } catch (err) {
+      setRemoveFault(saidOf(err) || tr(err && err.message === ERR_OFFLINE ? ERR_OFFLINE : ERR_GENERIC));
+      // Part 418 (section 6.4, ocsa-api Round 21, part 416, 4.4): taken down
+      // already, by the office or another of the poster's phones (409
+      // recognition.shoutoutAlreadyRemoved): the API's words, and it leaves
+      // the list once the sheet closes.
+      if (err && err.status === 409 && err.code === "recognition.shoutoutAlreadyRemoved") { setAsk(false); setGone(true); }
+    }
     setBusy(false);
   };
   useBusy("shout-out remove", busy);
   const quiet = { fontSize: 12, color: t.textSec, marginTop: 4, lineHeight: 1.45, overflowWrap: "anywhere" };
   return (
-    <RecogSheet id="ocsa-shoutout-sheet" title={tr("Shout-out")} onClose={onClose} t={t}>
+    <RecogSheet id="ocsa-shoutout-sheet" title={tr("Shout-out")} onClose={() => { if (gone && onRemoved && x) onRemoved(x.id); onClose(); }} t={t}>
       <div data-shoutout-sheet={id}>
         {!x && !fault && <div style={{ padding: "20px 0", textAlign: "center", fontSize: 13, color: t.textMut }}>{tr("Loading...")}</div>}
         {fault && (fault.gone
@@ -22840,8 +24148,8 @@ function ShoutoutSheet({ token, id, initial, onSeen, onChange, onRemoved, onClos
             {x.line && <div data-shoutout-line="1" style={{ fontSize: 14, color: t.text, lineHeight: 1.5, marginTop: 12, padding: "10px 12px", borderRadius: R.md, background: t.goldSubtle, border: "1px solid " + t.goldBorder, overflowWrap: "anywhere" }}>{x.line}</div>}
             {x.postedBy && <div style={quiet}>{tr("From {name}", { name: x.postedBy.name })}</div>}
             <ReactionRow token={token} path={"/api/recognition/shoutouts/" + encodeURIComponent(x.id) + "/reaction"} reactions={x.reactions} own={x.isMe} onChange={(rx) => { const next = Object.assign({}, x, { reactions: rx }); setX(next); if (onChange) onChange(next); }} t={t} />
-            {x.canRemove && !ask && <button type="button" data-shoutout-remove={x.id} onClick={() => { setAsk(true); setRemoveFault(null); }} style={{ ...mkTapFrame(), marginTop: 10, color: ink(t, RED), fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Take down")}</button>}
-            {x.canRemove && ask && (
+            {x.canRemove && !gone && !ask && <button type="button" data-shoutout-remove={x.id} onClick={() => { setAsk(true); setRemoveFault(null); }} style={{ ...mkTapFrame(), marginTop: 10, color: ink(t, RED), fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD }}>{tr("Take down")}</button>}
+            {x.canRemove && !gone && ask && (
               <div data-shoutout-remove-ask={x.id} role="group" style={{ marginTop: 10, padding: "10px 12px", borderRadius: R.md, background: t.redSubtle, border: "1px solid " + t.redBorder }}>
                 <div style={{ fontSize: 13, color: t.text, lineHeight: 1.45 }}>{tr("Take down this shout-out?")}</div>
                 <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
@@ -22858,25 +24166,29 @@ function ShoutoutSheet({ token, id, initial, onSeen, onChange, onRemoved, onClos
   );
 }
 
-// The people who share one of the poster's sites, from each site's staff
-// (GET /api/sites/:id), the poster and client contacts left out, each
-// with the sites the two share.
-async function shoutPeopleOf(token, sites, user) {
-  const own = (Array.isArray(sites) ? sites : []).map(s => ({ id: String(s.siteId || s.id || ""), name: String(s.siteName || s.name || "") })).filter(s => s.id);
-  const people = new Map();
-  for (const s of own) {
-    const d = await api("/api/sites/" + encodeURIComponent(s.id), { token });
-    (d && Array.isArray(d.staff) ? d.staff : []).forEach((p) => {
-      if (!p || p.id === undefined || p.id === null || (user && String(p.id) === String(user.id)) || p.role === "client_contact") return;
-      const id = String(p.id);
-      const name = [p.first_name || p.firstName, p.last_name || p.lastName].filter(x => typeof x === "string" && x.trim()).map(x => x.trim()).join(" ");
+// The people a shout-out can name (part 418, section 6.2; ocsa-api Round
+// 21, part 416, 4.2): GET /api/recognition/shoutouts/people, in name
+// order, read page by page by nextCursor, each with the sites the two
+// share (every site of theirs for an admin). The API leaves out the
+// poster, client contacts and anyone not active, and test accounts for a
+// real poster. The picker searches them as every people picker does.
+const SHOUT_PEOPLE_PAGES = 20;
+async function shoutPeopleOf(token) {
+  const people = [];
+  let cursor = "";
+  for (let i = 0; i < SHOUT_PEOPLE_PAGES; i += 1) {
+    const d = await api("/api/recognition/shoutouts/people?q=&limit=50&cursor=" + encodeURIComponent(cursor), { token });
+    (d && Array.isArray(d.people) ? d.people : []).forEach((p) => {
+      if (!p || p.id === undefined || p.id === null || people.some(x => x.id === String(p.id))) return;
+      const name = [p.firstName, p.lastName].filter(x => typeof x === "string" && x.trim()).map(x => x.trim()).join(" ");
       if (!name) return;
-      const had = people.get(id) || { id: id, name: name, sites: [] };
-      if (!had.sites.some(x => x.id === s.id)) had.sites.push(s);
-      people.set(id, had);
+      const sites = (Array.isArray(p.sites) ? p.sites : []).map(x => (x && x.id !== undefined && x.id !== null ? { id: String(x.id), name: typeof x.name === "string" ? x.name : "" } : null)).filter(Boolean);
+      people.push({ id: String(p.id), name: name, sites: sites });
     });
+    cursor = d && typeof d.nextCursor === "string" && d.nextCursor ? d.nextCursor : "";
+    if (!cursor) break;
   }
-  return Array.from(people.values()).sort((a, b) => a.name.localeCompare(b.name));
+  return people;
 }
 
 // Give a shout-out: the person, the site and the line, POST
@@ -22889,7 +24201,7 @@ function ShoutoutForm({ token, user, sites, onPosted, onClose, t }) {
   const [line, setLine] = useState("");
   const [busy, setBusy] = useState(false);
   const [fault, setFault] = useState(null);
-  const loadPeople = () => { setPeopleFault(false); shoutPeopleOf(token, sites, user).then(setPeople).catch(() => setPeopleFault(true)); };
+  const loadPeople = () => { setPeopleFault(false); shoutPeopleOf(token).then(setPeople).catch(() => setPeopleFault(true)); };
   useEffect(() => { loadPeople(); }, []);
   useBusy("shout-out form", busy || line.trim().length > 0);
   const person = Array.isArray(people) ? people.find(p => p.id === who) || null : null;

@@ -12190,7 +12190,9 @@ const PART414_S3_JOURNEYS = [
       const sup = await open({ stubOptions: { person: r414Sup("u-414-sup"), recognition: { award: false, shoutouts: 2, staffAt: true } } });
       try {
         const formUp = await r414Give(sup.page);
-        expect("Give a shout-out opens the form with the people at the supervisor's sites", formUp && sent(sup.stub, "GET", "/api/sites/").length >= 3, "reads " + sent(sup.stub, "GET", "/api/sites/").length);
+        // Part 418 (section 6.2): the people come from GET
+        // /api/recognition/shoutouts/people in place of each site's staff.
+        expect("Give a shout-out opens the form with the people at the supervisor's sites", formUp && sent(sup.stub, "GET", "/api/recognition/shoutouts/people").length >= 1, "reads " + sent(sup.stub, "GET", "/api/recognition/shoutouts/people").length);
         await r414PickAna(sup.page);
         const site = await sup.page.evaluate(() => { const e = document.querySelector("#ocsa-shout-site"); return e ? e.value : null; });
         expect("the one site the two share is chosen", site === "site-north", String(site));
@@ -12342,7 +12344,8 @@ const PART414_S4_JOURNEYS = [
         const union = require("./stub").R15_LINES.find(l => l.kind === "paid_sick" && l.classes.indexOf("union") !== -1);
         expect("the sick balance's line is the union rule's, as the balance answers it", line === (language === "es" ? union.es : union.en), line.slice(0, 160));
         const cls = await app.page.evaluate(() => { const d = document.querySelector("[data-leave-class-line]"); return d ? d.innerText.trim() : ""; });
-        expect("the class the person's time off follows: staff at a union site", cls === say("Your time off follows the rules for staff at a union site.", language), cls);
+        // Part 418 (section 6.3): the line is the API's (leaveClassText).
+        expect("the class the person's time off follows: staff at a union site", cls === require("./stub").R418_CLASS_TEXT.union[language === "es" ? "es" : "en"], cls);
         const not = await app.page.evaluate(() => { const d = document.querySelector('[data-leave-notoffered="unionSite"]'); return d ? d.innerText.replace(/\s+/g, " ").trim() : ""; });
         expect("the kinds not offered, by name, with the API's reason", has(not, servedIn("Vacation", language)) && has(not, require("./stub").R15_WORDS["timeOff.notOffered.unionSite"][language === "es" ? "es" : "en"]), not);
         await spokenHere(app, language, expect);
@@ -12496,5 +12499,717 @@ const PART414_S5_JOURNEYS = [
   },
 ];
 JOURNEYS.push(...PART414_S5_JOURNEYS);
+
+// --- Round 18 of the staff app (part 418), section 1 ----------------------
+//
+// My Training and courses (ocsa-api Round 20, part 415, #170), each failing
+// on the main of part 414, where no screen reads GET /api/training/courses.
+const r418Has = (page, sel) => page.evaluate((x) => !!document.querySelector(x), sel);
+const r418Click = (page, sel) => page.evaluate((x) => { const b = document.querySelector(x); if (b) b.click(); return !!b; }, sel);
+const r418Text = (page, sel) => page.evaluate((x) => { const e = document.querySelector(x); return e ? e.innerText.replace(/\s+/g, " ").trim() : ""; }, sel);
+const r418Attr = (page, sel, a) => page.evaluate(([x, n]) => { const e = document.querySelector(x); return e ? e.getAttribute(n) : null; }, [sel, a]);
+const r418Name = (en, es, language) => (language === "es" ? es : en);
+const r418Open = (open, opts) => open(Object.assign({}, opts || {}, { stubOptions: Object.assign({ training: true, courses: true }, (opts || {}).stubOptions || {}) }));
+const r418Training = async (app, language) => {
+  await openTab(app.page, "training", language);
+  return shows(app.page, "[data-courses]", 8000);
+};
+const PART418_S1_JOURNEYS = [
+  {
+    id: "coursesmytraining",
+    label: "My Training with a promoted course (part 418, 1.1, 1.4): the required chapter still due, Pick up where you left off with its course and place and the share done, Your courses with the promoted course first marked New and each ring, the names as the API stores them; the older trainings still there; an API with no courses route leaves My Training as it was",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open);
+      try {
+        const drawn = await r418Training(app, language);
+        expect("My Training reads GET /api/training/courses and draws the courses", drawn && sent(app.stub, "GET", "/api/training/courses").length >= 1, "drawn " + drawn);
+        const due = await r418Text(app.page, "[data-course-due]");
+        expect("a required chapter still due is named first, with its due state in words", has(due, fill(say("Required: {name}", language), { name: r418Name("Set Up Your Account", "Configure Su Cuenta", language) })) && has(due, say("Not done yet", language)), due);
+        await shows(app.page, "[data-course-pickup-bar]", 4000);
+        const pick = await r418Text(app.page, "[data-course-pickup]");
+        const bar = Number(await r418Attr(app.page, "[data-course-pickup-bar]", "data-course-pickup-bar"));
+        expect("Pick up where you left off names the chapter in progress, its course and place, and the share done (2 of 3 screens, 0 of 1 check)", has(pick, r418Name("Clean a Restroom", "Limpie un Ba\u00f1o", language)) && has(pick, fill(say("{course}, chapter {n} of {total}", language), { course: r418Name("Cleaning Skills", "Habilidades de Limpieza", language), n: 1, total: 3 })) && bar === 50 && sent(app.stub, "GET", "/api/training/attempts/pa-restroom").length === 1, pick + " " + bar);
+        const cards = await app.page.evaluate(() => Array.from(document.querySelectorAll("[data-course]")).map(b => ({ id: b.getAttribute("data-course"), isNew: b.getAttribute("data-course-new") === "1", mark: !!b.querySelector("[data-course-new-mark]"), ring: (b.querySelector("[data-course-ring]") || {}).getAttribute ? b.querySelector("[data-course-ring]").getAttribute("data-course-ring") : null, text: b.innerText.replace(/\s+/g, " ") })));
+        expect("Your courses: the promoted course first, marked New, then the other, each with its ring", cards.length === 2 && cards[0].id === "co-app" && cards[0].isNew && cards[0].mark && cards[1].id === "co-clean" && !cards[1].mark && cards[0].ring === "0/2" && cards[1].ring === "1/3", JSON.stringify(cards));
+        expect("the names are drawn exactly as the API stores them", has(cards[0].text, r418Name("The Staff App", "La App del Personal", language)) && has(cards[1].text, r418Name("Cleaning Skills", "Habilidades de Limpieza", language)) && has(cards[1].text, fill(say("{done} of {total} chapters done", language), { done: 1, total: 3 })), cards.map(c => c.text).join(" | "));
+        expect("the older trainings are still reachable on the same page", await r418Has(app.page, "[data-training-join]"), "no Join a session");
+        await spokenWithin(app, language, expect, "[data-courses]");
+      } finally { await app.context.close(); }
+      const old = await r418Open(open, { stubOptions: { courses: { none: true } } });
+      try {
+        await openTab(old.page, "training", language);
+        await shows(old.page, "[data-training-join]", 8000);
+        await pause(old.page, 800);
+        expect("an API with no courses route: My Training as it was, no course drawn", !(await r418Has(old.page, "[data-courses]")) && (await r418Has(old.page, "[data-training-join]")), "drawn");
+      } finally { await old.context.close(); }
+    },
+  },
+  {
+    id: "coursepage",
+    label: "A course page (part 418, 1.2, 1.3, 1.4): the course read again, its summary, n of m, the certificate line, each chapter done with Watch again from the library, the next with Continue, a required one's due state in words and the trainer's line, and Continue at the bottom; back to My Training",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open);
+      try {
+        await r418Training(app, language);
+        await r418Click(app.page, '[data-course="co-clean"]');
+        const up = await shows(app.page, '[data-course-page="co-clean"]', 6000);
+        await shows(app.page, '[data-chapter="tc-mop"][data-chapter-action="watch"]', 6000);
+        expect("the course opens, read again (GET /api/training/courses/:id) with the library (GET /api/training/courses/library)", up && sent(app.stub, "GET", "/api/training/courses/co-clean").length === 1 && sent(app.stub, "GET", "/api/training/courses/library").length === 1, "up " + up);
+        const head = await r418Text(app.page, '[data-course-page="co-clean"]');
+        expect("its name, summary, n of m and the certificate line", has(head, r418Name("Cleaning Skills", "Habilidades de Limpieza", language)) && has(head, r418Name("How we clean, step by step.", "C\u00f3mo limpiamos, paso a paso.", language)) && has(head, fill(say("{done} of {total} chapters done", language), { done: 1, total: 3 })) && has(head, fill(say("You get a certificate when you finish all {n}.", language), { n: 3 })), head.slice(0, 260));
+        const rows = await app.page.evaluate(() => Array.from(document.querySelectorAll("[data-chapter]")).map(e => ({ id: e.getAttribute("data-chapter"), state: e.getAttribute("data-chapter-state"), action: e.getAttribute("data-chapter-action"), tag: e.tagName, text: e.innerText.replace(/\s+/g, " ") })));
+        const rest = rows.find(r => r.id === "tc-restroom"), mop = rows.find(r => r.id === "tc-mop"), chem = rows.find(r => r.id === "tc-chem");
+        expect("the next chapter is marked next with Continue; a done one offers Watch again", !!rest && rest.state === "next" && has(rest.text, say("Continue", language)) && !!mop && mop.state === "done" && mop.action === "watch" && has(mop.text, say("Watch again", language)), JSON.stringify(rows));
+        expect("a required chapter shows its due state in words, and one for a trainer says so and offers nothing", !!chem && chem.tag === "DIV" && has(chem.text, say("Required", language)) && has(chem.text, say("Not done yet", language)) && has(chem.text, say("Your trainer goes over this one with you.", language)), chem ? chem.text : "none");
+        const next = await r418Text(app.page, "[data-course-next]");
+        expect("the button at the bottom continues the next chapter", has(next, fill(say("Continue: {name}", language), { name: r418Name("Clean a Restroom", "Limpie un Ba\u00f1o", language) })), next);
+        await spokenHere(app, language, expect);
+        await app.page.goBack();
+        await pause(app.page, 900);
+        expect("the phone's back goes to My Training", await r418Has(app.page, "[data-courses]") && !(await r418Has(app.page, "[data-course-page]")), "still on the course");
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART418_S1_JOURNEYS);
+
+// --- Round 18 of the staff app (part 418), section 2 ----------------------
+//
+// The player (ocsa-api Round 20, part 415), each failing on the main of
+// part 414, where no screen plays a player lesson.
+const r418Step = (page) => r418Attr(page, "[data-player-step]", "data-player-step");
+const r418Phase = (page) => r418Attr(page, "[data-player]", "data-player");
+const r418Next = async (page) => { await page.click("[data-player-next]", { timeout: 4000 }).catch(() => {}); await pause(page, 500); };
+const r418Pick = async (page, value) => { await page.click('[data-player-option="' + value + '"]', { timeout: 4000 }).catch(() => {}); await pause(page, 200); };
+const r418Answer = async (page) => { await page.click("[data-player-check-answer]", { timeout: 4000 }).catch(() => {}); await pause(page, 900); };
+const r418Tap = async (page, fx, fy) => {
+  const box = await page.evaluate(() => { const e = document.querySelector("[data-player-tap-image]"); if (!e) return null; e.scrollIntoView({ block: "center" }); const r = e.getBoundingClientRect(); return { w: r.width, h: r.height }; });
+  if (!box) return false;
+  await page.click("[data-player-tap-image]", { position: { x: Math.round(box.w * fx), y: Math.round(box.h * fy) }, timeout: 4000 }).catch(() => {});
+  await pause(page, 300);
+  return true;
+};
+// The course page of The Staff App, opened from My Training.
+const r418OpenApp = async (app, language) => {
+  await r418Training(app, language);
+  await r418Click(app.page, '[data-course="co-app"]');
+  return shows(app.page, '[data-course-page="co-app"] [data-chapter="tc-setup"]', 6000);
+};
+const r418Watched = (stub) => sent(stub, "POST", "/api/training/attempts/").filter(c => /\/progress$/.test(c.path));
+const PART418_S2_JOURNEYS = [
+  {
+    id: "playerlesson",
+    label: "A player lesson through to chapter done (part 418, 2.1 to 2.5): started (POST /api/training/attempts { versionId, locale }), an image screen with its voice playing, a choice, a video screen muted, looping, inline with its poster, a picture check, a screen with no voice and its words alone, a tap check sent as fractions with a ring where it landed, Step n of m and the bar, watched screens sent in a batch, never a score; passed, signed as a quiz is, and Chapter done with n of m and Up next starting the next chapter",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open);
+      try {
+        await r418OpenApp(app, language);
+        await app.page.click('[data-chapter="tc-setup"]', { timeout: 4000 }).catch(() => {});
+        const first = await shows(app.page, '[data-player="screen"][data-player-step="s1"]', 8000);
+        const starts = sent(app.stub, "POST", "/api/training/attempts").filter(c => c.path === "/api/training/attempts");
+        expect("Begin reads the lesson and starts the attempt with its versionId and locale", first && starts.length === 1 && starts[0].body.versionId === "pv-setup" && starts[0].body.locale === language && sent(app.stub, "GET", "/api/training/lesson-versions/pv-setup").length >= 1, JSON.stringify(starts.map(c => c.body)));
+        await pause(app.page, 900);
+        const s1 = await app.page.evaluate(() => ({ img: !!document.querySelector('[data-player-image="s1"]'), words: (document.querySelector('[data-player-words="s1"]') || {}).innerText || "", step: (document.querySelector("[data-player-step-label]") || {}).getAttribute ? document.querySelector("[data-player-step-label]").getAttribute("data-player-step-label") : "", voice: (document.querySelector("[data-player-voice]") || {}).getAttribute ? document.querySelector("[data-player-voice]").getAttribute("data-player-voice-src") : "" }));
+        expect("an image screen: the picture large, its words in big type, Step 1 of 3, and its voice", s1.img && has(s1.words, language === "es" ? "Abra el correo de bienvenida" : "Open the welcome email") && s1.step === "1/3" && /voice-pv-setup-s1\.mp3/.test(s1.voice), JSON.stringify(s1));
+        expect("the voice is fetched as the screen opens, with no button pressed", app.stub.state.r418.media.some(m => /^voice-pv-setup-s1/.test(m.name)), JSON.stringify(app.stub.state.r418.media.map(m => m.name)));
+        await r418Next(app.page);
+        expect("Next goes to the check after the screen", (await r418Phase(app.page)) === "check" && (await r418Step(app.page)) === "c1", await r418Phase(app.page));
+        const answerOff = await app.page.evaluate(() => { const b = document.querySelector("[data-player-check-answer]"); return !!b && b.disabled; });
+        await r418Pick(app.page, "email");
+        await r418Answer(app.page);
+        const c1 = sent(app.stub, "POST", "/api/training/attempts/").filter(c => /\/checks\/c1$/.test(c.path));
+        expect("a choice: Check my answer waits for a pick, then sends { value } once", answerOff && c1.length === 1 && c1[0].body.value === "email", JSON.stringify(c1.map(c => c.body)));
+        await shows(app.page, '[data-player-step="s2"]', 5000);
+        await pause(app.page, 800);
+        const video = await app.page.evaluate(() => { const v = document.querySelector('[data-player-video="s2"]'); return v ? { muted: v.muted, loop: v.loop, inline: v.playsInline, poster: !!v.getAttribute("poster"), auto: v.autoplay } : null; });
+        expect("a video screen: muted, looping, inline, with its poster", !!video && video.muted && video.loop && video.inline && video.poster && video.auto && app.stub.state.r418.media.some(m => m.name === "clip.webm"), JSON.stringify(video));
+        expect("its caption shows in place of the words read", has(await r418Text(app.page, '[data-player-words="s2"]'), language === "es" ? "Toque el bot\u00f3n. La app se abre." : "Tap the button. The app opens."), await r418Text(app.page, '[data-player-words="s2"]'));
+        await r418Next(app.page);
+        await r418Pick(app.page, "phone");
+        const picture = await app.page.evaluate(() => Array.from(document.querySelectorAll('[data-player-check="picture"] [data-player-option]')).map(b => ({ v: b.getAttribute("data-player-option"), label: b.getAttribute("aria-label"), img: !!b.querySelector("img") })));
+        expect("a picture check: a grid of pictures, each named by its alt text", picture.length === 2 && picture.every(x => x.img && x.label), JSON.stringify(picture));
+        await r418Answer(app.page);
+        await shows(app.page, '[data-player-step="s3"]', 5000);
+        const s3 = await app.page.evaluate(() => ({ media: !!document.querySelector("[data-player-media]"), voice: !!document.querySelector("[data-player-voice]"), note: !!document.querySelector("[data-player-no-voice]") }));
+        expect("a screen with no voice: the words alone, no voice control, and nothing breaks", !s3.media && !s3.voice && s3.note && (await r418Phase(app.page)) === "screen", JSON.stringify(s3));
+        await r418Next(app.page);
+        await r418Tap(app.page, 0.5, 0.5);
+        const ring = await r418Attr(app.page, "[data-player-tap-ring]", "data-player-tap-ring");
+        await r418Answer(app.page);
+        const c3 = sent(app.stub, "POST", "/api/training/attempts/").filter(c => /\/checks\/c3$/.test(c.path));
+        expect("a tap check: a ring where the finger landed, and { x, y } as fractions of the picture", !!ring && c3.length === 1 && Math.abs(c3[0].body.x - 0.5) < 0.05 && Math.abs(c3[0].body.y - 0.5) < 0.05, ring + " " + JSON.stringify(c3.map(c => c.body)));
+        const signUp = await shows(app.page, '[data-player="sign"]', 5000);
+        const text = await bodyText(app.page);
+        expect("the last right answer passes it: You got every answer right, the acknowledgement and the signature, and no score anywhere", signUp && has(text, say("You got every answer right.", language)) && has(text, language === "es" ? "Vi c\u00f3mo configurar mi cuenta" : "I watched how to set up my account") && !/\d+\s?%/.test(text), text.slice(0, 200));
+        await app.page.clock.runFor(5000);
+        await pause(app.page, 600);
+        const batches = r418Watched(app.stub);
+        const keys = [].concat(...batches.map(c => c.body.watched || []));
+        expect("watched screens go to POST .../progress in batches, each screen once", batches.length >= 1 && batches.length <= 3 && ["s1", "s2", "s3"].every(k => keys.indexOf(k) !== -1) && keys.length === new Set(keys).size, JSON.stringify(batches.map(c => c.body)));
+        await spokenHere(app, language, expect);
+        await drawSignature(app.page);
+        await app.page.click("[data-player-sign]", { timeout: 4000 }).catch(() => {});
+        const done = await shows(app.page, '[data-player="done"]', 6000);
+        const acks = sent(app.stub, "POST", "/api/training/attempts/").filter(c => /\/acknowledge$/.test(c.path));
+        expect("signed as a quiz is: POST .../acknowledge { signature } once", acks.length === 1 && /^data:image\/png;base64,/.test(acks[0].body.signature || ""), String(acks.length));
+        await shows(app.page, "[data-player-done-count]", 4000);
+        const doneText = await r418Text(app.page, '[data-player="done"]');
+        expect("Chapter done: what was finished, 1 of 2 chapters done, and Up next", done && has(doneText, say("Chapter done!", language)) && has(doneText, fill(say("You finished {name}.", language), { name: r418Name("Set Up Your Account", "Configure Su Cuenta", language) })) && (await r418Attr(app.page, "[data-player-done-count]", "data-player-done-count")) === "1/2" && (await r418Has(app.page, '[data-player-up-next="tc-shift"]')), doneText.slice(0, 260));
+        expect("a check that draws, still for nothing that flashes", (await r418Attr(app.page, "[data-player-check-draw]", "data-player-check-draw")) === "draw", "");
+        await spokenHere(app, language, expect);
+        await app.page.click("[data-player-start-next]", { timeout: 4000 }).catch(() => {});
+        const nextUp = await shows(app.page, '[data-player-step="s1"]', 6000);
+        const shift = sent(app.stub, "POST", "/api/training/attempts").filter(c => c.path === "/api/training/attempts" && c.body && c.body.versionId === "pv-shift");
+        expect("Start next chapter starts the next chapter's lesson", nextUp && shift.length === 1, String(shift.length));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "playerwrong",
+    label: "A wrong answer (part 418, 2.4): Not quite. That is okay., the screens to watch again, Watch it again playing them, then the question again and a right answer moving on; a tap off the spot tried again; never a score, never a fail",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open);
+      try {
+        await r418OpenApp(app, language);
+        await app.page.click('[data-chapter="tc-setup"]', { timeout: 4000 }).catch(() => {});
+        await shows(app.page, '[data-player-step="s1"]', 8000);
+        await r418Next(app.page);
+        await r418Pick(app.page, "clock");
+        await r418Answer(app.page);
+        const up = await shows(app.page, '[data-player-wrong="c1"]', 5000);
+        const text = await r418Text(app.page, '[data-player="wrong"]');
+        expect("a wrong answer: Not quite. That is okay., watch that part again, and as many times as you need", up && has(text, say("Not quite. That is okay.", language)) && has(text, say("You can try as many times as you need.", language)) && (await r418Has(app.page, '[data-player-replay-screen="s1"]')) && !/\d+\s?%/.test(text), text.slice(0, 260));
+        await spokenHere(app, language, expect);
+        await app.page.click("[data-player-watch-again]", { timeout: 4000 }).catch(() => {});
+        await pause(app.page, 600);
+        const replayed = (await r418Step(app.page)) === "s1" && has(await r418Text(app.page, "[data-player-step-label]"), say("Watching again", language));
+        await r418Next(app.page);
+        expect("Watch it again plays the replay screens, then the question comes back", replayed && (await r418Step(app.page)) === "c1", await r418Step(app.page));
+        await r418Pick(app.page, "email");
+        await r418Answer(app.page);
+        expect("a right answer then moves on", await shows(app.page, '[data-player-step="s2"]', 5000), await r418Step(app.page));
+        await r418Next(app.page);
+        await r418Pick(app.page, "phone");
+        await r418Answer(app.page);
+        await shows(app.page, '[data-player-step="s3"]', 5000);
+        await r418Next(app.page);
+        await r418Tap(app.page, 0.03, 0.05);
+        await r418Answer(app.page);
+        const offSpot = await shows(app.page, '[data-player-wrong="c3"]', 5000);
+        await app.page.click("[data-player-try-again]", { timeout: 4000 }).catch(() => {});
+        await pause(app.page, 500);
+        expect("a tap off the spot is wrong too, and Try the question again goes back to it with nothing picked", offSpot && (await r418Step(app.page)) === "c3" && !(await r418Has(app.page, "[data-player-tap-ring]")), String(offSpot));
+        await r418Tap(app.page, 0.5, 0.5);
+        await r418Answer(app.page);
+        expect("the right spot passes the lesson", await shows(app.page, '[data-player="sign"]', 5000), await r418Phase(app.page));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "playerresume",
+    label: "Resume on a second device (part 418, 2.1): the same attempt answered 200 opens at progress.nextScreen, the screens watched on the other device and the checks answered right there skipped",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { stubOptions: { courses: { setupAt: ["s1", "s2"], setupRight: ["c1", "c2"] } } });
+      try {
+        await r418OpenApp(app, language);
+        const row = await r418Text(app.page, '[data-chapter="tc-setup"]');
+        expect("the chapter in progress offers Continue", has(row, say("Continue", language)), row);
+        await app.page.click('[data-chapter="tc-setup"]', { timeout: 4000 }).catch(() => {});
+        const at = await shows(app.page, '[data-player="screen"][data-player-step="s3"]', 8000);
+        const starts = sent(app.stub, "POST", "/api/training/attempts").filter(c => c.path === "/api/training/attempts");
+        expect("it opens at the next screen not watched (s3), on the same attempt", at && starts.length === 1 && (await r418Attr(app.page, "[data-player-step-label]", "data-player-step-label")) === "3/3", await r418Step(app.page));
+        await r418Next(app.page);
+        expect("and goes on to the check still to answer", (await r418Step(app.page)) === "c3", await r418Step(app.page));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "playerreview",
+    label: "Watch again writes nothing (part 418, 1.3, 2): a done chapter's Watch again reads the lesson with review=true, starts no attempt, sends no progress, tries its checks through POST /api/training/lesson-versions/:id/checks/:key, and ends saying nothing was saved",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open);
+      try {
+        await r418Training(app, language);
+        await r418Click(app.page, '[data-course="co-clean"]');
+        await shows(app.page, '[data-chapter="tc-mop"][data-chapter-action="watch"]', 8000);
+        await app.page.click('[data-chapter="tc-mop"]', { timeout: 4000 }).catch(() => {});
+        const up = await shows(app.page, '[data-player="screen"][data-player-review="1"]', 8000);
+        const read = sent(app.stub, "GET", "/api/training/lesson-versions/pv-mop");
+        expect("it reads the lesson with review=true", up && read.length >= 1 && /review=true/.test(read[0].search), JSON.stringify(read.map(c => c.search)));
+        await r418Next(app.page);
+        await r418Pick(app.page, "mop");
+        await r418Answer(app.page);
+        const wrongUp = await shows(app.page, '[data-player-wrong="c1"]', 4000);
+        await app.page.click("[data-player-try-again]", { timeout: 4000 }).catch(() => {});
+        await pause(app.page, 400);
+        await r418Pick(app.page, "sign");
+        await r418Answer(app.page);
+        const end = await shows(app.page, '[data-player="watched"]', 5000);
+        const tries = sent(app.stub, "POST", "/api/training/lesson-versions/pv-mop/checks/c1");
+        expect("its checks go through the review route, a wrong one watched again as any", wrongUp && tries.length === 2, String(tries.length));
+        await app.page.clock.runFor(6000);
+        await pause(app.page, 500);
+        const attempts = sent(app.stub, "POST", "/api/training/attempts").length;
+        expect("nothing is written: no attempt, no progress, no acknowledgement", end && attempts === 0 && (await r418Has(app.page, '[data-player="watched"]')) && has(await r418Text(app.page, '[data-player="watched"]'), say("Nothing was saved. Your training stays done.", language)), "attempt routes " + attempts);
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "playerfaults",
+    label: "The player's refusals (part 418, 2.6): a media link that ran out reads the lesson again once and the picture shows; 409 training.attemptClosed on a check reads the answer's attempt and moves on to signing; a 404 check reads the API's words",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { stubOptions: { courses: { mediaStale: 1 } } });
+      try {
+        await r418OpenApp(app, language);
+        await app.page.click('[data-chapter="tc-setup"]', { timeout: 4000 }).catch(() => {});
+        await shows(app.page, '[data-player-step="s1"]', 8000);
+        await pause(app.page, 1500);
+        const reads = app.stub.state.r418.lessonReads.filter(r => r.id === "pv-setup").length;
+        const loaded = await app.page.evaluate(() => { const i = document.querySelector('[data-player-image="s1"]'); return !!i && i.complete && i.naturalWidth > 0; });
+        expect("a media link that ran out: the lesson is read once more and the picture loads", reads === 2 && loaded && app.stub.state.r418.media.some(m => !m.ok), "reads " + reads + " loaded " + loaded);
+        // The attempt finished on another device: the check is refused
+        // 409 training.attemptClosed with the attempt, passed.
+        const a = app.stub.state.r418.attempts.find(x => x.versionId === "pv-setup");
+        a.progress.right = ["c1", "c2", "c3"]; a.passed = true; a.scoredAt = new Date().toISOString();
+        await r418Next(app.page);
+        await r418Pick(app.page, "email");
+        await r418Answer(app.page);
+        expect("409 training.attemptClosed reads the answer's attempt and moves on to signing", await shows(app.page, '[data-player="sign"]', 5000), await r418Phase(app.page));
+      } finally { await app.context.close(); }
+      const gone = await r418Open(open);
+      try {
+        await r418OpenApp(gone, language);
+        await gone.page.click('[data-chapter="tc-setup"]', { timeout: 4000 }).catch(() => {});
+        await shows(gone.page, '[data-player-step="s1"]', 8000);
+        await r418Next(gone.page);
+        await gone.page.route(/\/api\/training\/attempts\/[^/]+\/checks\/c1/, (route) => route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ error: language === "es" ? "Esa pregunta no est\u00e1 en esta lecci\u00f3n." : "That question is not in this lesson.", code: "training.checkNotFound" }) }));
+        await r418Pick(gone.page, "email");
+        await r418Answer(gone.page);
+        const said = await bodyText(gone.page);
+        expect("a 404 reads the API's words and the question stays", has(said, language === "es" ? "Esa pregunta no est\u00e1 en esta lecci\u00f3n." : "That question is not in this lesson.") && (await r418Step(gone.page)) === "c1", said.slice(0, 200));
+      } finally { await gone.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART418_S2_JOURNEYS);
+
+// --- Round 18 of the staff app (part 418), section 3 ----------------------
+//
+// Course certificates (ocsa-api Round 20, part 415), each failing on the
+// main of part 414, where no screen reads a course certificate.
+// The last chapter of The Staff App played and signed.
+const r418FinishShift = async (app, language) => {
+  await r418OpenApp(app, language);
+  await app.page.click('[data-chapter="tc-shift"]', { timeout: 4000 }).catch(() => {});
+  await shows(app.page, '[data-player-step="s1"]', 8000);
+  await r418Next(app.page);
+  await r418Next(app.page);
+  await r418Pick(app.page, "end");
+  await r418Answer(app.page);
+  await shows(app.page, '[data-player="sign"]', 5000);
+  await drawSignature(app.page);
+  await app.page.click("[data-player-sign]", { timeout: 4000 }).catch(() => {});
+  return shows(app.page, "[data-course-done]", 8000);
+};
+const r418Pdfs = (stub) => (stub.state.r418.pdfReads || []).length;
+const PART418_S3_JOURNEYS = [
+  {
+    id: "coursedone",
+    label: "Course done (part 418, 3.1): the last chapter signed ends the course: You did it!, the course, Saved to your HR file, the mail as mailStatus says (sent: We emailed you a copy; failed and no_email: We could not email it with Send it again; still going: read again until it went), Open my certificate and Print or share reading GET /api/training/certificates/:id/pdf",
+    run: async (open, language, expect) => {
+      for (const mail of ["sent", "failed", "no_email", "sending"]) {
+        const app = await r418Open(open, { stubOptions: { courses: { appLeft: "shift", mailStatus: mail } } });
+        try {
+          const up = await r418FinishShift(app, language);
+          await shows(app.page, "[data-cert]", 8000);
+          const text = await r418Text(app.page, "[data-course-done]");
+          expect(mail + ": You did it! and the course finished", up && has(text, say("You did it!", language)) && has(text, fill(say("You finished {name}. Here is your certificate.", language), { name: r418Name("The Staff App", "La App del Personal", language) })), text.slice(0, 240));
+          expect(mail + ": Saved to your HR file", await r418Has(app.page, "[data-cert-filed]"), "");
+          if (mail === "sent") expect("sent: We emailed you a copy", (await r418Attr(app.page, "[data-cert-mail-line]", "data-cert-mail-line")) === "sent" && has(text, say("We emailed you a copy", language)), text.slice(0, 240));
+          if (mail === "sending") {
+            const first = await r418Attr(app.page, "[data-cert-mail-line]", "data-cert-mail-line");
+            await app.page.clock.runFor(3500);
+            const went = await shows(app.page, '[data-cert-mail-line="sent"]', 6000);
+            expect("still going: We are emailing you a copy., then read again until it went", first === "sending" && went && app.stub.state.r418.mineReads >= 2, first + " " + app.stub.state.r418.mineReads);
+          }
+          if (mail === "failed" || mail === "no_email") {
+            expect(mail + ": We could not email it, with Send it again", (await r418Attr(app.page, "[data-cert-mail-line]", "data-cert-mail-line")) === mail && has(text, say("We could not email it", language)) && (await r418Has(app.page, "[data-cert-resend]")), text.slice(0, 240));
+            await app.page.click("[data-cert-resend]", { timeout: 4000 }).catch(() => {});
+            const went = await shows(app.page, '[data-cert-mail-line="sent"]', 5000);
+            expect(mail + ": Send it again posts the resend and reads it sent", went && sent(app.stub, "POST", "/api/training/certificates/cert-co-app/resend").length === 1, String(went));
+          }
+          await app.page.click("[data-cert-open]", { timeout: 4000 }).catch(() => {});
+          await pause(app.page, 1200);
+          await app.page.click("[data-cert-print]", { timeout: 4000 }).catch(() => {});
+          await pause(app.page, 1200);
+          expect(mail + ": Open my certificate and Print or share each open its PDF", r418Pdfs(app.stub) === 2, "reads " + r418Pdfs(app.stub));
+          await spokenWithin(app, language, expect, "[data-course-done]");
+        } finally { await app.context.close(); }
+      }
+    },
+  },
+  {
+    id: "mycertificates",
+    label: "My certificates (part 418, 3.2): My Training counts them, the page lists GET /api/training/certificates/mine newest first, each opening its PDF; Send it again on one whose mail failed reads 409 training.certificateSending in the API's words, then sends",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { stubOptions: { courses: { appDone: true, certs: 2, resendBusy: true } } });
+      try {
+        await r418Training(app, language);
+        const count = await r418Attr(app.page, "[data-certificates-open]", "data-certificates-open");
+        expect("My Training reads My certificates (3)", count === "3" && has(await r418Text(app.page, "[data-certificates-open]"), fill(say("My certificates ({n})", language), { n: 3 })), String(count));
+        await r418Click(app.page, "[data-certificates-open]");
+        await shows(app.page, "[data-cert]", 6000);
+        const ids = await app.page.evaluate(() => Array.from(document.querySelectorAll("[data-cert]")).map(e => e.getAttribute("data-cert")));
+        expect("the list is newest first", JSON.stringify(ids) === JSON.stringify(["cert-co-app", "cert-old-2", "cert-old-1"]), JSON.stringify(ids));
+        await app.page.click('[data-cert="cert-old-1"] [data-cert-resend]', { timeout: 4000 }).catch(() => {});
+        await pause(app.page, 900);
+        const said = await r418Text(app.page, '[data-cert="cert-old-1"]');
+        expect("409 training.certificateSending is said in the API's words", has(said, language === "es" ? "Este certificado se est\u00e1 enviando ahora." : "This certificate is being emailed right now."), said.slice(0, 260));
+        await app.page.click('[data-cert="cert-old-1"] [data-cert-resend]', { timeout: 4000 }).catch(() => {});
+        const went = await shows(app.page, '[data-cert="cert-old-1"][data-cert-mail="sent"]', 5000);
+        expect("Send it again then sends it", went && sent(app.stub, "POST", "/api/training/certificates/cert-old-1/resend").length === 2, String(went));
+        await app.page.click('[data-cert="cert-old-2"] [data-cert-open]', { timeout: 4000 }).catch(() => {});
+        await pause(app.page, 1200);
+        expect("a certificate opens its PDF", (app.stub.state.r418.pdfReads || []).some(r => r.id === "cert-old-2"), JSON.stringify(app.stub.state.r418.pdfReads || []));
+        await spokenHere(app, language, expect);
+        await app.page.goBack();
+        await pause(app.page, 800);
+        expect("the phone's back goes to My Training", await r418Has(app.page, "[data-courses]"), "");
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "certificatebell",
+    label: "The bell's training_certificate (part 418, 3.3): /?open=training_certificate:<id> opens My certificates on that certificate",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { path: "/?open=training_certificate:cert-old-2", stubOptions: { courses: { certs: 2 } } });
+      try {
+        const up = await shows(app.page, '[data-cert="cert-old-2"][data-cert-focus="1"]', 10000);
+        expect("the notice's link opens My certificates on the certificate it names", up, "not opened");
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART418_S3_JOURNEYS);
+
+// --- Round 18 of the staff app (part 418), section 4 ----------------------
+//
+// The setup page before sign-in (ocsa-api Round 20, part 415, 9.1), each
+// failing on the main of part 414, which has no /setup.
+const r418Setup = (stub) => sent(stub, "GET", "/api/public/training/setup");
+const PART418_S4_JOURNEYS = [
+  {
+    id: "setuppage",
+    label: "The setup page (part 418, 4.1): /setup with no sign-in reads GET /api/public/training/setup?locale=, draws the chapter's name, its steps, the language choice, Start the video and Sign in; the chapter plays in the same player as a review, its checks through POST /api/public/training/setup/checks/:key with no token, nothing written, and ends on Sign in",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { signedIn: false, path: "/setup" });
+      try {
+        const up = await shows(app.page, '[data-setup="ready"]', 10000);
+        const text = await r418Text(app.page, "[data-setup]");
+        expect("the page draws the chapter's name as the API stores it, its steps, the line and Sign in", up && has(text, r418Name("Set Up Your Account", "Configure Su Cuenta", language)) && (await r418Attr(app.page, "[data-setup-steps]", "data-setup-steps")) === "3" && has(text, say("I already have an account. Sign in.", language)) && (await r418Has(app.page, "[data-setup-start]")), text.slice(0, 260));
+        expect("it reads GET /api/public/training/setup in the page's language", r418Setup(app.stub).some(c => new RegExp("locale=" + language).test(c.search)), JSON.stringify(r418Setup(app.stub).map(c => c.search)));
+        await spokenHere(app, language, expect);
+        const other = language === "es" ? "en" : "es";
+        await app.page.click('[data-setup-language="' + other + '"]', { timeout: 4000 }).catch(() => {});
+        await pause(app.page, 900);
+        expect("the language choice reads it again in the other language", r418Setup(app.stub).some(c => new RegExp("locale=" + other).test(c.search)), JSON.stringify(r418Setup(app.stub).map(c => c.search)));
+        await app.page.click('[data-setup-language="' + language + '"]', { timeout: 4000 }).catch(() => {});
+        await pause(app.page, 900);
+        await app.page.click("[data-setup-start]", { timeout: 4000 }).catch(() => {});
+        const playing = await shows(app.page, '[data-player="screen"][data-player-review="1"][data-player-step="s1"]', 8000);
+        expect("Start the video plays the chapter in the player as a review", playing, await r418Phase(app.page));
+        await r418Next(app.page);
+        await r418Pick(app.page, "flyer");
+        await r418Answer(app.page);
+        const wrongUp = await shows(app.page, '[data-player-wrong="c1"]', 4000);
+        await app.page.click("[data-player-try-again]", { timeout: 4000 }).catch(() => {});
+        await pause(app.page, 300);
+        await r418Pick(app.page, "email");
+        await r418Answer(app.page);
+        await shows(app.page, '[data-player-step="s2"]', 4000);
+        await r418Next(app.page);
+        await r418Pick(app.page, "phone");
+        await r418Answer(app.page);
+        await shows(app.page, '[data-player-step="s3"]', 4000);
+        await r418Next(app.page);
+        await r418Tap(app.page, 0.5, 0.5);
+        await r418Answer(app.page);
+        const end = await shows(app.page, '[data-player="watched"]', 5000);
+        const checks = sent(app.stub, "POST", "/api/public/training/setup/checks/");
+        const tokened = app.stub.state.calls.filter(c => /^\/api\/(public\/training|training)\//.test(c.path) && /^Bearer /.test(String((c.headers || {}).authorization || "")));
+        expect("its checks go to the public route with no token, a wrong one watched again, and nothing is written", wrongUp && end && checks.length === 4 && tokened.length === 0 && sent(app.stub, "POST", "/api/training/attempts").length === 0, JSON.stringify({ checks: checks.length, tokened: tokened.map(c => c.path) }));
+        await spokenHere(app, language, expect);
+        await app.page.click("[data-player-sign-in]", { timeout: 4000 }).catch(() => {});
+        expect("Sign in at the end goes to the sign-in screen", await shows(app.page, 'input[type="password"]', 5000), "no sign-in");
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "setupnone",
+    label: "The setup page with no chapter, and at the limit (part 418, 4.1): 404 training.noSetupChapter and 429 customer.tooManyRequests each say the API's words with Sign in, and nothing plays",
+    run: async (open, language, expect) => {
+      for (const which of [{ code: "training.noSetupChapter", opt: { setup: false }, phase: "none", en: "The account setup video is not ready yet.", es: "El video para configurar la cuenta todav\u00eda no est\u00e1 listo." }, { code: "customer.tooManyRequests", opt: { setupLimit: true }, phase: "limit", en: "Too many tries from this connection.", es: "Demasiados intentos desde esta conexi\u00f3n." }]) {
+        const app = await r418Open(open, { signedIn: false, path: "/setup", stubOptions: { courses: which.opt } });
+        try {
+          const up = await shows(app.page, '[data-setup="' + which.phase + '"]', 10000);
+          const text = await r418Text(app.page, "[data-setup]");
+          expect(which.code + ": the API's words, Sign in, and no Start the video", up && has(text, language === "es" ? which.es : which.en) && (await r418Has(app.page, "[data-setup-sign-in]")) && !(await r418Has(app.page, "[data-setup-start]")), text.slice(0, 240));
+          await spokenHere(app, language, expect);
+          await app.page.click("[data-setup-sign-in]", { timeout: 4000 }).catch(() => {});
+          expect(which.code + ": Sign in goes to the sign-in screen", await shows(app.page, 'input[type="password"]', 5000), "");
+        } finally { await app.context.close(); }
+      }
+    },
+  },
+  {
+    id: "setuplink",
+    label: "The sign-in screen's link (part 418, 4.2): New here? Watch how to set up your account opens /setup, and the phone's back returns to sign in",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { signedIn: false });
+      try {
+        await shows(app.page, "[data-setup-link]", 8000);
+        expect("the sign-in screen offers the link", has(await r418Text(app.page, "[data-setup-link]"), say("New here? Watch how to set up your account", language)), "");
+        await app.page.click("[data-setup-link]", { timeout: 4000 }).catch(() => {});
+        const up = await shows(app.page, '[data-setup="ready"]', 8000);
+        expect("it opens the setup page at /setup", up && /\/setup$/.test(new URL(app.page.url()).pathname), app.page.url());
+        await app.page.goBack();
+        expect("the phone's back returns to sign in", await shows(app.page, 'input[type="password"]', 5000), "");
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART418_S4_JOURNEYS);
+
+// --- Round 18 of the staff app (part 418), section 5 ----------------------
+//
+// The training site (ocsa-api Round 20, part 415, section 7), opened with
+// ?site=training as on a preview, each failing on the main of part 414,
+// which has no training site.
+const r418SignIn = async (page, language) => {
+  await shows(page, 'input[type="password"]', 8000);
+  await type(page, 'input[autocomplete="username"]', "4821");
+  await type(page, 'input[type="password"]', "4907");
+  await clickText(page, say("Sign In", language));
+  await pause(page, 1200);
+};
+const r418Stored = (page) => page.evaluate(() => ({ local: Object.keys(window.localStorage).filter(k => /auth|badge|identifier|token/i.test(k)), session: !!window.sessionStorage.getItem("ocsa-training-auth") }));
+const r418Bar = (page) => page.evaluate(() => Array.from(document.querySelectorAll("div")).some((el) => { const s = getComputedStyle(el); return s.position === "fixed" && s.bottom === "0px" && el.querySelectorAll(":scope > button").length >= 5; }));
+const PART418_S5_JOURNEYS = [
+  {
+    id: "trainingsite",
+    label: "The training site's sign-in (part 418, 5.1, 5.2): ?site=training signs in with app: \"training\" (and on the second step, never remembering the computer), shows only training (no bottom bar, no other place), keeps the token in the tab alone, and after sign-out nothing of the person stays on the computer",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { signedIn: false, path: "/?site=training" });
+      try {
+        await r418SignIn(app.page, language);
+        const login = sent(app.stub, "POST", "/api/auth/login");
+        expect("the sign-in carries app: \"training\"", login.length === 1 && login[0].body && login[0].body.app === "training", JSON.stringify(login.map(c => c.body && c.body.app)));
+        const main = await shows(app.page, '[data-training-site="main"] [data-courses]', 10000);
+        expect("signed in, My Training with the courses, under a header that says Training, with no bottom bar", main && has(await bodyText(app.page), say("Training", language)) && !(await r418Bar(app.page)) && (await r418Has(app.page, "[data-training-site-languages]")), String(main));
+        const kept = await r418Stored(app.page);
+        expect("the token lives in the tab alone, nothing in the computer's storage", kept.session && kept.local.length === 0, JSON.stringify(kept));
+        await spokenWithin(app, language, expect, "[data-courses]");
+        await app.page.click("[data-training-site-sign-out]", { timeout: 4000 }).catch(() => {});
+        await shows(app.page, 'input[type="password"]', 5000);
+        const after = await r418Stored(app.page);
+        const typed = await boxText(app.page, 'input[autocomplete="username"]');
+        expect("after sign-out nothing of the person stays: no token, no badge in the box", !after.session && after.local.length === 0 && !typed, JSON.stringify(after) + " " + typed);
+      } finally { await app.context.close(); }
+      const office = await r418Open(open, { signedIn: false, path: "/?site=training", stubOptions: { secondStep: true } });
+      try {
+        await r418SignIn(office.page, language);
+        await shows(office.page, "#ocsa-code", 6000);
+        expect("an office account's code screen offers no remember this computer", !(await r418Has(office.page, '[role="checkbox"]')), "offered");
+        await type(office.page, "#ocsa-code", require("./stub").SECOND_STEP_CODE);
+        await pause(office.page, 1500);
+        const step = sent(office.stub, "POST", "/api/auth/second-step");
+        expect("the second step carries app: \"training\" and rememberDevice false", step.length >= 1 && step[0].body.app === "training" && step[0].body.rememberDevice === false, JSON.stringify(step.map(c => c.body && { app: c.body.app, remember: c.body.rememberDevice })));
+      } finally { await office.context.close(); }
+    },
+  },
+  {
+    id: "trainingidle",
+    label: "The training site signs out when idle (part 418, 5.1): a warning a minute before, Keep working starting over, sign-out after 10 idle minutes on the computer's own clock with the reason said, and renewal (POST /api/auth/renew) while the person is active",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { signedIn: false, path: "/?site=training" });
+      try {
+        await r418SignIn(app.page, language);
+        await shows(app.page, '[data-training-site="main"]', 10000);
+        await app.page.clock.fastForward(9 * 60 * 1000 + 5000);
+        await pause(app.page, 1500);
+        const warned = await shows(app.page, "[data-training-site-idle]", 4000);
+        expect("a minute before, Are you still here? with the seconds left", warned && has(await bodyText(app.page), say("Are you still here?", language)), String(warned));
+        await spokenWithin(app, language, expect, "[data-training-site-idle]");
+        await app.page.click("[data-training-site-keep]", { timeout: 4000 }).catch(() => {});
+        await pause(app.page, 600);
+        // Active from here: a tap every four minutes for sixteen minutes.
+        let calm = true;
+        for (let i = 0; i < 4; i += 1) {
+          await app.page.clock.fastForward(4 * 60 * 1000);
+          await pause(app.page, 400);
+          if (!(await r418Has(app.page, '[data-training-site="main"]')) || (await r418Has(app.page, "[data-training-site-idle]"))) calm = false;
+          await app.page.mouse.click(5, 300);
+          await pause(app.page, 200);
+        }
+        await app.page.clock.fastForward(2000);
+        await pause(app.page, 1200);
+        expect("Keep working starts the clock over, and activity keeps the person signed in with no warning", calm && (await r418Has(app.page, '[data-training-site="main"]')), String(calm));
+        expect("active past 15 minutes, the token is renewed (POST /api/auth/renew)", sent(app.stub, "POST", "/api/auth/renew").length >= 1, String(sent(app.stub, "POST", "/api/auth/renew").length));
+        await app.page.clock.fastForward(10 * 60 * 1000 + 2000);
+        await pause(app.page, 1500);
+        const out = await shows(app.page, "[data-training-site-note]", 4000);
+        const left = await r418Stored(app.page);
+        expect("after 10 idle minutes it signs out, says why, and keeps nothing", out && (await r418Has(app.page, 'input[type="password"]')) && !left.session && has(await bodyText(app.page), say("You were signed out after 10 minutes with nothing done. Sign in again to go on.", language)), JSON.stringify(left));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "trainingdesktop",
+    label: "The training site on a computer (part 418, 5.2): at 1280 wide a course's chapters sit on the left and the player on the right; below 900 the phone's layout",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { signedIn: false, path: "/?site=training" });
+      try {
+        await app.page.setViewportSize({ width: 1280, height: 900 });
+        await r418SignIn(app.page, language);
+        await shows(app.page, "[data-courses]", 10000);
+        await r418Click(app.page, '[data-course="co-app"]');
+        await shows(app.page, '[data-course-wide="1"] [data-course-panel]', 6000);
+        await app.page.click('[data-course-panel] [data-course-next]', { timeout: 4000 }).catch(() => {});
+        await shows(app.page, '[data-course-player-side] [data-player="screen"]', 8000);
+        const sides = await app.page.evaluate(() => {
+          const list = document.querySelector("[data-course-chapters]"), player = document.querySelector('[data-course-player-side] [data-player]');
+          if (!list || !player) return null;
+          const a = list.getBoundingClientRect(), b = player.getBoundingClientRect();
+          return { listRight: Math.round(a.right), playerLeft: Math.round(b.left), playerWidth: Math.round(b.width), wide: document.documentElement.scrollWidth <= window.innerWidth + 1 };
+        });
+        expect("the chapters on the left and the player on the right, no sideways scroll", !!sides && sides.listRight <= sides.playerLeft && sides.playerWidth > 500 && sides.wide, JSON.stringify(sides));
+        await spokenHere(app, language, expect);
+        await app.page.setViewportSize({ width: 390, height: 844 });
+        await pause(app.page, 800);
+        expect("below 900 wide, the phone's layout", !(await r418Has(app.page, '[data-course-wide="1"]')) && (await r418Has(app.page, '[data-player="screen"]')), "");
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART418_S5_JOURNEYS);
+
+// --- Round 18 of the staff app (part 418), section 6 ----------------------
+//
+// What ocsa-api Round 21 (part 416, #171) gave the staff app.
+// A site's own read, GET /api/sites/:id, which the picker read before.
+const r418SiteReads = (stub) => stub.state.calls.filter(c => c.method === "GET" && /^\/api\/sites\/[^/]+$/.test(c.path)).length;
+const PART418_S6_JOURNEYS = [
+  {
+    id: "insidenoticeform",
+    label: "The notice line before sending (part 418, 6.1): the preview's notice.insideNoticeText shows on the form before the request is sent, and the 400 refusal's notice keeps it; a request with no line from the API shows none, never the app's own sentence",
+    run: async (open, language, expect) => {
+      const api = require("./stub").R15_INSIDE_TEXT[language === "es" ? "es" : "en"];
+      const app = await open({});
+      try {
+        await openOffForm(app, language);
+        await offPick(app, "vacation");
+        await offDays(app, "2026-10-05", "2026-10-06");
+        const up = await shows(app.page, '[data-timeoff-inside="form"]', 6000);
+        const line = up ? await r418Text(app.page, '[data-timeoff-inside="form"]') : "";
+        expect("before Send, the preview's line in the API's words", line === api && sent(app.stub, "POST", "/api/time-off/preview").length >= 1, line);
+        await clickText(app.page, say("Send request", language));
+        await offErrorShows(app.page, "reason", 6000);
+        const still = await r418Text(app.page, '[data-timeoff-inside="form"]');
+        expect("the refusal asking for a reason keeps the line from its notice", still === api, still);
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+      const held = timeOffRow({ id: "to-inside-none", status: "requested", leaveType: "vacation", leaveTypeLabel: "Vacation", startsOn: "2026-10-05", endsOn: "2026-10-06", insideNotice: true, insideNoticeText: null, insideNoticeWords: null });
+      const mine = await open({ stubOptions: { myTimeOff: [held] } });
+      try {
+        await openTab(mine.page, "schedule", language);
+        await pause(mine.page, 2500);
+        expect("with no line from the API, none shows: the app's own sentence is gone", !(await r418Has(mine.page, '[data-timeoff-inside="row"]')) && !has(await bodyText(mine.page), say("Asked with less notice than the policy asks. The office decides it case by case.", "en")), "drawn");
+      } finally { await mine.context.close(); }
+    },
+  },
+  {
+    id: "shoutoutpeople",
+    label: "The shout-out picker (part 418, 6.2): GET /api/recognition/shoutouts/people read page by page in place of the per-site reads, searchable, and the post sent with one of the person's sites",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: Object.assign({}, PERSON, { id: "u-418-sup", role: "supervisor" }), recognition: { award: false, shoutouts: 1, peoplePage: 2 } } });
+      try {
+        const up = await r414Give(app.page);
+        await pause(app.page, 800);
+        expect("the picker reads the people route page by page and no site's staff", up && sent(app.stub, "GET", "/api/recognition/shoutouts/people").length === 2 && r418SiteReads(app.stub) === 0, JSON.stringify({ people: sent(app.stub, "GET", "/api/recognition/shoutouts/people").map(c => c.search), sites: r418SiteReads(app.stub) }));
+        await r414PickAna(app.page);
+        const site = await app.page.evaluate(() => { const e = document.querySelector("#ocsa-shout-site"); return e ? e.value : null; });
+        TYPED.add("Invented thanks for the clean lobby.");
+        await app.page.fill("#ocsa-shout-line", "Invented thanks for the clean lobby.", { timeout: 4000 }).catch(() => {});
+        await r414Click(app.page, "[data-shoutout-post]");
+        await pause(app.page, 1500);
+        const posts = sent(app.stub, "POST", "/api/recognition/shoutouts").filter(c => c.path === "/api/recognition/shoutouts");
+        expect("searched and picked, the shared site is chosen and the post names it", site === "site-north" && posts.length === 1 && posts[0].body.userId === "s-01" && posts[0].body.siteId === "site-north", JSON.stringify(posts.map(c => c.body)));
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "shoutoutgone",
+    label: "A shout-out taken down twice (part 418, 6.4): 409 recognition.shoutoutAlreadyRemoved reads in the API's words and the shout-out leaves the list once the sheet closes",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { person: Object.assign({}, PERSON, { id: "u-418-gone", role: "supervisor" }), recognition: { award: false, shoutouts: 2 } } });
+      try {
+        await r414Give(app.page);
+        await r414PickAna(app.page);
+        TYPED.add("Invented thanks for the spotless windows.");
+        await app.page.fill("#ocsa-shout-line", "Invented thanks for the spotless windows.", { timeout: 4000 }).catch(() => {});
+        await r414Click(app.page, "[data-shoutout-post]");
+        await pause(app.page, 1500);
+        const rows = await r414Rows(app.page);
+        const mineId = rows.length ? rows[0].id : "";
+        app.stub.state.recognition.removedElsewhere = mineId;
+        await r414Click(app.page, '[data-shoutout-row="' + mineId + '"]');
+        await shows(app.page, "[data-shoutout-remove]", 6000);
+        await r414Click(app.page, "[data-shoutout-remove]");
+        await shows(app.page, "[data-shoutout-remove-ask]", 3000);
+        await r414Click(app.page, "[data-shoutout-remove-yes]");
+        const said = await shows(app.page, "[data-shoutout-remove-fault]", 4000);
+        const words = require("./stub").RECOG_REFUSALS["recognition.shoutoutAlreadyRemoved"];
+        const text = said ? await r418Text(app.page, "[data-shoutout-remove-fault]") : "";
+        expect("the API's words for a shout-out already taken down", text === (language === "es" ? words.es : words.en), text);
+        await spokenHere(app, language, expect);
+        await r414Click(app.page, '[data-sheet-close="ocsa-shoutout-sheet"]');
+        await pause(app.page, 800);
+        expect("closed, it leaves the list", !(await r414Rows(app.page)).some(r => r.id === mineId), JSON.stringify((await r414Rows(app.page)).map(r => r.id)));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "leaveclasstext",
+    label: "The leave class in the API's words (part 418, 6.3): My time off shows person.leaveClassText from GET /api/leave/me in place of the app's own sentences",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { employmentClass: "part_time" } });
+      try {
+        await openTab(app.page, "schedule", language);
+        const up = await shows(app.page, "[data-leave-class-line]", 8000);
+        const line = up ? await r418Text(app.page, "[data-leave-class-line]") : "";
+        expect("the class line is the API's", line === require("./stub").R418_CLASS_TEXT.part_time[language === "es" ? "es" : "en"], line);
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "awardcertlocale",
+    label: "The Employee of the Month certificate in the person's language (part 418, 6.5): See your certificate asks GET /api/recognition/awards/:id/certificate.pdf with ?locale= of the app's language",
+    run: async (open, language, expect) => {
+      const app = await open({ stubOptions: { recognition: { award: "me" } } });
+      try {
+        await shows(app.page, '[data-certificate="' + R414_AWARD + '"]', 8000);
+        await r414Click(app.page, '[data-certificate="' + R414_AWARD + '"]');
+        await pause(app.page, 1200);
+        const reads = sent(app.stub, "GET", "/api/recognition/awards/" + R414_AWARD + "/certificate.pdf");
+        expect("the certificate is asked for in the app's language", reads.length === 1 && new RegExp("[?&]locale=" + language + "(&|$)").test(reads[0].search), JSON.stringify(reads.map(c => c.search)));
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART418_S6_JOURNEYS);
 
 module.exports = { runJourneys, JOURNEYS };
