@@ -171,6 +171,8 @@ const SHEET_CASES = [
   // Part 414: the Employee of the Month the bell opens, the team wall and
   // a shout-out share one sheet.
   { id: "RecogSheet#0", label: "The Employee of the Month, the team wall or a shout-out" },
+  // Part 422: Help as a sheet over a lesson's screen.
+  { id: "LessonHelpSheet#0", label: "Ask Help, over a lesson's screen" },
 ];
 
 // Every form a person can fill in and send. Required fields are the ones

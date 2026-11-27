@@ -1653,3 +1653,7 @@ Are you still here?,¿Sigue aquí?,Êtes-vous toujours là ?,"The training site
 "For your safety on a shared computer, you will be signed out in {n} seconds.","Por su seguridad en una computadora compartida, su sesión se cerrará en {n} segundos.","Pour votre sécurité sur un ordinateur partagé, vous serez déconnecté dans {n} secondes.","The training site, a minute before the idle sign-out"
 Keep working,Seguir trabajando,Continuer à travailler,"The training site, a minute before the idle sign-out"
 You finished every chapter.,Terminó todos los capítulos.,Vous avez terminé tous les chapitres.,"The training site, a course page that is done"
+Ask Help,Preguntar a Ayuda,Demander à l'Aide,"A lesson's screen, above Next, and the top of the Help sheet over it"
+Screen {n} of {total},Pantalla {n} de {total},Écran {n} sur {total},"The Help sheet over a lesson, under the chapter's name"
+Ask about this screen. Help answers from {brand}'s own documents.,Pregunte sobre esta pantalla. Ayuda responde con los documentos propios de {brand}.,Posez une question sur cet écran. L'Aide répond à partir des documents de {brand}.,"The Help sheet over a lesson, its first line"
+Type your question,Escriba su pregunta,Écrivez votre question,"The Help sheet over a lesson, the box to type in"

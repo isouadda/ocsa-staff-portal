@@ -2920,7 +2920,7 @@ function TrainingSiteApp() {
         </div>
       </div>
       <div className="sp-content" style={{ width: "100%", maxWidth: wide ? 1280 : 960, margin: "0 auto", flex: 1 }}>
-        <TrainingView token={token} data={training} onData={setTraining} at={trainingAt} onAt={setTrainingAt} shiftSiteId={null} wide={wide} t={t} />
+        <TrainingView token={token} userId={user && user.id} data={training} onData={setTraining} at={trainingAt} onAt={setTrainingAt} shiftSiteId={null} wide={wide} t={t} />
       </div>
       {warnLeft !== null && (
         // The training site's own dialog, outside the staff app's sweep of
@@ -5285,7 +5285,7 @@ function OCSAStaffPortal() {
               {activeTab === "workspace" && destCtx.workspace && <WorkspaceView token={token} user={user} projects={wsProjects} onProjects={setWsProjects} at={wsAt} onAt={setWsAt} channels={channels} onOpenChat={(id) => { chooseChat(id); setActiveTab("chat"); setShowMore(false); }} showToast={showToast} t={t} />}
               {activeTab === "myfindings" && (destCtx.myFindings || !!myFindingsAt) && <MyFindingsView token={token} data={myFindings} onData={setMyFindings} onReload={() => loadMyFindings()} at={myFindingsAt} onOpenTraining={(topic) => openPlace({ tab: "training", topic: topic })} showToast={showToast} t={t} />}
               {activeTab === "findingsdue" && (destCtx.findingsDue || !!findingsDueAt) && <FollowUpsView token={token} data={findingsDue} onData={setFindingsDue} onReload={() => loadFindingsDue()} at={findingsDueAt} showToast={showToast} t={t} />}
-              {activeTab === "training" && <TrainingView token={token} data={training} onData={takeTraining} at={trainingAt} onAt={setTrainingAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} t={t} />}
+              {activeTab === "training" && <TrainingView token={token} userId={user && user.id} data={training} onData={takeTraining} at={trainingAt} onAt={setTrainingAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} t={t} />}
               {activeTab === "fieldkit" && destCtx.isAdmin && <FieldKitView token={token} user={user} caps={caps} maint={maintKit} at={fieldKitAt} onAt={setFieldKitAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} assignedSites={sites} onOpenEquipment={(code) => { setEquipmentShown(code); setEquipmentBack("fieldkit"); setActiveTab("equipment"); }} showToast={showToast} t={t} />}
               {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} shiftOpen={!!(clockStatus && clockStatus.clockedIn)} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
               {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} onToken={adoptToken} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} onPhoneAlerts={() => setActiveTab("phonealerts")} />}
@@ -9432,7 +9432,7 @@ function AnswerPictures({ pictures, language, t }) {
   );
 }
 
-function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpenDocument, conversationId, onConversation, userId }) {
+function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpenDocument, conversationId, onConversation, userId, lesson, inSheet }) {
   // The same shape the Forms screen uses, so a Spanish screen never
   // lists English form names.
   const locale = languageToSend(language);
@@ -9443,8 +9443,17 @@ function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpen
   const setConversationId = onConversation;
   const [thread, setThread] = useState([]);
   const [text, setText] = useState("");
+  // Part 422: Help on a lesson's screen (lesson { versionId, screenKey,
+  // locale, open, onRefused }), the same screen in a sheet over the
+  // lesson. Each question it sends carries the screen it was asked on as
+  // lesson { versionId, screenKey }, in the lesson's language; it keeps
+  // no typed question on the phone, reads no unfinished reports and takes
+  // no photo.
+  const inLesson = !!lesson;
+  const lessonRef = useRef(lesson);
+  lessonRef.current = lesson;
   // A question being typed stays on the phone until it is sent (PORT-20).
-  useKeptWork(userId, "help", { text: text }, null, !text.trim(), (f) => { if (f && f.text) setText(f.text); });
+  useKeptWork(inLesson ? null : userId, "help", { text: text }, null, !text.trim(), (f) => { if (f && f.text) setText(f.text); });
   const [sending, setSending] = useState(false);
   const [formResponse, setFormResponse] = useState(null);
   const [submitBusy, setSubmitBusy] = useState(false);
@@ -9556,7 +9565,7 @@ function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpen
   // A read that fails says so where the list would be, with Try again.
   const [draftsFailed, setDraftsFailed] = useState(false);
   const loadDrafts = useCallback(async () => { try { const d = await api("/api/agent/drafts?locale=" + locale, { token }); setDrafts(agentList(d, ["drafts", "items", "rows"])); setDraftsFailed(false); } catch (err) { console.warn("Drafts:", err.message); setDraftsFailed(true); } }, [token, locale]);
-  useEffect(() => { loadDrafts(); }, [loadDrafts]);
+  useEffect(() => { if (!inLesson) loadDrafts(); }, [loadDrafts, inLesson]);
 
   // Discard, on the report in progress and on each unfinished report: a
   // confirm, then the discard route, and the row leaves the list. The
@@ -9601,7 +9610,7 @@ function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpen
   // thread from its first word to its last, drawn without its marks until
   // done, when the finished answer takes that place and everything the
   // answer does happens exactly as it always has.
-  const send = async (msgId, msgText, paths, requestId) => {
+  const send = async (msgId, msgText, paths, requestId, at) => {
     if (sending) return;
     setSending(true);
     setThread(prev => prev.map(m => m.id === msgId ? { ...m, pending: true, failed: false, error: null } : m));
@@ -9632,6 +9641,9 @@ function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpen
       // which nothing in the portal can set until the preference routes are
       // live. With it, the choice in Settings works on the next message.
       if (isOffered(language)) body.locale = language;
+      // Part 422: a question asked on a lesson's screen says which, in the
+      // lesson's language.
+      if (at) { body.lesson = { versionId: at.versionId, screenKey: at.screenKey }; if (isOffered(at.locale)) body.locale = at.locale; }
       if (paths && paths.length > 0) body.photoPaths = paths;
       if (conversationId) body.conversationId = conversationId;
       // The question's own id, the same on every Retry of it, so a question
@@ -9657,6 +9669,16 @@ function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpen
       // with 409 agent.requestInProgress, and read back the way a dropped
       // connection is, from the conversation the refusal names or the one
       // this question was sent to.
+      // Part 422: Help will not take a question on this screen (400
+      // agent.lessonNoHelpHere). Nothing is said: the question leaves the
+      // thread, the sheet closes and the screen's button goes.
+      if (at && err.status === 400 && err.code === "agent.lessonNoHelpHere") {
+        setThread(prev => prev.filter(m => m.id !== answerId && m.id !== msgId));
+        setText(prev => prev.trim() === msgText ? "" : prev);
+        setSending(false);
+        if (lessonRef.current && lessonRef.current.onRefused) lessonRef.current.onRefused(at.screenKey);
+        return;
+      }
       const inProgress = err.status === 409 && err.code === "agent.requestInProgress";
       const cid = err.dropped && err.meta ? err.meta.conversationId
         : inProgress ? agentField(err.meta, ["conversationId"], null) || agentField(err.body, ["conversationId", "conversation_id"], null) || conversationId || null
@@ -9704,8 +9726,9 @@ function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpen
     const urls = ready.map(p => p.url);
     const id = "u" + (++seqRef.current);
     const requestId = newSendId();
-    setThread(prev => [...prev, { id, role: "user", text: v, photoPaths: paths, photoUrls: urls, pending: true, requestId }]);
-    send(id, v, paths, requestId);
+    const at = lesson ? { versionId: lesson.versionId, screenKey: lesson.screenKey, locale: lesson.locale } : null;
+    setThread(prev => [...prev, { id, role: "user", text: v, photoPaths: paths, photoUrls: urls, pending: true, requestId, lessonAt: at }]);
+    send(id, v, paths, requestId, at);
   };
 
   // Resume reads the draft row. With a conversation id on it the thread is
@@ -9761,7 +9784,7 @@ function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpen
   const photosBusy = photos.some(p => p.status === "preparing" || p.status === "uploading");
   // Typed text, a picked photo, or a photo still going up. An update
   // waits for all three.
-  useBusy("help composer", text.trim().length > 0 || photos.length > 0 || sending);
+  useBusy(inLesson ? "lesson help composer" : "help composer", text.trim().length > 0 || photos.length > 0 || sending);
   // A photo whose upload was refused holds the send until it is removed or
   // retried, so nobody sends a message believing that photo went with it.
   const photosBlocked = photos.some(p => p.status === "failed");
@@ -9771,8 +9794,9 @@ function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpen
   const smallBtn = { padding: "8px 14px", minHeight: TAP, borderRadius: R.sm, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_HEAD, flexShrink: 0 };
   // Pinned to the space between the header and the bottom navigation, so the
   // thread scrolls inside it and the form card and composer stay in view.
+  // In a lesson's sheet it fills the sheet under its top.
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", ...fillsTheWindow(), minHeight: 0, overflow: "hidden" }}>
+    <div data-help-lesson={inLesson ? lesson.screenKey : undefined} style={inSheet ? { display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden" } : { display: "flex", flexDirection: "column", flex: "0 0 auto", ...fillsTheWindow(), minHeight: 0, overflow: "hidden" }}>
       {draftsFailed && drafts.length === 0 && (<div style={{ padding: "10px 12px", borderBottom: "1px solid " + t.borderSolid, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, flexShrink: 0 }}>
         <span style={{ flex: "1 1 160px", fontSize: 12, color: t.textSec, lineHeight: 1.4 }}>{tr("Unfinished reports did not load.")}</span>
         <button onClick={loadDrafts} style={smallBtn}>{tr("Try again")}</button>
@@ -9786,7 +9810,8 @@ function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpen
           unfinished reports and the report card give up their room first
           and scroll inside themselves. */}
       <div ref={listRef} onScroll={noteScroll} style={{ flex: 1, minHeight: 88, overflowY: "auto", padding: "12px 12px 0" }}>
-        {thread.length === 0 && (<div style={{ textAlign: "center", padding: "40px 20px" }}><HelpIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>{tr("Tell me what happened and I will tell you what to do.")}</div></div>)}
+        {inLesson && <div data-help-lesson-intro="1" style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", marginBottom: 12, borderRadius: R.md, background: t.goldSubtle, border: "1px solid " + t.goldBorder }}><HelpIco sz={18} c={t.goldText} style={{ flexShrink: 0, marginTop: 1 }} /><div style={{ fontSize: 14, color: t.text, lineHeight: 1.45, overflowWrap: "anywhere" }}>{tr("Ask about this screen. Help answers from {brand}'s own documents.", { brand: clientConfig.company.brandTag })}</div></div>}
+        {!inLesson && thread.length === 0 && (<div style={{ textAlign: "center", padding: "40px 20px" }}><HelpIco sz={32} c={t.borderSolid} /><div style={{ fontSize: 13, color: t.textMut, marginTop: 12, fontFamily: FONT_HEAD }}>{tr("Tell me what happened and I will tell you what to do.")}</div></div>)}
         {thread.map(m => { const isMe = m.role === "user"; const boxed = isMe || !m.dropped || !!m.text; return (<div key={m.id} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", marginBottom: 12 }}><div style={{ maxWidth: "85%" }}>
           {boxed && <div style={{ padding: "8px 12px", borderRadius: isMe ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: isMe ? GOLD : (m.noProcedure ? t.goldSubtle : t.card), border: isMe ? "none" : "1px solid " + (m.noProcedure ? t.goldBorder : t.borderSolid), color: isMe ? NAVY : t.text, fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", opacity: m.pending ? 0.6 : 1 }}>
             {isMe && m.photoUrls && m.photoUrls.length > 0 && (
@@ -9802,7 +9827,7 @@ function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpen
           {!isMe && m.degraded && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3 }}>{tr("Working from the written procedure only right now.")}</div>}
           {!isMe && m.messageId && !m.arriving && !m.dropped && !rateOff && <RateAnswer messageId={m.messageId} feedback={m.feedback || null} onRated={(f) => setThread(prev => prev.map(x => x.id === m.id ? { ...x, feedback: f } : x))} onUnavailable={() => setRateOff(true)} token={token} t={t} />}
           {!isMe && m.dropped && <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>{tr("The connection dropped. Your answer is saved.")}{m.error ? " " + m.error : ""}</span>{!m.reading && <button onClick={() => readBack(m.id, m.conversationId, m.question)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", fontSize: 11, opacity: sending ? 0.6 : 1 }}>{tr("Try again")}</button>}</div>}
-          {isMe && m.failed && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>{tr("Not sent.")}{m.error ? " " + m.error : ""}</span><button onClick={() => send(m.id, m.text, m.photoPaths, m.requestId)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", fontSize: 11, opacity: sending ? 0.6 : 1 }}>{tr("Retry")}</button></div>}
+          {isMe && m.failed && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>{tr("Not sent.")}{m.error ? " " + m.error : ""}</span><button onClick={() => send(m.id, m.text, m.photoPaths, m.requestId, m.lessonAt || null)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", fontSize: 11, opacity: sending ? 0.6 : 1 }}>{tr("Retry")}</button></div>}
         </div></div>); })}
         <div ref={endRef} />
       </div>
@@ -9850,8 +9875,8 @@ function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpen
       )}
       <div style={{ padding: "10px 12px", borderTop: "1px solid " + t.borderSolid, display: "flex", gap: 8, alignItems: "flex-end", background: t.bg }}>
         <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { addPhotoFiles(e.target.files); e.target.value = ""; }} />
-        <button onClick={() => fileRef.current && fileRef.current.click()} disabled={photoLimitReached || sending} aria-label={tr("Add a photo")} title={photoLimitReached ? tr(AGENT_PHOTO_LIMIT_TITLE) : tr("Add a photo")} style={{ width: 44, height: 44, flexShrink: 0, borderRadius: "50%", background: t.cardAlt, border: "1px solid " + t.borderSolid, cursor: photoLimitReached || sending ? "default" : "pointer", opacity: photoLimitReached || sending ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}><CamIco sz={18} c={t.textSec} /></button>
-        <textarea ref={taRef} value={text} onChange={e => setText(e.target.value)} onPaste={e => { const items = e.clipboardData && e.clipboardData.items ? Array.from(e.clipboardData.items) : []; const files = items.filter(i => i.kind === "file" && i.type.indexOf("image/") === 0).map(i => i.getAsFile()).filter(Boolean); if (files.length > 0) { e.preventDefault(); addPhotoFiles(files); } }} disabled={sending} rows={1} placeholder={tr("Describe what happened")} aria-label={tr("Describe what happened")} style={{ ...inputSt, flex: 1, width: "auto", minWidth: 0, minHeight: 44, maxHeight: 120, overflowY: "auto", resize: "none", borderRadius: R.lg, lineHeight: 1.45, opacity: sending ? 0.6 : 1 }} />
+        {!inLesson && <button onClick={() => fileRef.current && fileRef.current.click()} disabled={photoLimitReached || sending} aria-label={tr("Add a photo")} title={photoLimitReached ? tr(AGENT_PHOTO_LIMIT_TITLE) : tr("Add a photo")} style={{ width: 44, height: 44, flexShrink: 0, borderRadius: "50%", background: t.cardAlt, border: "1px solid " + t.borderSolid, cursor: photoLimitReached || sending ? "default" : "pointer", opacity: photoLimitReached || sending ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}><CamIco sz={18} c={t.textSec} /></button>}
+        <textarea ref={taRef} value={text} onChange={e => setText(e.target.value)} onPaste={e => { const items = e.clipboardData && e.clipboardData.items ? Array.from(e.clipboardData.items) : []; const files = items.filter(i => i.kind === "file" && i.type.indexOf("image/") === 0).map(i => i.getAsFile()).filter(Boolean); if (files.length > 0) { e.preventDefault(); addPhotoFiles(files); } }} disabled={sending} rows={1} placeholder={inLesson ? tr("Type your question") : tr("Describe what happened")} aria-label={inLesson ? tr("Type your question") : tr("Describe what happened")} style={{ ...inputSt, flex: 1, width: "auto", minWidth: 0, minHeight: 44, maxHeight: 120, overflowY: "auto", resize: "none", borderRadius: R.lg, lineHeight: 1.45, opacity: sending ? 0.6 : 1 }} />
         <button onClick={handleSend} disabled={!canSend} aria-label={tr("Send")} style={{ width: 44, height: 44, flexShrink: 0, borderRadius: "50%", background: canSend ? GOLD : t.cardAlt, border: "none", cursor: canSend ? "pointer" : "default", boxShadow: canSend ? "0 6px 18px rgba(231,176,23,0.30)" : "none", display: "flex", alignItems: "center", justifyContent: "center" }}><SendIco sz={16} c={canSend ? NAVY : t.textMut} /></button>
       </div>
       {photoProblem && <div style={{ padding: "0 12px 10px", fontSize: 11, color: ink(t, RED), lineHeight: 1.4, flexShrink: 0 }}>{photoProblem}</div>}
@@ -12590,7 +12615,9 @@ function playerLessonOf(d) {
     if (!s || typeof s !== "object" || !trainingId(s, ["key"])) return null;
     const m = s.media && typeof s.media === "object" ? s.media : {};
     const media = m.kind === "image" && playerPicture(m.src) ? { kind: "image", src: playerPicture(m.src) } : m.kind === "video" && playerHttps(m.src) ? { kind: "video", src: playerHttps(m.src), poster: playerPicture(m.poster) } : { kind: "none" };
-    return { key: trainingId(s, ["key"]), media: media, say: str(s.say), caption: str(s.caption), audio: s.audio && typeof s.audio === "object" ? playerHttps(s.audio.url) : "" };
+    // Part 422: askHelp, true only where the API says Help may be asked
+    // about this screen (a signed-in read; never the setup page or a check).
+    return { key: trainingId(s, ["key"]), media: media, say: str(s.say), caption: str(s.caption), audio: s.audio && typeof s.audio === "object" ? playerHttps(s.audio.url) : "", askHelp: s.askHelp === true };
   }).filter(Boolean);
   const checks = (Array.isArray(l.checks) ? l.checks : []).map((c) => {
     if (!c || typeof c !== "object" || !trainingId(c, ["key"])) return null;
@@ -12655,7 +12682,36 @@ const SpeakerIco = (p) => <Ico d="M11 5L6 9H3v6h3l5 4V5zM15.5 8.5a5 5 0 0 1 0 7M
 // How often watched screens are sent, at most.
 const PLAYER_PROGRESS_MS = 4000;
 
-function CoursePlayer({ token, versionId, review: askedReview, publicSetup, course, chapter, backLabel, onBack, onNext, onCourse, onSignIn, stick, t }) {
+// Part 422 (section 1): Help as a sheet over a lesson's screen. Its top
+// names the chapter and the screen it was opened on; under it is Help,
+// the app's own Help screen in its lesson mode. Close, a tap on the
+// lesson behind it, or Escape closes it, back to the same screen. It
+// stays mounted while closed, hidden, so the conversation is kept.
+function LessonHelpSheet({ open, chapter, n, total, onClose, children, t }) {
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+  return (
+    <div onClick={onClose} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: t.modalOverlay, zIndex: 400, display: open ? "flex" : "none", flexDirection: "row", alignItems: "flex-end", justifyContent: "center" }}>
+      <div role="dialog" aria-modal="true" aria-labelledby="ocsa-lesson-help-title" data-sheet="lesson-help" data-lesson-help={open ? "open" : "closed"} onClick={e => e.stopPropagation()} style={{ background: t.bg, width: "100%", maxWidth: 560, height: "calc(var(--ocsa-dvh, 100dvh) * 0.9)", display: "flex", flexDirection: "column", borderRadius: R.lg + "px " + R.lg + "px 0 0", border: "1px solid " + t.borderSolid, borderBottom: "none", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "12px 6px 10px 16px", borderBottom: "1px solid " + t.borderSolid, flexShrink: 0 }}>
+          <div style={{ flex: 1, minWidth: 0, paddingTop: 2 }}>
+            <div id="ocsa-lesson-help-title" role="heading" aria-level={2} style={{ fontSize: 16, fontWeight: 600, color: t.text, fontFamily: FONT_HEAD }}>{tr("Ask Help")}</div>
+            <div data-lesson-help-chapter="1" style={{ fontSize: 14, color: t.text, marginTop: 4, lineHeight: 1.4, overflowWrap: "anywhere" }}>{chapter}</div>
+            <div data-lesson-help-screen={n + "/" + total} style={{ fontSize: 13, color: t.textSec, marginTop: 2, fontFamily: FONT_HEAD }}>{tr("Screen {n} of {total}", { n: n, total: total })}</div>
+          </div>
+          <button type="button" data-lesson-help-close="1" onClick={onClose} aria-label={tr("Close")} style={mkTapFrame({ flexShrink: 0, borderRadius: R.md })}><XIco sz={20} c={t.textSec} /></button>
+        </div>
+        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function CoursePlayer({ token, userId, versionId, review: askedReview, publicSetup, course, chapter, backLabel, onBack, onNext, onCourse, onSignIn, stick, t }) {
   const [phase, setPhase] = useState("loading");
   const [les, setLes] = useState(null);
   const [attempt, setAttempt] = useState(null);
@@ -12672,6 +12728,16 @@ function CoursePlayer({ token, versionId, review: askedReview, publicSetup, cour
   const [doneCourse, setDoneCourse] = useState(null);
   const [waiting, setWaiting] = useState(false);
   const [asked, setAsked] = useState(0);
+  // Part 422 (section 1): Help as a tutor on a screen. The screen the
+  // sheet was last opened on, { key, n }; whether it is open; the
+  // screens the API refused Help on (400 agent.lessonNoHelpHere), whose
+  // button goes; and the conversation the sheet's questions go to. The
+  // sheet stays mounted once opened, so its answers are still there when
+  // it opens again on a later screen.
+  const [helpAt, setHelpAt] = useState(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [noHelp, setNoHelp] = useState({});
+  const [helpConv, setHelpConv] = useState(null);
   const live = useRef(true);
   const sending = useRef(false);
   const refreshed = useRef(false);
@@ -12786,6 +12852,23 @@ function CoursePlayer({ token, versionId, review: askedReview, publicSetup, cour
   const voicePlay = () => { const a = playerVoice(); if (!a || !voiceUrl) return; try { if (a.src !== voiceUrl) a.src = voiceUrl; const p = a.play(); if (p && p.catch) p.catch(() => setVoice("blocked")); } catch (e) {} };
   const voicePause = () => { const a = playerVoice(); if (a) { try { a.pause(); } catch (e) {} } };
   const voiceAgain = () => { const a = playerVoice(); if (!a || !voiceUrl) return; try { if (a.src !== voiceUrl) a.src = voiceUrl; a.currentTime = 0; const p = a.play(); if (p && p.catch) p.catch(() => setVoice("blocked")); } catch (e) {} };
+  // Ask Help (part 422): only signed in, only on a screen whose read says
+  // askHelp, never on the setup page, a check, a wrong answer, a screen
+  // watched again after one, the signature or the end. Opening it pauses
+  // the voice; closing it leaves the screen as it was, the voice paused
+  // and not started again.
+  const canAskHelp = !!token && !publicSetup && !replay && !wrong && phase === "play" && !!screen && screen.askHelp === true && !noHelp[screen.key];
+  const openHelp = () => {
+    if (!canAskHelp) return;
+    voicePause();
+    try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {}
+    setHelpAt({ key: screen.key, n: step.n });
+    setHelpOpen(true);
+  };
+  const closeHelp = useCallback(() => setHelpOpen(false), []);
+  // The API would not take Help on this screen: the sheet closes, the
+  // button goes from this screen, and nothing is said.
+  const helpRefused = useCallback((key) => { setNoHelp(prev => ({ ...prev, [key]: true })); setHelpOpen(false); }, []);
   // A media link signed for twelve hours that did not load: the lesson is
   // read again once, in the same language, and its links used; a second
   // failure shows the words alone.
@@ -12904,6 +12987,15 @@ function CoursePlayer({ token, versionId, review: askedReview, publicSetup, cour
     </div>
   );
   const wrap = (kind, body, extra) => <div data-player={kind} data-player-review={review ? "1" : "0"} {...(extra || {})} style={{ padding: "14px 16px 24px" }}>{body}</div>;
+  // The Help sheet over the lesson (part 422), drawn beside whatever the
+  // player shows; it opens only from a screen.
+  const helpSheet = helpAt && les && token && !publicSetup ? (
+    <LessonHelpSheet open={helpOpen} chapter={title} n={helpAt.n} total={les.screens.length} onClose={closeHelp} t={t}>
+      <AgentView inSheet token={token} userId={userId} t={t} language={les.locale} showToast={() => {}} conversationId={helpConv} onConversation={setHelpConv}
+        lesson={{ versionId: les.versionId || versionId, screenKey: helpAt.key, locale: les.locale, open: helpOpen, onRefused: helpRefused }} />
+    </LessonHelpSheet>
+  ) : null;
+  const drawn = (() => {
   if (phase === "loading" || phase === "fault") {
     return wrap(phase, (
       <div>
@@ -12965,10 +13057,16 @@ function CoursePlayer({ token, versionId, review: askedReview, publicSetup, cour
         <div data-player-words={screen.key} lang={les.locale} style={{ ...bigWords, marginTop: 16 }}>{words}</div>
         {!screen.audio && <div data-player-no-voice="1" style={{ ...lineSt, fontSize: 13 }}>{tr("This step has no voice. Read the words.")}</div>}
         {screen.audio && voice === "blocked" && <div data-player-voice-blocked="1" style={{ ...lineSt, fontSize: 13 }}>{tr("Tap play to hear it.")}</div>}
-        <div style={{ ...stickSt, display: "flex", alignItems: "center", gap: 10 }}>
+        {/* Ask Help (part 422) rides with Next at the thumb, so it is never
+            hidden under it, on a line of its own above Next's row with room
+            between them, so a tap meant for one never lands on the other. */}
+        <div style={stickSt}>
+        {canAskHelp && <div style={{ marginBottom: 16 }}><button type="button" data-player-ask-help={screen.key} onClick={openHelp} style={{ display: "inline-flex", alignItems: "center", gap: 8, minHeight: TAP, padding: "0 16px", borderRadius: R.pill, border: "1px solid " + t.goldBorder, background: t.goldBg, color: t.goldText, fontSize: 14, fontWeight: 600, fontFamily: FONT_HEAD, cursor: "pointer" }}><HelpIco sz={18} c={t.goldText} />{tr("Ask Help")}</button></div>}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {screen.audio && <button type="button" aria-label={tr("Play from the start")} data-player-voice-again="1" onClick={voiceAgain} style={roundBtn}><ReplayIco sz={22} c={t.text} /></button>}
           {screen.audio && <button type="button" aria-label={voice === "playing" ? tr("Pause") : tr("Play")} data-player-voice={voice} data-player-voice-src={screen.audio} onClick={() => (voice === "playing" ? voicePause() : voicePlay())} style={roundBtn}>{voice === "playing" ? <PauseIco sz={22} c={t.text} /> : <PlayIco sz={20} c={t.text} />}</button>}
           <button type="button" data-player-next={screen.key} onClick={next} style={{ ...bigBtn(false), flex: 1 }}>{tr("Next")}<ChevIco sz={18} c={NAVY} /></button>
+        </div>
         </div>
       </div>
     ), { "data-player-step": screen.key });
@@ -13081,9 +13179,11 @@ function CoursePlayer({ token, versionId, review: askedReview, publicSetup, cour
       {!(upNext && chapterTakeable(upNext)) && onBack && <div style={{ marginTop: 14 }}><button type="button" data-player-back="1" onClick={onBack} style={{ ...wsPlainBtn(t), width: "100%", minHeight: 52 }}>{c ? tr("Back to the course") : tr("Back to My training")}</button></div>}
     </div>
   );
+  })();
+  return <>{drawn}{helpSheet}</>;
 }
 
-function TrainingView({ token, data, onData, at, onAt, shiftSiteId, wide, t }) {
+function TrainingView({ token, userId, data, onData, at, onAt, shiftSiteId, wide, t }) {
   // Read again each time the screen opens, and each time a lesson is
   // left; a read that fails keeps what is on the screen and says so,
   // with Try again.
@@ -13211,7 +13311,7 @@ function TrainingView({ token, data, onData, at, onAt, shiftSiteId, wide, t }) {
   };
   if (coursePage) {
     const closePlayer = () => { try { if (window.history.state && window.history.state.trainingPlayer) { window.history.back(); return; } } catch (e) {} setPlaying(null); setCourseReread(n => n + 1); };
-    const playerNode = playing ? <CoursePlayer key={playing.versionId + ":" + playing.opened} token={token} versionId={playing.versionId} review={playing.review} course={playing.course} chapter={playing.ch} backLabel={coursePage.name} onBack={closePlayer} onNext={(c, ch) => playChapter(c, ch, false)} t={t} /> : null;
+    const playerNode = playing ? <CoursePlayer key={playing.versionId + ":" + playing.opened} token={token} userId={userId} versionId={playing.versionId} review={playing.review} course={playing.course} chapter={playing.ch} backLabel={coursePage.name} onBack={closePlayer} onNext={(c, ch) => playChapter(c, ch, false)} t={t} /> : null;
     const openCert = (id) => { openApiPdf(certPdfPath(id), "certificate.pdf", token).catch(() => openCerts(id)); };
     return <CoursePage key={coursePage.id} token={token} course={coursePage} onBack={() => { closeCourse(); setAsked(n => n + 1); }} onPlay={playChapter} onCertificate={openCert} playing={playing ? { topicId: playing.ch.topicId, node: playerNode } : null} reread={courseReread} wide={!!wide} t={t} />;
   }

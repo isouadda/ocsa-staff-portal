@@ -2618,6 +2618,33 @@ stub's courses: `courses-my-training`, `course-page`, `chapter-screen`,
 its own `size`). The stub's `passed` opens a chapter on its signature.
 The time off rows the shots draw carry the API's inside-notice line.
 
+## Ask Help on a lesson's screen (part 422, section 1)
+
+ocsa-api Round 24 (part 421, isouadda/ocsa-api#173) answers `askHelp: true`
+on every screen of a signed-in `GET /api/training/lesson-versions/:id`
+and takes `lesson { versionId, screenKey }` on `POST /api/agent/message`
+and `/message/stream`. A player screen whose read says so shows **Ask
+Help** with Next at the thumb, on a line of its own above Next's row; it
+opens Help as a sheet over the lesson (`LessonHelpSheet`, the app's own
+Help screen in its lesson mode) with the chapter's name, **Screen n of m**
+and its first line, the voice paused. Every message from the sheet
+carries the screen it was opened on, in the lesson's language as
+`locale`; closing it returns to the same screen at the same place, the
+voice not started again. It never shows on a check, a wrong answer, the
+screens watched again after one, the signature, a quiz, a watched
+checklist, `/setup` or a screen whose read lacks `askHelp`; a 400
+`agent.lessonNoHelpHere` closes the sheet and hides the button on that
+screen with nothing said. Watching again keeps it.
+
+The stub answers `askHelp` on every screen of a signed-in read (none on
+the setup page), reads the lesson body on Help's two routes and answers
+in the lesson's language (`HELP_ANSWERS.lesson`); `noAskHelp` answers
+`askHelp` false on the screens named and `helpRefuse` turns away the
+screens named. Five journeys, in English and Spanish, each failing on the
+main of part 418: `askhelpscreen`, `askhelpnever`, `askhelpsheet`,
+`askhelprefused` and `askhelpreview`. The inventory lists the sheet,
+`LessonHelpSheet#0`.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

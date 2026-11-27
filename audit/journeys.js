@@ -13212,4 +13212,212 @@ const PART418_S6_JOURNEYS = [
 ];
 JOURNEYS.push(...PART418_S6_JOURNEYS);
 
+// --- Round 19 of the staff app (part 422) ---------------------------------
+//
+// Help as a tutor inside a lesson (ocsa-api Round 24, part 421, "For the
+// staff app"). Each journey fails on the main of part 418 (37cdff9),
+// where no screen offers Help. The stub
+// answers askHelp on every screen of a signed-in read, as Round 24 does,
+// reads a lesson body on Help's routes (agent.lessonNoHelpHere for a check
+// or a screen it turns away; see r418StateOf: helpTurns, helpRefuse,
+// noAskHelp).
+const r422Btn = (page) => r418Has(page, "[data-player-ask-help]");
+const r422Sheet = (page) => r418Attr(page, "[data-lesson-help]", "data-lesson-help");
+const r422Turns = (stub) => stub.state.calls.filter(c => c.method === "POST" && /^\/api\/agent\/message(\/stream)?$/.test(c.path));
+// The Staff App's first chapter, begun from its course page, on its first
+// screen.
+const r422Begin = async (app, language) => {
+  await r418OpenApp(app, language);
+  await app.page.click('[data-chapter="tc-setup"]', { timeout: 4000 }).catch(() => {});
+  return shows(app.page, '[data-player="screen"][data-player-step="s1"]', 8000);
+};
+const r422OpenHelp = async (page) => {
+  await page.click("[data-player-ask-help]", { timeout: 4000 }).catch(() => {});
+  return shows(page, '[data-lesson-help="open"]', 4000);
+};
+// A question typed in the sheet and sent; true once its answer is drawn
+// with Ask a person under it.
+const r422Ask = async (app, language, words, answers) => {
+  await type(app.page, '[data-lesson-help="open"] textarea[aria-label]', words);
+  await pause(app.page, 150);
+  await app.page.click('[data-lesson-help="open"] button[aria-label="' + say("Send", language) + '"]', { timeout: 4000 }).catch(() => {});
+  return app.page.waitForFunction((n) => document.querySelectorAll('[data-lesson-help="open"] [data-help-ask-person]').length >= n, answers || 1, { timeout: 8000 }).then(() => true).catch(() => false);
+};
+const r422Close = async (page) => { await page.click('[data-lesson-help="open"] [data-lesson-help-close]', { timeout: 4000 }).catch(() => {}); await pause(page, 300); };
+const r422Answer = (language) => (language === "es" ? "El bot\u00f3n est\u00e1 en el correo de bienvenida" : "The button is in the welcome email");
+// The question typed, in the case's language.
+const r422Words = (language, n) => (language === "es" ? ["\u00bfD\u00f3nde est\u00e1 el correo de bienvenida?", "\u00bfY si no me lleg\u00f3 el correo?"] : ["Where is the welcome email?", "What if the email never came?"])[n || 0];
+// From the screen on through the check, answered right, to the next screen.
+const r422Through = async (page, pick, next) => {
+  await r418Next(page);
+  await r418Pick(page, pick);
+  await r418Answer(page);
+  return shows(page, '[data-player-step="' + next + '"]', 5000);
+};
+const PART422_JOURNEYS = [
+  {
+    id: "askhelpscreen",
+    label: "Ask Help on a lesson's screens (part 422, 1.1, 1.3): the button under a screen's words, clear of Next, and never on a check, a wrong answer, the screens watched again after one, or the acknowledgement and signature",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open);
+      try {
+        const up = await r422Begin(app, language);
+        const place = await app.page.evaluate(() => {
+          window.scrollTo(0, document.documentElement.scrollHeight);
+          const b = document.querySelector("[data-player-ask-help]"), w = document.querySelector("[data-player-words]"), n = document.querySelector("[data-player-next]");
+          if (!b || !w || !n) return null;
+          const rb = b.getBoundingClientRect(), rw = w.getBoundingClientRect(), rn = n.getBoundingClientRect();
+          return { label: b.innerText.trim(), underWords: rb.top >= rw.bottom - 1, gap: Math.round(rn.top - rb.bottom), sameRow: !!n.parentElement.contains(b), tall: Math.round(rb.height) };
+        });
+        expect("a screen whose read says askHelp shows Ask Help under its words, apart from the big Next (at least 16 pixels between them, not in Next's row, a finger tall)", up && !!place && place.label === say("Ask Help", language) && place.underWords && place.gap >= 16 && !place.sameRow && place.tall >= 44, JSON.stringify(place));
+        await spokenHere(app, language, expect);
+        await r418Next(app.page);
+        expect("never on a check", (await r418Phase(app.page)) === "check" && !(await r422Btn(app.page)), await r418Phase(app.page));
+        await r418Pick(app.page, "clock");
+        await r418Answer(app.page);
+        const wrongUp = await shows(app.page, '[data-player-wrong="c1"]', 5000);
+        expect("never on a wrong answer", wrongUp && !(await r422Btn(app.page)), String(wrongUp));
+        await app.page.click("[data-player-watch-again]", { timeout: 4000 }).catch(() => {});
+        await pause(app.page, 600);
+        const again = (await r418Step(app.page)) === "s1" && has(await r418Text(app.page, "[data-player-step-label]"), say("Watching again", language));
+        expect("never on a screen watched again after a wrong answer", again && !(await r422Btn(app.page)), String(again));
+        await r418Next(app.page);
+        await r418Pick(app.page, "email");
+        await r418Answer(app.page);
+        const s2 = await shows(app.page, '[data-player-step="s2"]', 5000);
+        expect("back on the next screen, it is there again", s2 && (await r422Btn(app.page)), String(s2));
+        await r418Next(app.page);
+        await r418Pick(app.page, "phone");
+        await r418Answer(app.page);
+        await shows(app.page, '[data-player-step="s3"]', 5000);
+        await r418Next(app.page);
+        await r418Tap(app.page, 0.5, 0.5);
+        await r418Answer(app.page);
+        const signUp = await shows(app.page, '[data-player="sign"]', 5000);
+        expect("never on the acknowledgement and signature", signUp && !(await r422Btn(app.page)), String(signUp));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "askhelpnever",
+    label: "Where Ask Help never shows (part 422, 1.3): a screen whose read lacks askHelp, a quiz lesson, a watched checklist, and the setup page before sign-in (/setup), while a screen that has it shows it",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { stubOptions: { courses: { noAskHelp: ["s2"] } } });
+      try {
+        const up = await r422Begin(app, language);
+        expect("a screen with askHelp shows the button", up && (await r422Btn(app.page)), String(up));
+        const s2 = await r422Through(app.page, "email", "s2");
+        expect("a screen whose read lacks askHelp shows none", s2 && !(await r422Btn(app.page)), String(s2));
+      } finally { await app.context.close(); }
+      const chem = await r418Open(open);
+      try {
+        await r418Training(chem, language);
+        await r418Click(chem.page, '[data-course="co-clean"]');
+        await shows(chem.page, '[data-chapter="tc-chem"]', 8000);
+        await chem.page.click('[data-chapter="tc-chem"]', { timeout: 3000 }).catch(() => {});
+        await pause(chem.page, 600);
+        expect("a watched checklist opens no player and shows no Ask Help", (await r418Has(chem.page, '[data-chapter="tc-chem"]')) && !(await r418Has(chem.page, "[data-player]")) && !(await r422Btn(chem.page)), "");
+      } finally { await chem.context.close(); }
+      const quiz = await r418Open(open);
+      try {
+        const reading = await lessonFromHome(quiz);
+        const atRead = !(await r422Btn(quiz.page)) && !(await r418Has(quiz.page, "[data-lesson-help]"));
+        await quiz.page.click('[data-lesson-next="read"]', { timeout: 4000 }).catch(() => {});
+        const asking = await waitOn(quiz.page, () => !!document.querySelector('[data-lesson="ask"]'));
+        expect("a quiz lesson shows no Ask Help, on its reading or its questions", reading && asking && atRead && !(await r422Btn(quiz.page)) && !(await r418Has(quiz.page, "[data-lesson-help]")) && !has(await bodyText(quiz.page), say("Ask Help", language)), "reading " + reading + " asking " + asking);
+      } finally { await quiz.context.close(); }
+      const setup = await r418Open(open, { signedIn: false, path: "/setup" });
+      try {
+        await shows(setup.page, "[data-setup-start]", 8000);
+        await setup.page.click("[data-setup-start]", { timeout: 4000 }).catch(() => {});
+        const playing = await shows(setup.page, '[data-setup="playing"] [data-player="screen"]', 8000);
+        expect("the setup page before sign-in plays with no Ask Help", playing && !(await r422Btn(setup.page)) && !(await r418Has(setup.page, "[data-lesson-help]")), String(playing));
+      } finally { await setup.context.close(); }
+    },
+  },
+  {
+    id: "askhelpsheet",
+    label: "The Help sheet over a lesson (part 422, 1.1, 1.2): its top names the chapter and Screen n of m with the first line, the voice paused while it is open, each message carrying lesson { versionId, screenKey } in the lesson's language, closing back to the same screen at the same place with the voice not started again, and a later screen asking with its own key in the same conversation",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open);
+      try {
+        await r422Begin(app, language);
+        await pause(app.page, 900);
+        await app.page.evaluate(() => window.scrollTo(0, 40));
+        await pause(app.page, 200);
+        const before = { voice: await r418Attr(app.page, "[data-player-voice]", "data-player-voice"), y: await app.page.evaluate(() => window.scrollY) };
+        const opened = await r422OpenHelp(app.page);
+        const top = { chapter: await r418Text(app.page, '[data-lesson-help="open"] [data-lesson-help-chapter]'), screen: await r418Attr(app.page, "[data-lesson-help-screen]", "data-lesson-help-screen"), screenWords: await r418Text(app.page, "[data-lesson-help-screen]"), intro: await r418Text(app.page, '[data-lesson-help="open"] [data-help-lesson-intro]') };
+        expect("Ask Help opens Help as a sheet over the lesson: the chapter's name, Screen 1 of 3, and its first line", opened && top.chapter === r418Name("Set Up Your Account", "Configure Su Cuenta", language) && top.screen === "1/3" && top.screenWords === fill(say("Screen {n} of {total}", language), { n: 1, total: 3 }) && top.intro === fill(say("Ask about this screen. Help answers from {brand}'s own documents.", language), { brand: "OCSA" }), JSON.stringify(top));
+        const voiceOpen = await r418Attr(app.page, "[data-player-voice]", "data-player-voice");
+        expect("the voice is paused while the sheet is open", voiceOpen !== "playing", before.voice + " -> " + voiceOpen);
+        await spokenHere(app, language, expect);
+        const answered = await r422Ask(app, language, r422Words(language, 0), 1);
+        const turns = r422Turns(app.stub);
+        expect("the message carries lesson { versionId, screenKey } of the screen it was opened on, in the lesson's language as locale", answered && turns.length === 1 && JSON.stringify(turns[0].body.lesson) === JSON.stringify({ versionId: "pv-setup", screenKey: "s1" }) && turns[0].body.locale === language && turns[0].body.text === r422Words(language, 0), JSON.stringify(turns.map(c => c.body)));
+        expect("Help's answer is drawn in the sheet, from the lesson's documents", has(await r418Text(app.page, '[data-lesson-help="open"]'), r422Answer(language)), await r418Text(app.page, '[data-lesson-help="open"]'));
+        await spokenHere(app, language, expect);
+        await r422Close(app.page);
+        const after = { sheet: await r422Sheet(app.page), step: await r418Step(app.page), phase: await r418Phase(app.page), y: await app.page.evaluate(() => window.scrollY), voice: await r418Attr(app.page, "[data-player-voice]", "data-player-voice") };
+        expect("closing the sheet returns to the same screen at the same place, the voice paused and not started again", after.sheet === "closed" && after.step === "s1" && after.phase === "screen" && after.y === before.y && after.voice !== "playing", JSON.stringify({ before, after }));
+        await app.page.clock.runFor(3000);
+        await pause(app.page, 300);
+        expect("and the voice stays paused", (await r418Attr(app.page, "[data-player-voice]", "data-player-voice")) !== "playing", "");
+        const s2 = await r422Through(app.page, "email", "s2");
+        const again = s2 && (await r422OpenHelp(app.page));
+        const kept = has(await r418Text(app.page, '[data-lesson-help="open"]'), r422Answer(language));
+        const screen2 = await r418Attr(app.page, "[data-lesson-help-screen]", "data-lesson-help-screen");
+        const answered2 = await r422Ask(app, language, r422Words(language, 1), 2);
+        const turns2 = r422Turns(app.stub);
+        expect("a later screen asks with its own key (s2, Screen 2 of 3) and the conversation goes on", again && kept && screen2 === "2/3" && answered2 && turns2.length === 2 && turns2[1].body.lesson.screenKey === "s2" && turns2[1].body.lesson.versionId === "pv-setup" && turns2[1].body.conversationId === app.stub.state.conversationId, JSON.stringify(turns2.map(c => c.body)));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "askhelprefused",
+    label: "A screen Help is not taken on (part 422, 1.3): 400 agent.lessonNoHelpHere closes the sheet and hides the button on that screen, with no error shown; the next screen still has it",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { stubOptions: { courses: { helpRefuse: ["s1"] } } });
+      try {
+        await r422Begin(app, language);
+        await r422OpenHelp(app.page);
+        await type(app.page, '[data-lesson-help="open"] textarea[aria-label]', r422Words(language, 0));
+        await pause(app.page, 150);
+        await app.page.click('[data-lesson-help="open"] button[aria-label="' + say("Send", language) + '"]', { timeout: 4000 }).catch(() => {});
+        await pause(app.page, 1200);
+        const refused = app.stub.state.r418.helpTurns.filter(x => x.refused).length;
+        const text = await bodyText(app.page);
+        const api = require("./stub").R418_REFUSALS["agent.lessonNoHelpHere"][language === "es" ? "es" : "en"];
+        expect("400 agent.lessonNoHelpHere closes the sheet and hides the button on that screen", refused === 1 && (await r422Sheet(app.page)) === "closed" && !(await r422Btn(app.page)) && (await r418Step(app.page)) === "s1", "refused " + refused + " sheet " + (await r422Sheet(app.page)));
+        expect("no error is shown to the person", !has(text, api) && !has(text, say("Not sent.", language)), text.slice(0, 240));
+        const s2 = await r422Through(app.page, "email", "s2");
+        expect("the next screen still offers Ask Help", s2 && (await r422Btn(app.page)), String(s2));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "askhelpreview",
+    label: "Watching again keeps Ask Help (part 422, 1.4): a done chapter's Watch again shows the button on its screen, asks with that version and screen, and shows none on its check",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open);
+      try {
+        await r418Training(app, language);
+        await r418Click(app.page, '[data-course="co-clean"]');
+        await shows(app.page, '[data-chapter="tc-mop"][data-chapter-action="watch"]', 8000);
+        await app.page.click('[data-chapter="tc-mop"]', { timeout: 4000 }).catch(() => {});
+        const up = await shows(app.page, '[data-player="screen"][data-player-review="1"]', 8000);
+        expect("a review's screen shows Ask Help", up && (await r422Btn(app.page)), String(up));
+        await r422OpenHelp(app.page);
+        await r422Ask(app, language, r422Words(language, 0), 1);
+        const turns = r422Turns(app.stub);
+        expect("its question carries the review's version and screen", turns.length === 1 && JSON.stringify(turns[0].body.lesson) === JSON.stringify({ versionId: "pv-mop", screenKey: "s1" }), JSON.stringify(turns.map(c => c.body)));
+        await r422Close(app.page);
+        await r418Next(app.page);
+        expect("and none on its check", (await r418Phase(app.page)) === "check" && !(await r422Btn(app.page)), await r418Phase(app.page));
+      } finally { await app.context.close(); }
+    },
+  },
+];
+JOURNEYS.push(...PART422_JOURNEYS);
+
 module.exports = { runJourneys, JOURNEYS };
