@@ -1334,7 +1334,32 @@ const SHOTS = [
       await r418Tap(s, "[data-course-panel] [data-course-next]", 1200);
       return s.waitFor(() => { const i = document.querySelector('[data-course-player-side] [data-player-image="s1"]'); return !!i && i.complete && i.naturalWidth > 0; });
     } },
+  // --- Part 422: Help as a tutor inside a lesson, against the stub's
+  // courses: the sheet over the first screen with an answer, and Ask a
+  // person filled with the question.
+  { name: "lesson-help-answer", entry: E("Ask Help during a lesson"), o: { signedIn: true, stub: { training: true, courses: true } },
+    go: (s) => r422Answered(s) },
+  { name: "lesson-ask-person", entry: E("Ask Help during a lesson"), o: { signedIn: true, stub: { training: true, courses: true } },
+    go: async (s) => {
+      if (!(await r422Answered(s))) return false;
+      await r418Tap(s, '[data-lesson-help="open"] [data-help-ask-person]', 600);
+      return s.waitFor(() => !!document.querySelector('[data-lesson-help="open"] [data-lesson-ask="edit"] [data-lesson-ask-send]'));
+    } },
 ];
+// Part 422: the first chapter's first screen, Ask Help, and a question
+// sent, until its answer is drawn.
+async function r422Answered(s) {
+  if (!(await r418Chapter(s, "co-app", "tc-setup"))) return false;
+  if (!(await s.waitFor(() => !!document.querySelector("[data-player-ask-help]")))) return false;
+  await r418Tap(s, "[data-player-ask-help]", 600);
+  if (!(await s.waitFor(() => !!document.querySelector('[data-lesson-help="open"] textarea[aria-label]')))) return false;
+  await s.type('[data-lesson-help="open"] textarea[aria-label]', s.language === "es" ? "\u00bfD\u00f3nde est\u00e1 el correo de bienvenida?" : "Where is the welcome email?");
+  await s.pause(200);
+  await r418Tap(s, '[data-lesson-help="open"] button[aria-label="' + s.say("Send") + '"]', 400);
+  if (!(await s.waitFor(() => !!document.querySelector('[data-lesson-help="open"] [data-help-ask-person]'), null, 10000))) return false;
+  await s.pause(600);
+  return true;
+}
 // Part 418: a tap on an element by its selector, then a moment.
 async function r418Tap(s, sel, ms) {
   await s.page.click(sel, { timeout: 4000 }).catch(() => {});

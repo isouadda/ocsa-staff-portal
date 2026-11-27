@@ -2681,6 +2681,13 @@ the tab's `ocsa-site`), then the sign-in screen, My Training, a course,
 the player and the Help sheet at 1280 by 900 and 390 by 844, all light,
 and the staff app on the same computer, still dark.
 
+## Pictures for this round's guide entries (part 422, section 4)
+
+`audit/shots.js` takes `lesson-help-answer` (the sheet with an answer) and
+`lesson-ask-person` (the card filled with the question) for **Ask Help
+during a lesson**, and takes `chapter-screen`, `training-site` and
+`appearance` again for the entries this round changed.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names
