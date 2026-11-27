@@ -2810,6 +2810,7 @@ function TrainingSiteApp() {
   // Signing out forgets everything of the person on this computer.
   const signOut = useCallback((why) => {
     trainingAuthDrop();
+    writeLessonBox([]);
     setToken(null); setUser(null); setTraining(null); setTrainingAt(null); setStep(null); setCodeFault(null); setFault(null); setWarnLeft(null);
     setNote(why || null); setStage("login");
     try { const a = playerVoice(); if (a) a.pause(); } catch (e) {}
@@ -2895,6 +2896,8 @@ function TrainingSiteApp() {
     return () => { clearInterval(tick); TRAINING_ACTIVITY.forEach(ev => window.removeEventListener(ev, seen, { capture: true })); };
   }, [stage, signOut]);
   const showToast = (msg) => setNote(msg);
+  // Part 422: Ask a person's questions that waited go while signed in.
+  useLessonQuestionBox(stage === "main" ? token : null, user ? user.id : null, null);
   const pick = (code) => { setLanguage(code); };
   let body = null;
   if (stage === "boot") body = <BootSplash t={t} themeMode={themeMode} fault={null} onRetry={() => {}} />;
@@ -4386,6 +4389,12 @@ function OCSAStaffPortal() {
     const iv = setInterval(() => { if (readMaintBox().some(x => !x.fault && String(x.userId) === String(user.id))) sendMaintBox(); }, 60000);
     return () => { window.removeEventListener("online", onLine); document.removeEventListener("visibilitychange", onShow); clearInterval(iv); };
   }, [token, user && user.id, screen, sendMaintBox]);
+  // Part 422: Ask a person's questions that waited for signal go the same
+  // way, each said once it went or was refused.
+  useLessonQuestionBox(token && user && screen === "main" ? token : null, user ? user.id : null, (res) => {
+    if (res.state === "sent") showToast(tr("Sent. The office will answer you in Chat."));
+    else if (res.said) showToast(res.said, "error");
+  });
   const canMaintain = !!caps && caps.file_maintenance_requests === true;
   const maintKit = {
     box: user ? maintBox.filter(x => String(x.userId) === String(user.id)) : [], changed: maintChanged,
@@ -5285,7 +5294,7 @@ function OCSAStaffPortal() {
               {activeTab === "workspace" && destCtx.workspace && <WorkspaceView token={token} user={user} projects={wsProjects} onProjects={setWsProjects} at={wsAt} onAt={setWsAt} channels={channels} onOpenChat={(id) => { chooseChat(id); setActiveTab("chat"); setShowMore(false); }} showToast={showToast} t={t} />}
               {activeTab === "myfindings" && (destCtx.myFindings || !!myFindingsAt) && <MyFindingsView token={token} data={myFindings} onData={setMyFindings} onReload={() => loadMyFindings()} at={myFindingsAt} onOpenTraining={(topic) => openPlace({ tab: "training", topic: topic })} showToast={showToast} t={t} />}
               {activeTab === "findingsdue" && (destCtx.findingsDue || !!findingsDueAt) && <FollowUpsView token={token} data={findingsDue} onData={setFindingsDue} onReload={() => loadFindingsDue()} at={findingsDueAt} showToast={showToast} t={t} />}
-              {activeTab === "training" && <TrainingView token={token} userId={user && user.id} data={training} onData={takeTraining} at={trainingAt} onAt={setTrainingAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} t={t} />}
+              {activeTab === "training" && <TrainingView token={token} userId={user && user.id} data={training} onData={takeTraining} at={trainingAt} onAt={setTrainingAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} onOpenChat={(id) => { if (id) chooseChat(id); setActiveTab("chat"); setShowMore(false); }} t={t} />}
               {activeTab === "fieldkit" && destCtx.isAdmin && <FieldKitView token={token} user={user} caps={caps} maint={maintKit} at={fieldKitAt} onAt={setFieldKitAt} shiftSiteId={clockStatus && clockStatus.clockedIn && clockStatus.shift ? clockStatus.shift.siteId : null} assignedSites={sites} onOpenEquipment={(code) => { setEquipmentShown(code); setEquipmentBack("fieldkit"); setActiveTab("equipment"); }} showToast={showToast} t={t} />}
               {activeTab === "forms" && <FormsView token={token} user={user} showToast={showToast} t={t} language={language} shiftOpen={!!(clockStatus && clockStatus.clockedIn)} openDraft={formsDraft} onOpenedDraft={() => setFormsDraft(null)} />}
               {activeTab === "settings" && <SettingsView token={token} user={user} showToast={showToast} onToken={adoptToken} t={t} themeMode={themeMode} setTheme={setTheme} textSize={textSize} setTextSize={setTextSize} language={language} setLanguage={setLanguage} onEditShortcuts={() => setShortcutsOpen(true)} onPhoneAlerts={() => setActiveTab("phonealerts")} />}
@@ -9432,6 +9441,161 @@ function AnswerPictures({ pictures, language, t }) {
   );
 }
 
+// ------------------------------------------------------------
+// Ask a person (part 422, section 2; ocsa-api Round 24, part 421)
+// Under Help's answers on a lesson's screen, a person sends their
+// question to the office: POST /api/training/lesson-questions
+// { versionId, screenKey, text, conversationId, clientId }. A question
+// sent with no signal waits on this device and goes once there is signal,
+// the way a building request waits: each with its own clientId, by
+// person, in this phone's storage (on the training site in the tab alone,
+// gone at sign-out, since nothing of the person stays on that computer).
+// Each goes again with the same clientId, and the API answers a repeat
+// with the first send's chats and sends nothing more.
+// ------------------------------------------------------------
+const LESSON_BOX_KEY = "ocsa-staff-lesson-questions";
+const LESSON_QUESTION_MAX = 1000;
+const LESSON_SENT_EVENT = "ocsa-lesson-question";
+const lessonBoxStore = () => { try { return TRAINING_SITE ? window.sessionStorage : window.localStorage; } catch (e) { return null; } };
+function readLessonBox() {
+  try { const st = lessonBoxStore(); const v = st ? JSON.parse(st.getItem(LESSON_BOX_KEY) || "[]") : []; return Array.isArray(v) ? v.filter(x => x && x.clientId && x.userId && x.versionId && x.screenKey && typeof x.text === "string") : []; } catch (e) { return []; }
+}
+function writeLessonBox(list) {
+  try { const st = lessonBoxStore(); if (!st) return; if (list.length) st.setItem(LESSON_BOX_KEY, JSON.stringify(list)); else st.removeItem(LESSON_BOX_KEY); } catch (e) {}
+}
+const keepLessonQuestion = (entry) => writeLessonBox(readLessonBox().filter(x => x.clientId !== entry.clientId).concat([entry]));
+const dropLessonQuestion = (clientId) => writeLessonBox(readLessonBox().filter(x => x.clientId !== clientId));
+// One send. Answers sent (201, or 200 for a clientId the API already
+// took), none (409 training.noOneToAsk, in the API's words), refused (any
+// other refusal, in the API's words), or waiting (no signal, or the API
+// not able to take it now), which leaves it to wait.
+async function sendLessonQuestion(entry, token) {
+  const body = { versionId: entry.versionId, screenKey: entry.screenKey, text: entry.text, clientId: entry.clientId };
+  if (entry.conversationId) body.conversationId = entry.conversationId;
+  try {
+    const d = await api("/api/training/lesson-questions", { method: "POST", body: body, token });
+    return { state: "sent", channelIds: Array.isArray(d && d.channelIds) ? d.channelIds.map(String) : [], repeat: !!(d && d.repeat) };
+  } catch (err) {
+    if (!err || !err.status || err.status >= 500 || err.status === 401 || err.status === 429) return { state: "waiting" };
+    if (err.status === 409 && err.code === "training.noOneToAsk") return { state: "none", said: err.message };
+    return { state: "refused", said: err.message };
+  }
+}
+// The questions waiting go once the person is in, when the signal comes
+// back, when the app comes back to the front and every minute while one
+// waits. How each one ended is told through the window to the card that
+// sent it, if it is still open, and to onDone.
+function useLessonQuestionBox(token, userId, onDone) {
+  const going = useRef(false);
+  const done = useRef(onDone);
+  done.current = onDone;
+  const sendBox = useCallback(async () => {
+    if (going.current || !token || !userId) return;
+    const mine = readLessonBox().filter(x => String(x.userId) === String(userId));
+    if (mine.length === 0) return;
+    going.current = true;
+    try {
+      for (const entry of mine) {
+        const res = await sendLessonQuestion(entry, token);
+        if (res.state === "waiting") break;
+        dropLessonQuestion(entry.clientId);
+        const told = Object.assign({ clientId: entry.clientId }, res);
+        try { window.dispatchEvent(new CustomEvent(LESSON_SENT_EVENT, { detail: told })); } catch (e) {}
+        if (done.current) done.current(told);
+      }
+    } finally { going.current = false; }
+  }, [token, userId]);
+  useEffect(() => {
+    if (!token || !userId) return undefined;
+    sendBox();
+    const onLine = () => sendBox();
+    const onShow = () => { if (document.visibilityState === "visible") sendBox(); };
+    window.addEventListener("online", onLine);
+    document.addEventListener("visibilitychange", onShow);
+    const iv = setInterval(() => { if (readLessonBox().some(x => String(x.userId) === String(userId))) sendBox(); }, 60000);
+    return () => { window.removeEventListener("online", onLine); document.removeEventListener("visibilitychange", onShow); clearInterval(iv); };
+  }, [token, userId, sendBox]);
+}
+// The card: the person's question, filled with their last message and
+// theirs to change, and Send. The clientId is made once for a send and
+// sent again unchanged on every retry of it; a changed question is a new
+// send. 201 says it went, with a button to Chat where the office answers
+// (the staff app; the training site has no Chat); 409 training.noOneToAsk
+// reads the API's words and the way to reach the office (Chat in the
+// staff app, App support's email on the training site); with no signal it
+// waits and says so.
+function AskPersonCard({ token, userId, at, conversationId, first, onClose, onOpenChat, t }) {
+  const [text, setText] = useState(String(first || "").slice(0, LESSON_QUESTION_MAX));
+  const [state, setState] = useState({ kind: "edit" });
+  const [contact, setContact] = useState(null);
+  const clientId = useRef(null);
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  // A question that waited goes later; its card, still open, says how it ended.
+  useEffect(() => {
+    const heard = (e) => {
+      const d = e && e.detail ? e.detail : null;
+      if (!d || !clientId.current || d.clientId !== clientId.current || !live.current) return;
+      if (d.state === "sent") { clientId.current = null; setState({ kind: "sent", channelIds: d.channelIds || [] }); }
+      else if (d.state === "none") setState({ kind: "none", said: d.said });
+      else setState({ kind: "refused", said: d.said });
+    };
+    window.addEventListener(LESSON_SENT_EVENT, heard);
+    return () => window.removeEventListener(LESSON_SENT_EVENT, heard);
+  }, []);
+  // The training site's way to the office: App support's email, read with
+  // no token, as its sign-in screen reads it.
+  useEffect(() => {
+    if (state.kind !== "none" || !TRAINING_SITE || contact) return undefined;
+    let on = true;
+    api("/api/support/contact").then(d => { const email = d && typeof d.email === "string" ? d.email.trim() : ""; if (on && SUPPORT_EMAIL_RE.test(email)) setContact({ email: email }); }).catch(() => {});
+    return () => { on = false; };
+  }, [state.kind]);
+  const v = text.trim();
+  const busy = state.kind === "sending";
+  const send = async () => {
+    if (!v || busy || !at) return;
+    if (!clientId.current) clientId.current = newSendId();
+    const entry = { clientId: clientId.current, userId: userId, versionId: at.versionId, screenKey: at.screenKey, text: v, conversationId: conversationId || null, savedAt: Date.now() };
+    setState({ kind: "sending" });
+    const res = await sendLessonQuestion(entry, token);
+    if (!live.current) return;
+    if (res.state === "sent") { clientId.current = null; setState({ kind: "sent", channelIds: res.channelIds }); return; }
+    if (res.state === "waiting") { if (userId) keepLessonQuestion(entry); setState({ kind: userId ? "queued" : "refused", said: userId ? "" : tr(ERR_OFFLINE) }); return; }
+    if (res.state === "none") { setState({ kind: "none", said: res.said }); return; }
+    setState({ kind: "refused", said: res.said });
+  };
+  const chatBtn = onOpenChat ? (ids) => <button type="button" data-lesson-ask-chat="1" onClick={() => onOpenChat(ids && ids.length === 1 ? ids[0] : null)} style={{ ...wsMainBtn(t, false), marginTop: 10 }}>{tr("Open Chat")}</button> : () => null;
+  const boxSt = { margin: "0 12px 8px", padding: "12px", background: t.card, border: "1px solid " + t.goldBorder, borderRadius: R.md, boxShadow: t.shadow, flexShrink: 1, minHeight: 0, overflowY: "auto" };
+  const headSt = { fontSize: 10, color: t.goldText, textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, fontFamily: FONT_HEAD };
+  if (state.kind === "sent" || state.kind === "queued" || state.kind === "none") {
+    return (
+      <div data-lesson-ask={state.kind} style={boxSt}>
+        <div style={headSt}>{tr("Ask a person")}</div>
+        {state.kind === "sent" && <div role="status" data-lesson-ask-sent="1" style={{ fontSize: 14, fontWeight: 600, color: ink(t, GREEN), marginTop: 6, lineHeight: 1.45 }}>{tr("Sent. The office will answer you in Chat.")}</div>}
+        {state.kind === "sent" && chatBtn(state.channelIds)}
+        {state.kind === "queued" && <div role="status" data-lesson-ask-queued="1" style={{ fontSize: 13, color: t.text, marginTop: 6, lineHeight: 1.45 }}>{TRAINING_SITE ? tr("Saved in this window. It sends when the connection is back.") : tr("Saved on this phone. It sends when you have signal.")}</div>}
+        {state.kind === "none" && <div role="alert" data-lesson-ask-none="1" style={{ fontSize: 13, color: t.text, marginTop: 6, lineHeight: 1.45, overflowWrap: "anywhere" }}>{state.said}</div>}
+        {state.kind === "none" && chatBtn(null)}
+        {state.kind === "none" && TRAINING_SITE && contact && <a data-lesson-ask-email="1" href={"mailto:" + contact.email} style={{ display: "inline-flex", alignItems: "center", minHeight: TAP, marginTop: 6, color: t.goldText, fontSize: 13, fontWeight: 600, overflowWrap: "anywhere" }}>{tr("Email {email}", { email: contact.email })}</a>}
+        <div><button type="button" data-lesson-ask-done="1" onClick={onClose} style={{ ...wsPlainBtn(t), marginTop: 10 }}>{tr("Close")}</button></div>
+      </div>
+    );
+  }
+  return (
+    <div data-lesson-ask="edit" style={boxSt}>
+      <div style={headSt}>{tr("Ask a person")}</div>
+      <label htmlFor="ocsa-lesson-ask-text" style={{ ...mkLabel(t), marginTop: 6 }}>{tr("Your question")}</label>
+      <textarea id="ocsa-lesson-ask-text" data-lesson-ask-text="1" value={text} maxLength={LESSON_QUESTION_MAX} disabled={busy} onChange={e => { setText(e.target.value); clientId.current = null; if (state.kind === "refused") setState({ kind: "edit" }); }} rows={3} style={{ ...mkInput(t), width: "100%", minHeight: 76, resize: "vertical", lineHeight: 1.45 }} />
+      {state.kind === "refused" && state.said && <WsFault text={state.said} t={t} />}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+        <button type="button" onClick={onClose} disabled={busy} style={wsPlainBtn(t)}>{tr("Cancel")}</button>
+        <button type="button" data-lesson-ask-send="1" onClick={send} disabled={!v || busy} style={wsMainBtn(t, !v || busy)}>{busy ? tr("Sending...") : tr("Send")}</button>
+      </div>
+    </div>
+  );
+}
+
 function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpenDocument, conversationId, onConversation, userId, lesson, inSheet }) {
   // The same shape the Forms screen uses, so a Spanish screen never
   // lists English form names.
@@ -9444,14 +9608,16 @@ function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpen
   const [thread, setThread] = useState([]);
   const [text, setText] = useState("");
   // Part 422: Help on a lesson's screen (lesson { versionId, screenKey,
-  // locale, open, onRefused }), the same screen in a sheet over the
-  // lesson. Each question it sends carries the screen it was asked on as
-  // lesson { versionId, screenKey }, in the lesson's language; it keeps
-  // no typed question on the phone, reads no unfinished reports and takes
-  // no photo.
+  // locale, open, onRefused, onOpenChat }), the same screen in a sheet
+  // over the lesson. Each question it sends carries the screen it was
+  // asked on as lesson { versionId, screenKey }, in the lesson's
+  // language; it keeps no typed question on the phone, reads no
+  // unfinished reports and takes no photo; and under each answer
+  // Still stuck? Ask a person opens the card above the composer.
   const inLesson = !!lesson;
   const lessonRef = useRef(lesson);
   lessonRef.current = lesson;
+  const [asking, setAsking] = useState(null);
   // A question being typed stays on the phone until it is sent (PORT-20).
   useKeptWork(inLesson ? null : userId, "help", { text: text }, null, !text.trim(), (f) => { if (f && f.text) setText(f.text); });
   const [sending, setSending] = useState(false);
@@ -9825,6 +9991,7 @@ function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpen
           {!isMe && !m.arriving && !m.dropped && m.openDocument && onOpenDocument && <div style={{ display: "flex", marginTop: 6 }}><button type="button" data-help-open-doc={m.openDocument.docCode} onClick={() => onOpenDocument(m.openDocument)} style={{ ...trainingGoldBtn, display: "inline-flex", gap: 8 }}><LibIco sz={16} c={NAVY} style={{ flexShrink: 0 }} /><span style={{ overflowWrap: "anywhere" }}>{tr("Open {docCode}", { docCode: m.openDocument.docCode })}</span></button></div>}
           {!isMe && agentSourcesLine(m.citedDocs, m.citedNames) && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3, fontFamily: FONT_HEAD }}>{tr("Based on")} {agentSourcesLine(m.citedDocs, m.citedNames)}</div>}
           {!isMe && m.degraded && <div style={{ fontSize: 10, color: t.textMut, marginTop: 3 }}>{tr("Working from the written procedure only right now.")}</div>}
+          {!isMe && inLesson && !m.arriving && !m.dropped && <button type="button" data-help-ask-person={m.id} onClick={() => { const mine = thread.filter(x => x.role === "user"); setAsking({ first: mine.length ? mine[mine.length - 1].text : "", opened: Date.now() }); }} style={mkTapFrame({ justifyContent: "flex-start", gap: 6, marginTop: 2, color: t.goldText, fontSize: 13, fontWeight: 600, fontFamily: FONT_HEAD, textAlign: "left" })}><ChatIco sz={14} c={t.goldText} style={{ flexShrink: 0 }} />{tr("Still stuck? Ask a person")}</button>}
           {!isMe && m.messageId && !m.arriving && !m.dropped && !rateOff && <RateAnswer messageId={m.messageId} feedback={m.feedback || null} onRated={(f) => setThread(prev => prev.map(x => x.id === m.id ? { ...x, feedback: f } : x))} onUnavailable={() => setRateOff(true)} token={token} t={t} />}
           {!isMe && m.dropped && <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>{tr("The connection dropped. Your answer is saved.")}{m.error ? " " + m.error : ""}</span>{!m.reading && <button onClick={() => readBack(m.id, m.conversationId, m.question)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", fontSize: 11, opacity: sending ? 0.6 : 1 }}>{tr("Try again")}</button>}</div>}
           {isMe && m.failed && <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}><span style={{ fontSize: 10, color: t.textMut }}>{tr("Not sent.")}{m.error ? " " + m.error : ""}</span><button onClick={() => send(m.id, m.text, m.photoPaths, m.requestId, m.lessonAt || null)} disabled={sending} style={{ ...smallBtn, padding: "6px 12px", fontSize: 11, opacity: sending ? 0.6 : 1 }}>{tr("Retry")}</button></div>}
@@ -9850,6 +10017,7 @@ function AgentView({ token, showToast, t, language, onFillForm, onTicket, onOpen
             </div>}
         {ticket.faults && Object.keys(ticket.faults).filter(k => ticket.faults[k]).map(k => <div key={k} role="alert" style={{ ...mkFieldErr(t), marginTop: 6 }}>{ticket.faults[k]}</div>)}
       </div>)}
+      {inLesson && asking && <AskPersonCard key={asking.opened} token={token} userId={userId} at={{ versionId: lesson.versionId, screenKey: lesson.screenKey }} conversationId={conversationId} first={asking.first} onClose={() => setAsking(null)} onOpenChat={lesson.onOpenChat} t={t} />}
       {photos.length > 0 && (
         <div style={{ padding: "8px 12px 0", display: "flex", flexWrap: "wrap", gap: 10, flexShrink: 0 }}>
           {photos.map(p => (
@@ -12711,7 +12879,7 @@ function LessonHelpSheet({ open, chapter, n, total, onClose, children, t }) {
   );
 }
 
-function CoursePlayer({ token, userId, versionId, review: askedReview, publicSetup, course, chapter, backLabel, onBack, onNext, onCourse, onSignIn, stick, t }) {
+function CoursePlayer({ token, userId, versionId, review: askedReview, publicSetup, course, chapter, backLabel, onBack, onNext, onCourse, onSignIn, onOpenChat, stick, t }) {
   const [phase, setPhase] = useState("loading");
   const [les, setLes] = useState(null);
   const [attempt, setAttempt] = useState(null);
@@ -12992,7 +13160,7 @@ function CoursePlayer({ token, userId, versionId, review: askedReview, publicSet
   const helpSheet = helpAt && les && token && !publicSetup ? (
     <LessonHelpSheet open={helpOpen} chapter={title} n={helpAt.n} total={les.screens.length} onClose={closeHelp} t={t}>
       <AgentView inSheet token={token} userId={userId} t={t} language={les.locale} showToast={() => {}} conversationId={helpConv} onConversation={setHelpConv}
-        lesson={{ versionId: les.versionId || versionId, screenKey: helpAt.key, locale: les.locale, open: helpOpen, onRefused: helpRefused }} />
+        lesson={{ versionId: les.versionId || versionId, screenKey: helpAt.key, locale: les.locale, open: helpOpen, onRefused: helpRefused, onOpenChat: onOpenChat || null }} />
     </LessonHelpSheet>
   ) : null;
   const drawn = (() => {
@@ -13183,7 +13351,7 @@ function CoursePlayer({ token, userId, versionId, review: askedReview, publicSet
   return <>{drawn}{helpSheet}</>;
 }
 
-function TrainingView({ token, userId, data, onData, at, onAt, shiftSiteId, wide, t }) {
+function TrainingView({ token, userId, data, onData, at, onAt, shiftSiteId, wide, onOpenChat, t }) {
   // Read again each time the screen opens, and each time a lesson is
   // left; a read that fails keeps what is on the screen and says so,
   // with Try again.
@@ -13311,7 +13479,7 @@ function TrainingView({ token, userId, data, onData, at, onAt, shiftSiteId, wide
   };
   if (coursePage) {
     const closePlayer = () => { try { if (window.history.state && window.history.state.trainingPlayer) { window.history.back(); return; } } catch (e) {} setPlaying(null); setCourseReread(n => n + 1); };
-    const playerNode = playing ? <CoursePlayer key={playing.versionId + ":" + playing.opened} token={token} userId={userId} versionId={playing.versionId} review={playing.review} course={playing.course} chapter={playing.ch} backLabel={coursePage.name} onBack={closePlayer} onNext={(c, ch) => playChapter(c, ch, false)} t={t} /> : null;
+    const playerNode = playing ? <CoursePlayer key={playing.versionId + ":" + playing.opened} token={token} userId={userId} onOpenChat={onOpenChat} versionId={playing.versionId} review={playing.review} course={playing.course} chapter={playing.ch} backLabel={coursePage.name} onBack={closePlayer} onNext={(c, ch) => playChapter(c, ch, false)} t={t} /> : null;
     const openCert = (id) => { openApiPdf(certPdfPath(id), "certificate.pdf", token).catch(() => openCerts(id)); };
     return <CoursePage key={coursePage.id} token={token} course={coursePage} onBack={() => { closeCourse(); setAsked(n => n + 1); }} onPlay={playChapter} onCertificate={openCert} playing={playing ? { topicId: playing.ch.topicId, node: playerNode } : null} reread={courseReread} wide={!!wide} t={t} />;
   }

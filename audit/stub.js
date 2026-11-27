@@ -1874,11 +1874,15 @@ function r418StateOf(o) {
     mediaStale: Number(opt.mediaStale) || 0, mediaSeq: 0, media: [], lessonReads: [],
     none: opt.none === true, seq: 0,
     // Part 422 (ocsa-api Round 24, part 421): every Help turn that carried a
-    // lesson, { lesson, locale, text, refused }, and the screens whose
-    // lesson turns the API turns away (helpRefuse, keys).
+    // lesson, { lesson, locale, text, refused }; the screens whose lesson
+    // turns the API turns away (helpRefuse, keys); every Ask a person send,
+    // { body, status }; the chats each clientId went to; nobody to ask
+    // (noOneToAsk); and a send taken and then lost on the way back
+    // (askDrop, how many).
     helpTurns: [], helpRefuse: Array.isArray(opt.helpRefuse) ? opt.helpRefuse.slice() : [],
     // Screens whose read answers askHelp false (noAskHelp, keys).
     noAskHelp: Array.isArray(opt.noAskHelp) ? opt.noAskHelp.slice() : [],
+    asks: [], askSent: {}, noOneToAsk: opt.noOneToAsk === true, askDrop: Number(opt.askDrop) || 0, askSeq: 0,
   };
 }
 
@@ -3503,8 +3507,10 @@ const R418_REFUSALS = {
   "customer.tooManyRequests": { status: 429, en: "Too many tries from this connection. Wait a minute and try again.", es: "Demasiados intentos desde esta conexi\u00f3n. Espere un minuto e intente de nuevo." },
   "training.notPlayer": { status: 409, en: "This lesson has no questions to try here.", es: "Esta lecci\u00f3n no tiene preguntas para probar aqu\u00ed." },
   // Part 422 (ocsa-api Round 24, part 421, helpers/words.js): Help on a
-  // lesson's screen, in the API's own words.
+  // lesson's screen and Ask a person, in the API's own words.
   "agent.lessonNoHelpHere": { status: 400, en: "Help can be asked here only about a screen of a lesson you can watch.", es: "Aqu\u00ed solo se puede pedir ayuda sobre una pantalla de una lecci\u00f3n que usted puede ver." },
+  "training.lessonQuestionBad": { status: 400, en: "Check the question: it needs the lesson, the screen and your words.", es: "Revise la pregunta: necesita la lecci\u00f3n, la pantalla y sus palabras." },
+  "training.noOneToAsk": { status: 409, en: "There is nobody to send your question to right now. Ask your supervisor.", es: "Ahora no hay nadie a quien enviar su pregunta. Pregunte a su supervisor." },
 };
 // What a course certificate's PDF is: one small real PDF.
 const R418_PDF = Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 792 612]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n", "latin1");
@@ -5340,6 +5346,32 @@ function createStub(opts) {
         R.reviewChecks = (R.reviewChecks || 0) + 1;
         return json(200, { right: got.right, replay: got.right ? [] : ck.replay.slice(), review: true });
       }
+    }
+    // Part 422: Ask a person (ocsa-api Round 24, helpers/lessonQuestions.js):
+    // the body read, the gate of Help's lesson turns, a clientId sent again
+    // answered with the first send's chats, nobody to ask, and the send.
+    if (key === "POST /api/training/lesson-questions") {
+      const b = body && typeof body === "object" ? body : {};
+      const keys = [];
+      if (typeof b.versionId !== "string" || !b.versionId.trim()) keys.push("versionId");
+      if (typeof b.screenKey !== "string" || !b.screenKey.trim()) keys.push("screenKey");
+      if (typeof b.text !== "string" || !b.text.trim() || b.text.trim().length > 1000) keys.push("text");
+      if (b.conversationId !== undefined && b.conversationId !== null && (typeof b.conversationId !== "string" || !b.conversationId)) keys.push("conversationId");
+      if (b.clientId !== undefined && b.clientId !== null && !(typeof b.clientId === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(b.clientId))) keys.push("clientId");
+      const ask = { body: JSON.parse(JSON.stringify(b)), status: 0 };
+      R.asks.push(ask);
+      const out = (status, reply) => { ask.status = status; return reply; };
+      if (keys.length) return out(400, refuse("training.lessonQuestionBad", { keys: keys }));
+      const L = R418_LESSONS[b.versionId];
+      if (!L) return out(400, refuse("training.lessonQuestionBad", { keys: ["versionId"] }));
+      if (!L.screens.some(x => x.key === b.screenKey)) return out(400, refuse("training.lessonQuestionBad", { keys: ["screenKey"] }));
+      if (b.clientId && R.askSent[b.clientId]) return out(200, json(200, { sentTo: R.askSent[b.clientId].length, channelIds: R.askSent[b.clientId].slice(), repeat: true }));
+      if (R.noOneToAsk) return out(409, refuse("training.noOneToAsk"));
+      R.askSeq += 1;
+      const channels = ["ch-lesson-" + R.askSeq];
+      if (b.clientId) R.askSent[b.clientId] = channels;
+      if (R.askDrop > 0) { R.askDrop -= 1; ask.status = -1; return { abort: true }; }
+      return out(201, json(201, { sentTo: channels.length, channelIds: channels }));
     }
     if (key === "POST /api/training/attempts" && body && R418_LESSONS[body.versionId]) {
       const L = R418_LESSONS[body.versionId];

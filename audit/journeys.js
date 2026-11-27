@@ -13215,15 +13215,18 @@ JOURNEYS.push(...PART418_S6_JOURNEYS);
 // --- Round 19 of the staff app (part 422) ---------------------------------
 //
 // Help as a tutor inside a lesson (ocsa-api Round 24, part 421, "For the
-// staff app"). Each journey fails on the main of part 418 (37cdff9),
-// where no screen offers Help. The stub
+// staff app") and Ask a person. Each journey fails on the main of part
+// 418 (37cdff9), where no screen offers Help. The stub
 // answers askHelp on every screen of a signed-in read, as Round 24 does,
 // reads a lesson body on Help's routes (agent.lessonNoHelpHere for a check
-// or a screen it turns away; see r418StateOf: helpTurns, helpRefuse,
-// noAskHelp).
+// or a screen it turns away) and answers POST
+// /api/training/lesson-questions (see r418StateOf: helpTurns, helpRefuse,
+// noAskHelp, asks, noOneToAsk, askDrop).
 const r422Btn = (page) => r418Has(page, "[data-player-ask-help]");
 const r422Sheet = (page) => r418Attr(page, "[data-lesson-help]", "data-lesson-help");
 const r422Turns = (stub) => stub.state.calls.filter(c => c.method === "POST" && /^\/api\/agent\/message(\/stream)?$/.test(c.path));
+const r422Asks = (stub) => stub.state.calls.filter(c => c.method === "POST" && c.path === "/api/training/lesson-questions");
+const r422Box = (page, key) => page.evaluate((k) => { try { return JSON.parse(window[k === "session" ? "sessionStorage" : "localStorage"].getItem("ocsa-staff-lesson-questions") || "[]"); } catch (e) { return null; } }, key || "local");
 // The Staff App's first chapter, begun from its course page, on its first
 // screen.
 const r422Begin = async (app, language) => {
@@ -13414,6 +13417,146 @@ const PART422_JOURNEYS = [
         await r422Close(app.page);
         await r418Next(app.page);
         expect("and none on its check", (await r418Phase(app.page)) === "check" && !(await r422Btn(app.page)), await r418Phase(app.page));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "askperson",
+    label: "Ask a person (part 422, 2.1, 2.2): Still stuck? Ask a person under Help's answer opens the question filled with the last message, editable; Send posts { versionId, screenKey, text, conversationId, clientId } once; 201 says Sent. The office will answer you in Chat. with a button to Chat",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open);
+      try {
+        await r422Begin(app, language);
+        await r422OpenHelp(app.page);
+        await r422Ask(app, language, r422Words(language, 0), 1);
+        const link = await r418Text(app.page, '[data-lesson-help="open"] [data-help-ask-person]');
+        expect("under Help's answer: Still stuck? Ask a person", link === say("Still stuck? Ask a person", language), link);
+        await app.page.click('[data-lesson-help="open"] [data-help-ask-person]', { timeout: 4000 }).catch(() => {});
+        const form = await shows(app.page, '[data-lesson-ask="edit"]', 4000);
+        const filled = await boxText(app.page, "[data-lesson-ask-text]");
+        expect("a short form: the question filled with the last message, and Send", form && filled === r422Words(language, 0) && (await r418Has(app.page, "[data-lesson-ask-send]")), String(filled));
+        await spokenHere(app, language, expect);
+        const mine = r422Words(language, 0) + (language === "es" ? " No lo encuentro." : " I cannot find it.");
+        await type(app.page, "[data-lesson-ask-text]", mine);
+        await pause(app.page, 150);
+        await app.page.click("[data-lesson-ask-send]", { timeout: 4000 }).catch(() => {});
+        const sentUp = await shows(app.page, '[data-lesson-ask="sent"]', 5000);
+        const asks = r422Asks(app.stub);
+        const b = asks.length ? asks[0].body : {};
+        expect("Send posts the edited question once, with the screen, the Help conversation and a clientId", asks.length === 1 && b.versionId === "pv-setup" && b.screenKey === "s1" && b.text === mine && b.conversationId === app.stub.state.conversationId && /^[A-Za-z0-9_-]{8,64}$/.test(b.clientId || ""), JSON.stringify(asks.map(c => c.body)));
+        const said = await r418Text(app.page, "[data-lesson-ask-sent]");
+        expect("201: Sent. The office will answer you in Chat., with a button to Chat", sentUp && said === say("Sent. The office will answer you in Chat.", language) && (await r418Has(app.page, "[data-lesson-ask-chat]")), said);
+        await spokenHere(app, language, expect);
+        await app.page.click("[data-lesson-ask-chat]", { timeout: 4000 }).catch(() => {});
+        await pause(app.page, 1200);
+        expect("the button opens Chat on the chat it went to", !(await r418Has(app.page, "[data-player]")) && sent(app.stub, "GET", "/api/chat/channels/ch-lesson-1/messages").length >= 1, "");
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "askpersonrepeat",
+    label: "Ask a person sent again with the same clientId (part 422, 2.1, 2.2): a send the API took whose answer was lost waits, says so, and goes again unchanged once the signal is back; the API answers the repeat and nothing more is sent",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { stubOptions: { courses: { askDrop: 1 } } });
+      try {
+        await r422Begin(app, language);
+        await r422OpenHelp(app.page);
+        await r422Ask(app, language, r422Words(language, 0), 1);
+        await app.page.click('[data-lesson-help="open"] [data-help-ask-person]', { timeout: 4000 }).catch(() => {});
+        await shows(app.page, '[data-lesson-ask="edit"]', 4000);
+        await app.page.click("[data-lesson-ask-send]", { timeout: 4000 }).catch(() => {});
+        const waiting = await shows(app.page, '[data-lesson-ask="queued"]', 5000);
+        const kept = await r422Box(app.page);
+        expect("the lost answer leaves it waiting on the phone, said in the app's words", waiting && (await r418Text(app.page, "[data-lesson-ask-queued]")) === say("Saved on this phone. It sends when you have signal.", language) && Array.isArray(kept) && kept.length === 1, JSON.stringify(kept));
+        await app.page.evaluate(() => window.dispatchEvent(new Event("online")));
+        const sentUp = await shows(app.page, '[data-lesson-ask="sent"]', 6000);
+        const asks = r422Asks(app.stub);
+        expect("it goes again with the same clientId and the same words, the API answers the repeat, and the office got it once", sentUp && asks.length === 2 && asks[0].body.clientId === asks[1].body.clientId && JSON.stringify(asks[0].body) === JSON.stringify(asks[1].body) && app.stub.state.r418.askSeq === 1 && app.stub.state.r418.asks[1].status === 200, JSON.stringify(asks.map(c => c.body)) + " seq " + app.stub.state.r418.askSeq);
+        expect("nothing waits any more", ((await r422Box(app.page)) || []).length === 0, "");
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "askpersonnone",
+    label: "Nobody to ask (part 422, 2.2): 409 training.noOneToAsk reads the API's words and the app's way to reach the office, Chat",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { stubOptions: { courses: { noOneToAsk: true } } });
+      try {
+        await r422Begin(app, language);
+        await r422OpenHelp(app.page);
+        await r422Ask(app, language, r422Words(language, 0), 1);
+        await app.page.click('[data-lesson-help="open"] [data-help-ask-person]', { timeout: 4000 }).catch(() => {});
+        await shows(app.page, '[data-lesson-ask="edit"]', 4000);
+        await app.page.click("[data-lesson-ask-send]", { timeout: 4000 }).catch(() => {});
+        const up = await shows(app.page, '[data-lesson-ask="none"]', 5000);
+        const api = require("./stub").R418_REFUSALS["training.noOneToAsk"][language === "es" ? "es" : "en"];
+        const said = await r418Text(app.page, "[data-lesson-ask-none]");
+        expect("409 training.noOneToAsk in the API's words, with Chat to reach the office, and no Sent", up && said === api && (await r418Has(app.page, "[data-lesson-ask-chat]")) && !(await r418Has(app.page, "[data-lesson-ask-sent]")) && r422Asks(app.stub).length === 1, said);
+        await spokenHere(app, language, expect);
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "askpersonoffline",
+    label: "Ask a person with no signal (part 422, 2.2): the question waits on the phone the way other sends wait, says so, and goes with its clientId once the signal is back",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open);
+      try {
+        await r422Begin(app, language);
+        await r422OpenHelp(app.page);
+        await r422Ask(app, language, r422Words(language, 0), 1);
+        await app.page.click('[data-lesson-help="open"] [data-help-ask-person]', { timeout: 4000 }).catch(() => {});
+        await shows(app.page, '[data-lesson-ask="edit"]', 4000);
+        app.stub.state.offline = true;
+        await app.page.click("[data-lesson-ask-send]", { timeout: 4000 }).catch(() => {});
+        const waiting = await shows(app.page, '[data-lesson-ask="queued"]', 5000);
+        const kept = await r422Box(app.page);
+        const tried = r422Asks(app.stub).length;
+        expect("with no signal it is kept on the phone with its clientId, and said: Saved on this phone. It sends when you have signal.", waiting && (await r418Text(app.page, "[data-lesson-ask-queued]")) === say("Saved on this phone. It sends when you have signal.", language) && Array.isArray(kept) && kept.length === 1 && /^[A-Za-z0-9_-]{8,64}$/.test(kept[0].clientId) && kept[0].screenKey === "s1" && app.stub.state.r418.askSeq === 0, JSON.stringify(kept));
+        await spokenHere(app, language, expect);
+        app.stub.state.offline = false;
+        await app.page.evaluate(() => window.dispatchEvent(new Event("online")));
+        const sentUp = await shows(app.page, '[data-lesson-ask="sent"]', 6000);
+        const asks = r422Asks(app.stub).slice(tried);
+        expect("the signal back, it goes once with the same clientId and the card says it went", sentUp && asks.length === 1 && asks[0].body.clientId === kept[0].clientId && app.stub.state.r418.askSeq === 1 && ((await r422Box(app.page)) || []).length === 0, JSON.stringify(asks.map(c => c.body)));
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "askhelptraining",
+    label: "Ask Help on the training site (part 422, 1, 2): at 1280 by 900 the button on a screen, the sheet with its answer and the lesson in the message; Ask a person sent with no Chat (the site has none), and 409 with App support's email as the way to the office",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { signedIn: false, path: "/?site=training", stubOptions: { support: true } });
+      try {
+        await app.page.setViewportSize({ width: 1280, height: 900 });
+        await r418SignIn(app.page, language);
+        await shows(app.page, "[data-courses]", 10000);
+        await r418Click(app.page, '[data-course="co-app"]');
+        await shows(app.page, '[data-course-wide="1"] [data-course-panel]', 6000);
+        await app.page.click('[data-course-panel] [data-course-next]', { timeout: 4000 }).catch(() => {});
+        const up = await shows(app.page, '[data-course-player-side] [data-player="screen"]', 8000);
+        expect("the training site's player shows Ask Help on a screen", up && (await r422Btn(app.page)), String(up));
+        await r422OpenHelp(app.page);
+        const answered = await r422Ask(app, language, r422Words(language, 0), 1);
+        const turns = r422Turns(app.stub);
+        expect("the sheet answers, and the message carries the lesson", answered && turns.length === 1 && turns[0].body.lesson && turns[0].body.lesson.screenKey === "s1", JSON.stringify(turns.map(c => c.body)));
+        await app.page.click('[data-lesson-help="open"] [data-help-ask-person]', { timeout: 4000 }).catch(() => {});
+        await shows(app.page, '[data-lesson-ask="edit"]', 4000);
+        await app.page.click("[data-lesson-ask-send]", { timeout: 4000 }).catch(() => {});
+        const sentUp = await shows(app.page, '[data-lesson-ask="sent"]', 5000);
+        expect("sent: the words, and no button to a Chat the training site does not have", sentUp && (await r418Text(app.page, "[data-lesson-ask-sent]")) === say("Sent. The office will answer you in Chat.", language) && !(await r418Has(app.page, "[data-lesson-ask-chat]")), "");
+        await app.page.click("[data-lesson-ask-done]", { timeout: 4000 }).catch(() => {});
+        app.stub.state.r418.noOneToAsk = true;
+        await app.page.click('[data-lesson-help="open"] [data-help-ask-person]', { timeout: 4000 }).catch(() => {});
+        await shows(app.page, '[data-lesson-ask="edit"]', 4000);
+        await app.page.click("[data-lesson-ask-send]", { timeout: 4000 }).catch(() => {});
+        await shows(app.page, "[data-lesson-ask-email]", 5000);
+        const mail = await r418Attr(app.page, "[data-lesson-ask-email]", "href");
+        expect("409: the API's words and App support's email", (await r418Text(app.page, "[data-lesson-ask-none]")) === require("./stub").R418_REFUSALS["training.noOneToAsk"][language === "es" ? "es" : "en"] && mail === "mailto:support@example.invalid", String(mail));
+        await spokenHere(app, language, expect);
+        await app.page.click("[data-training-site-sign-out]", { timeout: 4000 }).catch(() => {});
+        await pause(app.page, 600);
+        expect("nothing waits in the tab after sign-out", ((await r422Box(app.page, "session")) || []).length === 0, "");
       } finally { await app.context.close(); }
     },
   },

@@ -1849,6 +1849,14 @@ export const WORDS = {
   "Screen {n} of {total}": "Pantalla {n} de {total}",
   "Ask about this screen. Help answers from {brand}'s own documents.": "Pregunte sobre esta pantalla. Ayuda responde con los documentos propios de {brand}.",
   "Type your question": "Escriba su pregunta",
+  // Part 422 (section 2): Ask a person.
+  "Still stuck? Ask a person": "\u00bfTodav\u00eda tiene dudas? Preguntar a una persona",
+  "Ask a person": "Preguntar a una persona",
+  "Your question": "Su pregunta",
+  "Sent. The office will answer you in Chat.": "Enviado. La oficina le responder\u00e1 en Mensajes.",
+  "Open Chat": "Abrir Mensajes",
+  "Saved in this window. It sends when the connection is back.": "Guardado en esta ventana. Se env\u00eda cuando vuelva la conexi\u00f3n.",
+  "Email {email}": "Escriba a {email}",
   },
 };
 
@@ -3574,6 +3582,14 @@ WORDS.fr = {
   "Screen {n} of {total}": "\u00c9cran {n} sur {total}",
   "Ask about this screen. Help answers from {brand}'s own documents.": "Posez une question sur cet \u00e9cran. L'Aide r\u00e9pond \u00e0 partir des documents de {brand}.",
   "Type your question": "\u00c9crivez votre question",
+  // Part 422 (section 2): Ask a person.
+  "Still stuck? Ask a person": "Toujours bloqu\u00e9\u00a0? Demander \u00e0 une personne",
+  "Ask a person": "Demander \u00e0 une personne",
+  "Your question": "Votre question",
+  "Sent. The office will answer you in Chat.": "Envoy\u00e9. Le bureau vous r\u00e9pondra dans Messages.",
+  "Open Chat": "Ouvrir Messages",
+  "Saved in this window. It sends when the connection is back.": "Enregistr\u00e9 dans cette fen\u00eatre. Il part d\u00e8s que la connexion revient.",
+  "Email {email}": "\u00c9crire \u00e0 {email}",
 };
 
 // {name} is replaced after the language is chosen, so the

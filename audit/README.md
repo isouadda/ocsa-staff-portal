@@ -2645,6 +2645,27 @@ main of part 418: `askhelpscreen`, `askhelpnever`, `askhelpsheet`,
 `askhelprefused` and `askhelpreview`. The inventory lists the sheet,
 `LessonHelpSheet#0`.
 
+## Ask a person (part 422, section 2)
+
+Under every Help answer in the lesson sheet, **Still stuck? Ask a person**
+opens a card with the person's last message, theirs to change, and
+**Send**: `POST /api/training/lesson-questions { versionId, screenKey,
+text, conversationId, clientId }`, the clientId made once per send and
+sent again unchanged on every retry. 201 (or 200 for a repeat) reads
+**Sent. The office will answer you in Chat.** with **Open Chat** in the
+staff app; 409 `training.noOneToAsk` reads the API's words with the way to
+the office (Chat in the staff app, App support's email on the training
+site). With no signal the question waits under `ocsa-staff-lesson-questions`
+(the tab's own storage on the training site, dropped at sign-out) and goes
+from the root when the signal is back, as building requests do.
+
+The stub answers the route as `helpers/lessonQuestions.js` does (`asks`,
+`askSent` by clientId, `noOneToAsk`, and `askDrop`, a send taken and then
+lost on the way back). Five journeys, in English and Spanish, each failing
+on the main of part 418: `askperson`, `askpersonrepeat`, `askpersonnone`,
+`askpersonoffline` and `askhelptraining` (the training site at 1280 by
+900).
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names
