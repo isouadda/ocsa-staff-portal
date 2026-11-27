@@ -2374,7 +2374,9 @@ const THEME_KEY = "ocsa-staff-theme";
 function storedTheme() {
   try { var v = window.localStorage.getItem(THEME_KEY); return (v === "light" || v === "dark") ? v : null; } catch (e) { return null; }
 }
-function saveTheme(v) { try { window.localStorage.setItem(THEME_KEY, v); } catch (e) {} }
+// The training site never writes it (part 422), so a person's choice in
+// the staff app stays theirs there.
+function saveTheme(v) { if (onTrainingSite()) return; try { window.localStorage.setItem(THEME_KEY, v); } catch (e) {} }
 // Until a person chooses, the app opens the way their phone is set. A
 // choice made here, or one the account carries, still wins. The frame
 // before React loads is painted from these same two answers by the small
@@ -2382,7 +2384,9 @@ function saveTheme(v) { try { window.localStorage.setItem(THEME_KEY, v); } catch
 function phoneTheme() {
   try { return (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) ? "light" : "dark"; } catch (e) { return "dark"; }
 }
-function firstTheme() { return storedTheme() || phoneTheme(); }
+// The training site (part 422, the owner, Nov 26) is always light: on
+// it firstTheme answers light whatever is stored or the computer says.
+function firstTheme() { return onTrainingSite() ? "light" : storedTheme() || phoneTheme(); }
 
 // The language every screen reads, Help answers in and the report forms
 // ask their questions in. A choice stored on this phone wins. Until there
@@ -2757,6 +2761,8 @@ function readTrainingSite() {
   } catch (e) { return false; }
 }
 const TRAINING_SITE = readTrainingSite();
+// Read where TRAINING_SITE may not be set yet, by code that runs early.
+function onTrainingSite() { try { return TRAINING_SITE; } catch (e) { return readTrainingSite(); } }
 const TRAINING_IDLE_MS = 10 * 60 * 1000;
 const TRAINING_WARN_MS = 60 * 1000;
 const TRAINING_RENEW_MS = 15 * 60 * 1000;
@@ -2768,8 +2774,11 @@ const trainingAuthDrop = () => sessionDrop(TRAINING_AUTH_KEY);
 const isWide = () => { try { return window.innerWidth >= TRAINING_WIDE_PX; } catch (e) { return false; } };
 
 function TrainingSiteApp() {
-  const [themeMode, setThemeMode] = useState(firstTheme);
-  const t = themeMode === "light" ? LIGHT : DARK;
+  // Always light (part 422, the owner, Nov 26): no theme switch shows,
+  // the account's theme is never applied, and nothing about a theme is
+  // written here, on the computer or to the account.
+  const themeMode = "light";
+  const t = LIGHT;
   // The language and the text size are this visit's own: nothing is kept.
   const [language, setLanguage] = useState(firstLanguage);
   const [languages, setLanguages] = useState(offeredLanguages);
@@ -2904,7 +2913,7 @@ function TrainingSiteApp() {
   else if (stage === "login") body = (
     <div data-training-site="signin">
       {note && <div role="status" data-training-site-note="1" style={{ maxWidth: 420, margin: "16px auto 0", padding: "10px 14px", borderRadius: R.md, background: t.goldBg, border: "1px solid " + t.goldBorder, color: t.text, fontSize: 14, lineHeight: 1.45 }}>{note}</div>}
-      <LoginScreen site="training" onLogin={handleLogin} onGoForgot={() => setStage("forgot")} loading={loading} fault={fault} onTyped={() => { if (fault) setFault(null); }} step={step} codeFault={codeFault} onCode={handleCode} onResend={handleResend} onBackToPin={() => { setStep(null); setCodeFault(null); }} showToast={showToast} t={t} toggleTheme={() => setThemeMode(m => (m === "dark" ? "light" : "dark"))} themeMode={themeMode} />
+      <LoginScreen site="training" onLogin={handleLogin} onGoForgot={() => setStage("forgot")} loading={loading} fault={fault} onTyped={() => { if (fault) setFault(null); }} step={step} codeFault={codeFault} onCode={handleCode} onResend={handleResend} onBackToPin={() => { setStep(null); setCodeFault(null); }} showToast={showToast} t={t} themeMode={themeMode} />
     </div>
   );
   else if (stage === "forgot") body = <ForgotScreen onGoLogin={() => setStage("login")} showToast={showToast} t={t} />;
@@ -3249,7 +3258,7 @@ function OCSAStaffPortal() {
       document.body.style.background = t.bg;
     } catch (e) {}
   }, [t]);
-  const setTheme = (next) => { setThemeMode(next); saveTheme(next); queuePref({ theme: next }); };
+  const setTheme = (next) => { if (onTrainingSite()) return; setThemeMode(next); saveTheme(next); queuePref({ theme: next }); };
   // The sign in screen keeps its own toggle, which now goes through the same
   // path, so a choice made before signing in is sent up afterwards.
   const toggleTheme = () => setTheme(themeMode === "dark" ? "light" : "dark");
@@ -4841,7 +4850,8 @@ function OCSAStaffPortal() {
       storedTextSize(),
       (v) => { setTextSizeState(v); saveTextSize(v); });
 
-    mergePref("theme",
+    // Part 422: never applied on the training site, which is always light.
+    if (!onTrainingSite()) mergePref("theme",
       (prefs.theme === "light" || prefs.theme === "dark") ? prefs.theme : null,
       storedTheme(),
       (v) => { setThemeMode(v); saveTheme(v); });
@@ -5559,7 +5569,7 @@ function LoginScreen({ onSetup, site, onLogin, onGoRegister, onGoForgot, loading
         {onGoRegister && <button onClick={onGoRegister} style={mkGhostBtn(t)}>{tr("New Employee? Register Here")}</button>}
         {onSetup && <button type="button" data-setup-link="1" onClick={onSetup} style={{ ...mkGhostBtn(t), display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><PlayIco sz={14} c={t.goldText} />{tr("New here? Watch how to set up your account")}</button>}
         {cantSignIn}
-        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 20 }}><button onClick={toggleTheme} style={mkTapFrame()}><span style={mkSmallPill(t)}>{themeMode === "dark" ? <SunIco sz={14} c={t.textMut} /> : <MoonIco sz={14} c={t.textMut} />}{themeMode === "dark" ? tr("Light Mode") : tr("Dark Mode")}</span></button><TextSizeButton t={t} /><LanguageButton t={t} /></div>
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 20 }}>{toggleTheme && <button onClick={toggleTheme} data-theme-switch="1" style={mkTapFrame()}><span style={mkSmallPill(t)}>{themeMode === "dark" ? <SunIco sz={14} c={t.textMut} /> : <MoonIco sz={14} c={t.textMut} />}{themeMode === "dark" ? tr("Light Mode") : tr("Dark Mode")}</span></button>}<TextSizeButton t={t} /><LanguageButton t={t} /></div>
       </div>
     </div>
   );

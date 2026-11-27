@@ -2666,6 +2666,21 @@ on the main of part 418: `askperson`, `askpersonrepeat`, `askpersonnone`,
 `askpersonoffline` and `askhelptraining` (the training site at 1280 by
 900).
 
+## The training site always light (part 422, section 3)
+
+On the training site `firstTheme()` answers light, the account's `theme`
+is never applied, nothing writes `ocsa-staff-theme` or sends a theme, the
+sign-in card has no theme switch, and the script at the top of
+`public/index.html` paints the first frame light by the same test as
+`readTrainingSite` (a `training.` host name, `site=training`, or the tab's
+`ocsa-site`). One journey, in English and Spanish, failing on the main of
+part 418: `trainingsitelight`, on a computer set to dark with the theme
+stored dark, reads the first frame with the app's own script kept from
+loading (by `?site=training`, by a `training.localhost` host name and by
+the tab's `ocsa-site`), then the sign-in screen, My Training, a course,
+the player and the Help sheet at 1280 by 900 and 390 by 844, all light,
+and the staff app on the same computer, still dark.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names

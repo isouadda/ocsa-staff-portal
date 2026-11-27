@@ -13215,8 +13215,9 @@ JOURNEYS.push(...PART418_S6_JOURNEYS);
 // --- Round 19 of the staff app (part 422) ---------------------------------
 //
 // Help as a tutor inside a lesson (ocsa-api Round 24, part 421, "For the
-// staff app") and Ask a person. Each journey fails on the main of part
-// 418 (37cdff9), where no screen offers Help. The stub
+// staff app"), Ask a person, and the training site always light. Each
+// journey fails on the main of part 418 (37cdff9), where no screen offers
+// Help and the training site opens dark on a dark computer. The stub
 // answers askHelp on every screen of a signed-in read, as Round 24 does,
 // reads a lesson body on Help's routes (agent.lessonNoHelpHere for a check
 // or a screen it turns away) and answers POST
@@ -13257,6 +13258,9 @@ const r422Through = async (page, pick, next) => {
   await r418Answer(page);
   return shows(page, '[data-player-step="' + next + '"]', 5000);
 };
+const r422Bg = (page, sel) => page.evaluate((x) => { const e = x ? document.querySelector(x) : document.body; return e ? getComputedStyle(e).backgroundColor : ""; }, sel || "");
+const R422_LIGHT = "rgb(244, 247, 251)";
+const R422_DARK = "rgb(10, 22, 40)";
 const PART422_JOURNEYS = [
   {
     id: "askhelpscreen",
@@ -13557,6 +13561,76 @@ const PART422_JOURNEYS = [
         await app.page.click("[data-training-site-sign-out]", { timeout: 4000 }).catch(() => {});
         await pause(app.page, 600);
         expect("nothing waits in the tab after sign-out", ((await r422Box(app.page, "session")) || []).length === 0, "");
+      } finally { await app.context.close(); }
+    },
+  },
+  {
+    id: "trainingsitelight",
+    label: "The training site is always light (part 422, 3): on a computer set to dark with ocsa-staff-theme stored dark, its first frame (by host name, by ?site=training and by the tab's ocsa-site) and every screen read light at 1280 by 900 and 390 by 844, with no theme switch and nothing about the theme written; the staff app on the same computer still opens dark",
+    run: async (open, language, expect) => {
+      const app = await r418Open(open, { signedIn: false, path: "/?site=training", theme: "dark" });
+      const base = new URL(app.page.url()).origin;
+      const port = new URL(app.page.url()).port;
+      try {
+        const scheme = await app.page.evaluate(() => window.matchMedia("(prefers-color-scheme: dark)").matches);
+        // The first frame, with the app's own script kept from loading.
+        const firstFrame = async (url, page) => {
+          const p = page || await app.context.newPage();
+          await p.route(/\/static\/js\/.*\.js(\?|$)/, (r) => r.abort());
+          await p.goto(url, { waitUntil: "domcontentloaded" }).catch(() => {});
+          await p.waitForTimeout(300);
+          const got = { bg: await r422Bg(p), meta: await p.evaluate(() => { const m = document.querySelector('meta[name="theme-color"]'); return m ? m.getAttribute("content") : ""; }), stored: await p.evaluate(() => window.localStorage.getItem("ocsa-staff-theme")) };
+          await p.unroute(/\/static\/js\/.*\.js(\?|$)/);
+          if (!page) await p.close();
+          return got;
+        };
+        const byAddress = await firstFrame(base + "/?site=training");
+        const byHost = await firstFrame("http://training.localhost:" + port + "/");
+        expect("the computer is set to dark and the theme stored dark", scheme === true && byAddress.stored === "dark", JSON.stringify({ scheme, byAddress }));
+        expect("the first frame is light by ?site=training and by a training. host name, with the light theme-color", byAddress.bg === R422_LIGHT && byAddress.meta === "#15558F" && byHost.bg === R422_LIGHT && byHost.meta === "#15558F", JSON.stringify({ byAddress, byHost }));
+        const screens = [];
+        const look = async (where) => screens.push({ where: where, root: await r422Bg(app.page, "[data-training-site-root]"), body: await r422Bg(app.page), meta: await app.page.evaluate(() => { const m = document.querySelector('meta[name="theme-color"]'); return m ? m.getAttribute("content") : ""; }) });
+        for (const size of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+          await app.page.setViewportSize(size);
+          await pause(app.page, 400);
+          await look("sign-in " + size.width);
+          if (size.width === 1280) {
+            const sw = (await r418Has(app.page, "[data-theme-switch]")) || has(await bodyText(app.page), say("Dark Mode", language)) || has(await bodyText(app.page), say("Light Mode", language));
+            expect("no theme switch shows on the training site", !sw, "");
+            await r418SignIn(app.page, language);
+          }
+          await shows(app.page, "[data-courses]", 10000);
+          await look("my training " + size.width);
+          await r418Click(app.page, '[data-course="co-app"]');
+          await shows(app.page, '[data-course-page="co-app"]', 6000);
+          await look("course " + size.width);
+          await app.page.click(size.width === 1280 ? "[data-course-panel] [data-course-next]" : "[data-course-next]", { timeout: 4000 }).catch(() => {});
+          await shows(app.page, '[data-player="screen"]', 8000);
+          await look("player " + size.width);
+          if (size.width === 1280) await spokenHere(app, language, expect);
+          await r422OpenHelp(app.page);
+          screens.push({ where: "help sheet " + size.width, root: await r422Bg(app.page, '[data-lesson-help="open"]'), body: await r422Bg(app.page), meta: "#15558F" });
+          await r422Close(app.page);
+          await app.page.goBack().catch(() => {});
+          await pause(app.page, 500);
+          await app.page.goBack().catch(() => {});
+          await pause(app.page, 500);
+        }
+        const dark = screens.filter(x => x.root !== R422_LIGHT || x.body !== R422_LIGHT || x.meta !== "#15558F");
+        expect("every screen reads light, at 1280 by 900 and 390 by 844", screens.length === 10 && dark.length === 0, JSON.stringify(dark.length ? dark : screens.length));
+        const kept = await app.page.evaluate(() => window.localStorage.getItem("ocsa-staff-theme"));
+        const prefs = sent(app.stub, "PATCH", "/api/users/me/preferences").filter(c => c.body && Object.prototype.hasOwnProperty.call(c.body, "theme"));
+        expect("the training site writes no theme, on the computer or to the account", kept === "dark" && prefs.length === 0, kept + " " + prefs.length);
+        await app.page.reload({ waitUntil: "domcontentloaded" });
+        const byTab = await firstFrame(base + "/", app.page);
+        expect("the tab's ocsa-site paints the first frame light too", byTab.bg === R422_LIGHT, JSON.stringify(byTab));
+        const staff = await app.context.newPage();
+        await staff.goto(base + "/", { waitUntil: "domcontentloaded" });
+        await staff.waitForSelector('input[type="password"], .sp-content', { timeout: 15000 }).catch(() => {});
+        await staff.waitForTimeout(600);
+        const staffBg = await r422Bg(staff);
+        expect("the staff app on the same computer still opens dark", staffBg === R422_DARK, staffBg);
+        await staff.close();
       } finally { await app.context.close(); }
     },
   },
