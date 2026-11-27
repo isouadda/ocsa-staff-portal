@@ -456,9 +456,10 @@ Who can do this: anyone
 2. Once signed in, tap the gear to open **Settings** (**Ajustes**) (**Paramètres**).
 3. Under **Appearance** (**Apariencia**) (**Apparence**), tap **Light** (**Claro**) (**Clair**) or **Dark** (**Oscuro**) (**Sombre**).
 4. Until you choose, the app opens the way your phone is set: light on a phone set to light, and dark on any other. Once you choose, your choice wins, and it follows you to any phone or computer you sign in on.
+5. The training site, training.ocsaco.com, is always light and has no switch. Your choice in the app stays as it is.
 Words people use for this: dark mode, light mode, turn on dark mode, turn off dark mode, night mode, the screen is too bright, the screen is too dark, change the colors.
 Picture: appearance
-Last checked: 2026-10-02
+Last checked: 2026-11-27
 
 ## Switch the app to Spanish or English (staff portal)
 Who can do this: anyone
@@ -1750,10 +1751,11 @@ Who can do this: anyone signed in with a course
 4. A video plays with no sound and over again, with the words under it.
 5. Tap **Next** (**Siguiente**) (**Suivant**) when you are ready. What you watched is kept, so you can stop and go on later, on this phone or another one, where you left off.
 6. After the steps they are about, a few questions check what you learned (see Answer a question in a chapter (staff portal)).
+7. To ask about a step you do not understand, tap **Ask Help** (**Preguntar a Ayuda**) (**Demander à l'Aide**) above **Next** (**Siguiente**) (**Suivant**) (see Ask Help during a lesson (staff portal)). It is on the steps only, never on a question.
 If it does not work: **The picture did not load.** (**La imagen no se cargó.**) (**L'image ne s'est pas chargée.**) means a picture or video could not be shown even after the app read the chapter again; read the words and go on. **This lesson did not open. Try again.** (**Esta lección no se abrió. Intente de nuevo.**) (**Cette leçon ne s'est pas ouverte. Réessayez.**) means the chapter could not open; tap **Try again** (**Intentar de nuevo**) (**Réessayer**).
-Words people use for this: watch a chapter, play the video, the voice, listen, read it to me, next step, pause, captions, ver capítulo, escuchar, regarder un chapitre, écouter.
+Words people use for this: watch a chapter, play the video, the voice, listen, read it to me, next step, pause, captions, ask help, ver capítulo, escuchar, regarder un chapitre, écouter.
 Picture: chapter-screen
-Last checked: 2026-11-25
+Last checked: 2026-11-27
 
 ## Answer a question in a chapter (staff portal)
 Who can do this: anyone signed in with a course
@@ -1819,10 +1821,24 @@ Last checked: 2026-11-25
 Who can do this: anyone with an active account, on a computer at the office
 1. On the office computer, open training.ocsaco.com.
 2. Sign in with your badge, phone or email and your PIN, as in the app. An office account types the code from its email; the computer is never remembered.
-3. You see only your training: **My training** (**Mi capacitación**) (**Ma formation**), your courses, the chapters and your certificates, with **English** and **Español** at the top. On a wide screen a course's chapters are on the left and the chapter plays on the right.
+3. You see only your training: **My training** (**Mi capacitación**) (**Ma formation**), your courses, the chapters and your certificates, with **English** and **Español** at the top. On a wide screen a course's chapters are on the left and the chapter plays on the right. **Ask Help** (**Preguntar a Ayuda**) (**Demander à l'Aide**) works here too (see Ask Help during a lesson (staff portal)). The site is always light, whatever the computer is set to, and it does not change your light or dark choice in the app.
 4. Tap the sign-out button at the top right when you finish. After 10 minutes with nothing done, **Are you still here?** (**¿Sigue aquí?**) (**Êtes-vous toujours là ?**) asks first, with **Keep working** (**Seguir trabajando**) (**Continuer à travailler**); then it signs you out by itself. Nothing about you stays on the computer.
 5. What you do on the computer counts in the app on your phone too, and you can go on there where you left off.
 If it does not work: **You were signed out after 10 minutes with nothing done. Sign in again to go on.** (**Se cerró su sesión después de 10 minutos sin actividad. Inicie sesión de nuevo para continuar.**) (**Vous avez été déconnecté après 10 minutes sans activité. Reconnectez-vous pour continuer.**) means it signed you out to keep your account safe; sign in again and go on where you left off.
-Words people use for this: training on a computer, training website, office computer, training.ocsaco.com, signed out, capacitación en la computadora, formation sur ordinateur.
+Words people use for this: training on a computer, training website, office computer, training.ocsaco.com, signed out, dark mode on the computer, capacitación en la computadora, formation sur ordinateur.
 Picture: training-site
-Last checked: 2026-11-25
+Last checked: 2026-11-27
+
+## Ask Help during a lesson (staff portal)
+Who can do this: anyone signed in, watching a chapter in the app or on training.ocsaco.com
+1. On a step of a chapter, tap **Ask Help** (**Preguntar a Ayuda**) (**Demander à l'Aide**). It sits above **Next** (**Siguiente**) (**Suivant**), with room between them. The voice pauses.
+2. Help opens over the chapter, with the chapter's name and **Screen {n} of {total}** (**Pantalla {n} de {total}**) (**Écran {n} sur {total}**) at the top. Type your question about that step in **Type your question** (**Escriba su pregunta**) (**Écrivez votre question**) and tap **Send** (**Enviar**) (**Envoyer**). Help answers from OCSA's own documents and the words of the step, in the chapter's language.
+3. Tap **Close** (**Cerrar**) (**Fermer**), the X at the top, to go back to the same step, where you were. The voice stays paused; tap play to hear it again. Ask Help on a later step and your earlier answers are still there; the new question is about the new step.
+4. Still not clear? Under an answer, tap **Still stuck? Ask a person** (**¿Todavía tiene dudas? Preguntar a una persona**) (**Toujours bloqué ? Demander à une personne**). Your last question is filled in under **Your question** (**Su pregunta**) (**Votre question**): change it if you want and tap **Send** (**Enviar**) (**Envoyer**).
+5. **Sent. The office will answer you in Chat.** (**Enviado. La oficina le responderá en Mensajes.**) (**Envoyé. Le bureau vous répondra dans Messages.**) means it went to the office. Tap **Open Chat** (**Abrir Mensajes**) (**Ouvrir Messages**) to see the chat. From training.ocsaco.com, the answer comes in Chat in the app on your phone.
+6. Ask Help is not offered on a question, after a wrong answer, while you watch a part again, when you sign, in a quiz, in a checklist your trainer watches, or on the setup video before you sign in.
+If it does not work: with no signal, **Saved on this phone. It sends when you have signal.** (**Guardado en este teléfono. Se envía cuando tenga señal.**) (**Enregistré sur ce téléphone. Il part dès que vous avez du réseau.**) means your question to the office waits on the phone and goes by itself; on training.ocsaco.com it says **Saved in this window. It sends when the connection is back.** (**Guardado en esta ventana. Se envía cuando vuelva la conexión.**) (**Enregistré dans cette fenêtre. Il part dès que la connexion revient.**) and goes while you stay signed in. If OCSA says there is nobody to send it to, ask your supervisor: tap **Open Chat** (**Abrir Mensajes**) (**Ouvrir Messages**) to message them, or on training.ocsaco.com use the email it shows. If the button goes away on a step, Help cannot be asked about that step; go on with the chapter.
+Words people use for this: ask a question in a lesson, i do not understand this step, help during the video, ask the office about my training, ask a person, still stuck, pregunta sobre la lección, preguntar a una persona, question sur la leçon.
+Picture: lesson-help-answer
+Picture: lesson-ask-person
+Last checked: 2026-11-27

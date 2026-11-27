@@ -1574,6 +1574,13 @@ const HELP_ANSWERS = {
     pictures: [{ app: "portal", name: "no-such-picture", entry: "An entry whose picture was never taken (staff portal)" }],
   },
 };
+// Part 422: an answer to a question asked on a lesson's screen, in the
+// lesson's language, from the documents and the screen's words.
+HELP_ANSWERS.lesson = {
+  pieces: ["The button is in the welcome em", "ail the office sent you. Open the email and tap **Set up my acc", "ount**."],
+  piecesEs: ["El bot\u00f3n est\u00e1 en el correo de bienv", "enida que le envi\u00f3 la oficina. Abra el correo y toque **Configurar mi cue", "nta**."],
+  citedDocs: ["APP-PORTAL"],
+};
 const helpReply = (a) => a.pieces.join("");
 // The refusals a case can ask Help for, each a sentence the API writes.
 const HELP_REFUSALS = {
@@ -1866,6 +1873,16 @@ function r418StateOf(o) {
     setup: opt.setup !== false, setupLimit: opt.setupLimit === true,
     mediaStale: Number(opt.mediaStale) || 0, mediaSeq: 0, media: [], lessonReads: [],
     none: opt.none === true, seq: 0,
+    // Part 422 (ocsa-api Round 24, part 421): every Help turn that carried a
+    // lesson, { lesson, locale, text, refused }; the screens whose lesson
+    // turns the API turns away (helpRefuse, keys); every Ask a person send,
+    // { body, status }; the chats each clientId went to; nobody to ask
+    // (noOneToAsk); and a send taken and then lost on the way back
+    // (askDrop, how many).
+    helpTurns: [], helpRefuse: Array.isArray(opt.helpRefuse) ? opt.helpRefuse.slice() : [],
+    // Screens whose read answers askHelp false (noAskHelp, keys).
+    noAskHelp: Array.isArray(opt.noAskHelp) ? opt.noAskHelp.slice() : [],
+    asks: [], askSent: {}, noOneToAsk: opt.noOneToAsk === true, askDrop: Number(opt.askDrop) || 0, askSeq: 0,
   };
 }
 
@@ -3489,6 +3506,11 @@ const R418_REFUSALS = {
   "training.noSetupChapter": { status: 404, en: "The account setup video is not ready yet.", es: "El video para configurar la cuenta todav\u00eda no est\u00e1 listo." },
   "customer.tooManyRequests": { status: 429, en: "Too many tries from this connection. Wait a minute and try again.", es: "Demasiados intentos desde esta conexi\u00f3n. Espere un minuto e intente de nuevo." },
   "training.notPlayer": { status: 409, en: "This lesson has no questions to try here.", es: "Esta lecci\u00f3n no tiene preguntas para probar aqu\u00ed." },
+  // Part 422 (ocsa-api Round 24, part 421, helpers/words.js): Help on a
+  // lesson's screen and Ask a person, in the API's own words.
+  "agent.lessonNoHelpHere": { status: 400, en: "Help can be asked here only about a screen of a lesson you can watch.", es: "Aqu\u00ed solo se puede pedir ayuda sobre una pantalla de una lecci\u00f3n que usted puede ver." },
+  "training.lessonQuestionBad": { status: 400, en: "Check the question: it needs the lesson, the screen and your words.", es: "Revise la pregunta: necesita la lecci\u00f3n, la pantalla y sus palabras." },
+  "training.noOneToAsk": { status: 409, en: "There is nobody to send your question to right now. Ask your supervisor.", es: "Ahora no hay nadie a quien enviar su pregunta. Pregunte a su supervisor." },
 };
 // What a course certificate's PDF is: one small real PDF.
 const R418_PDF = Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 792 612]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n", "latin1");
@@ -5205,13 +5227,13 @@ function createStub(opts) {
       if (/\.mp3$/.test(name)) return image("audio/mpeg", R418_VOICE);
       return json(404, { error: "Not found" });
     }
-    const lessonView = (vid, review) => {
+    const lessonView = (vid, review, askHelp) => {
       const L = R418_LESSONS[vid];
       const own = R.attempts.find(a => a.versionId === vid && !a.voidedAt);
       return {
         versionId: vid, topicId: L.topicId, version: L.version, title: L.title[lang], locale: lang, locales: ["en", "es"], kind: "player", review: !!review,
         acknowledgement: L.acknowledgement[lang], passPercent: 100, needsTrainer: false, attemptsUsed: own ? 1 : 0, attemptsLeft: null, blocks: [], questions: [], steps: [], spanishHeld: false,
-        screens: L.screens.map(sc => ({ key: sc.key, media: sc.media.kind === "image" ? { kind: "image", src: sign(sc.media.pic + ".png") } : sc.media.kind === "video" ? { kind: "video", src: sign("clip.webm"), poster: sign("poster.png") } : { kind: "none" }, say: sc.say[lang], caption: sc.caption ? sc.caption[lang] : null, audio: sc.audio ? { url: sign("voice-" + vid + "-" + sc.key + ".mp3") } : null })),
+        screens: L.screens.map(sc => ({ key: sc.key, media: sc.media.kind === "image" ? { kind: "image", src: sign(sc.media.pic + ".png") } : sc.media.kind === "video" ? { kind: "video", src: sign("clip.webm"), poster: sign("poster.png") } : { kind: "none" }, say: sc.say[lang], caption: sc.caption ? sc.caption[lang] : null, audio: sc.audio ? { url: sign("voice-" + vid + "-" + sc.key + ".mp3") } : null, askHelp: !!askHelp && R.noAskHelp.indexOf(sc.key) === -1 })),
         checks: L.checks.map(ck => {
           const out = { key: ck.key, after: ck.after, kind: ck.kind, prompt: ck.prompt[lang] };
           if (ck.kind === "choice") out.options = ck.options.map(x => ({ value: x.value, text: x.text[lang] }));
@@ -5313,7 +5335,8 @@ function createStub(opts) {
       if (lv[1] === "GET" && !lv[3]) {
         const review = /[?&]review=true\b/.test(search || "") || st.status === "current" || st.status === "dueSoon";
         R.lessonReads.push({ id: vid, locale: lang, review: review });
-        return json(200, { lesson: lessonView(vid, review) });
+        // Part 421: every screen of the signed-in read answers askHelp true.
+        return json(200, { lesson: lessonView(vid, review, true) });
       }
       if (lv[1] === "POST" && lv[3]) {
         const ck = L.checks.find(c => c.key === decodeURIComponent(lv[3]));
@@ -5323,6 +5346,32 @@ function createStub(opts) {
         R.reviewChecks = (R.reviewChecks || 0) + 1;
         return json(200, { right: got.right, replay: got.right ? [] : ck.replay.slice(), review: true });
       }
+    }
+    // Part 422: Ask a person (ocsa-api Round 24, helpers/lessonQuestions.js):
+    // the body read, the gate of Help's lesson turns, a clientId sent again
+    // answered with the first send's chats, nobody to ask, and the send.
+    if (key === "POST /api/training/lesson-questions") {
+      const b = body && typeof body === "object" ? body : {};
+      const keys = [];
+      if (typeof b.versionId !== "string" || !b.versionId.trim()) keys.push("versionId");
+      if (typeof b.screenKey !== "string" || !b.screenKey.trim()) keys.push("screenKey");
+      if (typeof b.text !== "string" || !b.text.trim() || b.text.trim().length > 1000) keys.push("text");
+      if (b.conversationId !== undefined && b.conversationId !== null && (typeof b.conversationId !== "string" || !b.conversationId)) keys.push("conversationId");
+      if (b.clientId !== undefined && b.clientId !== null && !(typeof b.clientId === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(b.clientId))) keys.push("clientId");
+      const ask = { body: JSON.parse(JSON.stringify(b)), status: 0 };
+      R.asks.push(ask);
+      const out = (status, reply) => { ask.status = status; return reply; };
+      if (keys.length) return out(400, refuse("training.lessonQuestionBad", { keys: keys }));
+      const L = R418_LESSONS[b.versionId];
+      if (!L) return out(400, refuse("training.lessonQuestionBad", { keys: ["versionId"] }));
+      if (!L.screens.some(x => x.key === b.screenKey)) return out(400, refuse("training.lessonQuestionBad", { keys: ["screenKey"] }));
+      if (b.clientId && R.askSent[b.clientId]) return out(200, json(200, { sentTo: R.askSent[b.clientId].length, channelIds: R.askSent[b.clientId].slice(), repeat: true }));
+      if (R.noOneToAsk) return out(409, refuse("training.noOneToAsk"));
+      R.askSeq += 1;
+      const channels = ["ch-lesson-" + R.askSeq];
+      if (b.clientId) R.askSent[b.clientId] = channels;
+      if (R.askDrop > 0) { R.askDrop -= 1; ask.status = -1; return { abort: true }; }
+      return out(201, json(201, { sentTo: channels.length, channelIds: channels }));
     }
     if (key === "POST /api/training/attempts" && body && R418_LESSONS[body.versionId]) {
       const L = R418_LESSONS[body.versionId];
@@ -6389,7 +6438,29 @@ function createStub(opts) {
     // browser.js hands to stream.js to send as they are written. A refusal
     // before the stream opens is JSON, the same refusal the message route
     // gives.
+    // Part 422 (ocsa-api Round 24, part 421): a turn with a lesson body is
+    // read first (helpers/agentLesson.js readLesson): a screen key of a
+    // player version, else 400 agent.lessonNoHelpHere with keys, nothing
+    // written; a screen the case says the API turns away is refused the
+    // same way. Taken, it is answered in the lesson's language.
+    const lessonGate = (b) => {
+      if (!b || b.lesson === undefined || b.lesson === null) return null;
+      const R = state.r418;
+      const ls = b.lesson && typeof b.lesson === "object" ? b.lesson : {};
+      const lang = b.locale === "es" ? "es" : languageOf(search, state);
+      const turn = { lesson: JSON.parse(JSON.stringify(b.lesson)), locale: b.locale || null, text: typeof b.text === "string" ? b.text : "", refused: false };
+      if (R) R.helpTurns.push(turn);
+      const L = R && typeof ls.versionId === "string" ? R418_LESSONS[ls.versionId] : null;
+      const refuseIt = (k) => { turn.refused = true; const r = R418_REFUSALS["agent.lessonNoHelpHere"]; return json(400, { error: refusalIn(r, lang), code: "agent.lessonNoHelpHere", keys: ["lesson." + k] }); };
+      if (!L) return refuseIt("versionId");
+      if (typeof ls.screenKey !== "string" || !L.screens.some(x => x.key === ls.screenKey)) return refuseIt("screenKey");
+      if (R.helpRefuse.indexOf(ls.screenKey) !== -1) return refuseIt("screenKey");
+      if (!state.help.next) state.help.next = { answer: "lesson", language: b.locale === "es" ? "es" : "en" };
+      return null;
+    };
     if (key === "POST /api/agent/message/stream") {
+      const gated = lessonGate(body);
+      if (gated) return gated;
       const play = helpPlay(body);
       if (play.refuse) return json(play.refuse.status, { error: play.refuse.error });
       return { stream: play };
@@ -6398,6 +6469,8 @@ function createStub(opts) {
     // body as it is, an error as a refusal with its status, and a dropped
     // connection as no answer at all.
     if (key === "POST /api/agent/message") {
+      const gated = lessonGate(body);
+      if (gated) return gated;
       const play = helpPlay(body);
       if (play.refuse) return json(play.refuse.status, { error: play.refuse.error });
       const after = silently(play);

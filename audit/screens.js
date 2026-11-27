@@ -38,6 +38,9 @@ const LIGHT_BAR = "#FFFFFF";
 const ALLOWED = [
   "English", "Espa\u00f1ol", "Fran\u00e7ais",
   "OCSA Staff", "OCSA Cleaning", "OCSA-0001", "OCSA-FIX-101",
+  // The company's own short name, clientConfig.company.brandTag, which
+  // part 422's line in a lesson's Help sheet names.
+  "OCSA",
   "Alex", "Tester", "Alex Tester", "Sam", "Second", "Sam Second",
   "North Building", "South Building", "West Building", "Main Hall", "Robin",
 // The staff list the Speak Up picker draws. The route sends a first and
@@ -414,6 +417,17 @@ const SHEET_OPENERS = {
     await page.waitForSelector("[data-award-sheet] [data-recognition-reveal]", { timeout: 8000 }).catch(() => {});
     await pause(page, 3000);
   },
+  // Part 422: Ask Help on the first screen of The Staff App's first chapter.
+  "LessonHelpSheet#0": async (page, language) => {
+    await openTab(page, "training", language);
+    await page.waitForSelector('[data-course="co-app"]', { timeout: 8000 }).catch(() => {});
+    await page.click('[data-course="co-app"]').catch(() => {});
+    await page.waitForSelector('[data-chapter="tc-setup"]', { timeout: 6000 }).catch(() => {});
+    await page.click('[data-chapter="tc-setup"]').catch(() => {});
+    await page.waitForSelector("[data-player-ask-help]", { timeout: 8000 }).catch(() => {});
+    await page.click("[data-player-ask-help]").catch(() => {});
+    await pause(page, 600);
+  },
 };
 // An inspection long enough for Sections (over INSPECT_INDEX_OVER, 20
 // cards, in src/App.js): the long inspection's five cards five times over,
@@ -435,6 +449,7 @@ const SHEET_PHONES = {
   "ChatView#1": { stubOptions: { person: Object.assign({}, SUPERVISOR), chatPeopleRoute: true } },
   "IssueSheet#0": { stubOptions: { person: Object.assign({}, SUPERVISOR), issueSheet: true } },
   "TrainingLesson#0": { stubOptions: { training: true, trainingPortal: true } },
+  "LessonHelpSheet#0": { stubOptions: { training: true, courses: true } },
   "WsSheet#0": { path: "/eq/" + EQ_CODE, stubOptions: { equipment: true } },
   "StartInspectionSheet#0": { stubOptions: { person: Object.assign({}, SUPERVISOR), startInspection: true } },
   "InspectSectionsSheet#0": { stubOptions: { inspections: [INSPECTION_INDEXED] } },

@@ -44,11 +44,25 @@
       } catch (e) {}
       document.documentElement.lang = lang;
     })();
+    //
+    // The training site (training.ocsaco.com, part 422) is always light,
+    // whatever is stored or the computer says. It is told the way
+    // src/App.js readTrainingSite tells it: a host name starting with
+    // training., or site=training in the address, or the tab's ocsa-site
+    // while the address does not say site=staff.
     (function () {
       try {
+        var training = false;
+        try {
+          var site = new URLSearchParams(window.location.search || "").get("site");
+          training = String(window.location.hostname || "").toLowerCase().indexOf("training.") === 0
+            || site === "training"
+            || (site !== "staff" && window.sessionStorage.getItem("ocsa-site") === "training");
+        } catch (e) {}
         var stored = null;
         try { stored = window.localStorage.getItem("ocsa-staff-theme"); } catch (e) {}
-        var mode = (stored === "light" || stored === "dark") ? stored
+        var mode = training ? "light"
+          : (stored === "light" || stored === "dark") ? stored
           : ((window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) ? "light" : "dark");
         var background = mode === "light" ? "#F4F7FB" : "#0A1628";
         var header = mode === "light" ? "#15558F" : "#0A1628";

@@ -2618,6 +2618,76 @@ stub's courses: `courses-my-training`, `course-page`, `chapter-screen`,
 its own `size`). The stub's `passed` opens a chapter on its signature.
 The time off rows the shots draw carry the API's inside-notice line.
 
+## Ask Help on a lesson's screen (part 422, section 1)
+
+ocsa-api Round 24 (part 421, isouadda/ocsa-api#173) answers `askHelp: true`
+on every screen of a signed-in `GET /api/training/lesson-versions/:id`
+and takes `lesson { versionId, screenKey }` on `POST /api/agent/message`
+and `/message/stream`. A player screen whose read says so shows **Ask
+Help** with Next at the thumb, on a line of its own above Next's row; it
+opens Help as a sheet over the lesson (`LessonHelpSheet`, the app's own
+Help screen in its lesson mode) with the chapter's name, **Screen n of m**
+and its first line, the voice paused. Every message from the sheet
+carries the screen it was opened on, in the lesson's language as
+`locale`; closing it returns to the same screen at the same place, the
+voice not started again. It never shows on a check, a wrong answer, the
+screens watched again after one, the signature, a quiz, a watched
+checklist, `/setup` or a screen whose read lacks `askHelp`; a 400
+`agent.lessonNoHelpHere` closes the sheet and hides the button on that
+screen with nothing said. Watching again keeps it.
+
+The stub answers `askHelp` on every screen of a signed-in read (none on
+the setup page), reads the lesson body on Help's two routes and answers
+in the lesson's language (`HELP_ANSWERS.lesson`); `noAskHelp` answers
+`askHelp` false on the screens named and `helpRefuse` turns away the
+screens named. Five journeys, in English and Spanish, each failing on the
+main of part 418: `askhelpscreen`, `askhelpnever`, `askhelpsheet`,
+`askhelprefused` and `askhelpreview`. The inventory lists the sheet,
+`LessonHelpSheet#0`.
+
+## Ask a person (part 422, section 2)
+
+Under every Help answer in the lesson sheet, **Still stuck? Ask a person**
+opens a card with the person's last message, theirs to change, and
+**Send**: `POST /api/training/lesson-questions { versionId, screenKey,
+text, conversationId, clientId }`, the clientId made once per send and
+sent again unchanged on every retry. 201 (or 200 for a repeat) reads
+**Sent. The office will answer you in Chat.** with **Open Chat** in the
+staff app; 409 `training.noOneToAsk` reads the API's words with the way to
+the office (Chat in the staff app, App support's email on the training
+site). With no signal the question waits under `ocsa-staff-lesson-questions`
+(the tab's own storage on the training site, dropped at sign-out) and goes
+from the root when the signal is back, as building requests do.
+
+The stub answers the route as `helpers/lessonQuestions.js` does (`asks`,
+`askSent` by clientId, `noOneToAsk`, and `askDrop`, a send taken and then
+lost on the way back). Five journeys, in English and Spanish, each failing
+on the main of part 418: `askperson`, `askpersonrepeat`, `askpersonnone`,
+`askpersonoffline` and `askhelptraining` (the training site at 1280 by
+900).
+
+## The training site always light (part 422, section 3)
+
+On the training site `firstTheme()` answers light, the account's `theme`
+is never applied, nothing writes `ocsa-staff-theme` or sends a theme, the
+sign-in card has no theme switch, and the script at the top of
+`public/index.html` paints the first frame light by the same test as
+`readTrainingSite` (a `training.` host name, `site=training`, or the tab's
+`ocsa-site`). One journey, in English and Spanish, failing on the main of
+part 418: `trainingsitelight`, on a computer set to dark with the theme
+stored dark, reads the first frame with the app's own script kept from
+loading (by `?site=training`, by a `training.localhost` host name and by
+the tab's `ocsa-site`), then the sign-in screen, My Training, a course,
+the player and the Help sheet at 1280 by 900 and 390 by 844, all light,
+and the staff app on the same computer, still dark.
+
+## Pictures for this round's guide entries (part 422, section 4)
+
+`audit/shots.js` takes `lesson-help-answer` (the sheet with an answer) and
+`lesson-ask-person` (the card filled with the question) for **Ask Help
+during a lesson**, and takes `chapter-screen`, `training-site` and
+`appearance` again for the entries this round changed.
+
 ## Known failures
 
 `audit/known.json` holds what the app gets wrong today. Each entry names
